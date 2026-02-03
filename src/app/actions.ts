@@ -1,21 +1,39 @@
 "use server"; // <--- Самая важная строчка! Она говорит: "Этот код выполняется ТОЛЬКО на сервере"
 
+import {
+  createItemSchema,
+  deleteItemSchema,
+  toggleItemSchema,
+} from "@/lib/validations"; // <--- Импорт схемы
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
 // Действие для добавления товара
 export async function addItem(formData: FormData) {
-  // 1. Получаем данные из формы
-  const name = formData.get("itemName") as string;
-  const listId = formData.get("listId") as string;
+  // 1. Собираем объект из FormData
+  // Zod удобнее работать с обычным объектом, а не с FormData
+  const rawData = {
+    itemName: formData.get("itemName"),
+    listId: formData.get("listId"),
+  };
 
-  if (!name || !listId) return; // Простая проверка
+  // 2. Проверяем данные через Zod (safeParse)
+  // safeParse не ломает программу ошибкой, а возвращает отчет (успех/неуспех)
+  const result = createItemSchema.safeParse(rawData);
 
-  // 2. Пишем в базу (Prisma)
+  // 3. Если проверка не прошла — выходим
+  if (!result.success) {
+    // Если данные невалидны, можно обработать ошибку или просто выйти
+    console.error("Ошибка валидации:", result.error);
+    return; // В будущем мы будем возвращать ошибку пользователю
+  }
+
+  // 4. Если всё ок — берем ЧИСТЫЕ данные из result.data
+  // TypeScript теперь точно знает, что itemName — это string, а не null
   await prisma.item.create({
     data: {
-      name: name,
-      listId: listId, // Привязываем к конкретному списку
+      name: result.data.itemName,
+      listId: result.data.listId, // Привязываем к конкретному списку
     },
   });
 
@@ -26,14 +44,17 @@ export async function addItem(formData: FormData) {
 
 // Действие для удаления товара
 export async function deleteItem(formData: FormData) {
-  const itemId = formData.get("itemId") as string;
+  const data = { itemId: formData.get("itemId") };
 
-  if (!itemId) return;
+  const result = deleteItemSchema.safeParse(data);
+
+  if (!result.success) {
+    console.error("Validation Error:", result.error);
+    return;
+  }
 
   await prisma.item.delete({
-    where: {
-      id: itemId,
-    },
+    where: { id: result.data.itemId },
   });
 
   revalidatePath("/");
@@ -41,16 +62,24 @@ export async function deleteItem(formData: FormData) {
 
 // Действие для переключения статуса товара
 export async function toggleItem(formData: FormData) {
-  const itemId = formData.get("itemId") as string;
-  const isCompleted = formData.get("isCompleted") === "true"; // Читаем текущий статус
+  // Нюанс: formData всегда возвращает строки.
+  // Нам нужно превратить строку "true" в настоящий boolean true.
+  const data = {
+    itemId: formData.get("itemId"),
+    isCompleted: formData.get("isCompleted") === "true",
+  };
 
-  if (!itemId) return;
+  const result = toggleItemSchema.safeParse(data);
+
+  if (!result.success) {
+    console.error("Validation Error:", result.error);
+    return;
+  }
 
   await prisma.item.update({
-    where: { id: itemId },
+    where: { id: result.data.itemId },
     data: {
-      // Меняем на противоположный (!true = false)
-      isCompleted: !isCompleted,
+      isCompleted: !result.data.isCompleted, // Инвертируем чистое значение
     },
   });
 
