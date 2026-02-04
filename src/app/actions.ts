@@ -4,9 +4,11 @@ import {
   createItemSchema,
   deleteItemSchema,
   toggleItemSchema,
+  createListSchema,
 } from "@/lib/validations"; // <--- Импорт схемы
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { auth } from "@/auth";
 
 // Действие для добавления товара
 export async function addItem(formData: FormData) {
@@ -80,6 +82,38 @@ export async function toggleItem(formData: FormData) {
     where: { id: result.data.itemId },
     data: {
       isCompleted: !result.data.isCompleted, // Инвертируем чистое значение
+    },
+  });
+
+  revalidatePath("/");
+}
+
+// Действие для создания списка
+export async function createList(formData: FormData) {
+  // 1. Проверяем авторизацию НА СЕРВЕРЕ
+  const session = await auth();
+  if (!session || !session.user || !session.user.id) {
+    // Если юзер не залогинен — ничего не делаем (или можно бросить ошибку)
+    return;
+  }
+
+  // 2. Валидация данных
+  const rawData = {
+    title: formData.get("title"),
+  };
+
+  const result = createListSchema.safeParse(rawData);
+
+  if (!result.success) {
+    return;
+  }
+
+  // 3. Создаем список
+  // Обрати внимание: ownerId мы берем из session.user.id, а не из формы!
+  await prisma.shoppingList.create({
+    data: {
+      title: result.data.title,
+      ownerId: session.user.id,
     },
   });
 

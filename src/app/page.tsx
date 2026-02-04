@@ -1,31 +1,120 @@
 import prisma from "@/lib/db";
-import { addItem, deleteItem, toggleItem } from "./actions"; // <--- Импортируем нашу функцию
+import { auth, signIn, signOut } from "@/auth"; // <--- Импортируем магию Auth.js
+import { addItem, deleteItem, toggleItem, createList } from "./actions";
 
 export default async function Home() {
-  // Получаем списки вместе с товарами (items)
+  // 1. Проверяем сессию (кто зашел?)
+  const session = await auth();
+
+  // --- СЦЕНАРИЙ 1: ГОСТЬ (Не залогинен) ---
+  if (!session || !session.user) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center p-24">
+        <h1 className="text-4xl font-bold mb-8">Smart Shopping List 🛒</h1>
+        <p className="text-gray-500 mb-8">
+          Войдите, чтобы сохранять свои списки
+        </p>
+
+        {/* Кнопка Входа (Server Action внутри формы) */}
+        <form
+          action={async () => {
+            "use server"; // Говорим Next.js, что это серверный код
+            await signIn("google"); // Перенаправляем на Google
+          }}
+        >
+          <button className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition shadow-lg flex items-center gap-2">
+            {/* Иконка Google (SVG) для красоты */}
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                fill="#FFFFFF"
+              />
+              <path
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                fill="#FFFFFF"
+              />
+              <path
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                fill="#FFFFFF"
+              />
+              <path
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                fill="#FFFFFF"
+              />
+            </svg>
+            Войти через Google
+          </button>
+        </form>
+      </main>
+    );
+  }
+
+  // --- СЦЕНАРИЙ 2: ПОЛЬЗОВАТЕЛЬ (Залогинен) ---
+
+  // 2. Загружаем списки ТОЛЬКО ЭТОГО пользователя
   const allLists = await prisma.shoppingList.findMany({
+    where: {
+      ownerId: session.user.id, // <--- ФИЛЬТР! (Важнейшая строчка)
+    },
     include: {
-      owner: true,
-      items: true, // <--- Важно! Теперь мы просим базу вернуть и товары тоже
+      items: true,
     },
   });
 
   return (
     <main className="p-10 max-w-xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8">Мои списки</h1>
+      {/* Шапка с профилем */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-2xl font-bold">
+            Привет, {session.user.name}! 👋
+          </h1>
+          <p className="text-gray-500 text-sm">{session.user.email}</p>
+        </div>
 
+        {/* Кнопка Выхода */}
+        <form
+          action={async () => {
+            "use server";
+            await signOut();
+          }}
+        >
+          <button className="text-sm text-red-500 hover:underline">
+            Выйти
+          </button>
+        </form>
+      </div>
+
+      {/* --- ФОРМА СОЗДАНИЯ НОВОГО СПИСКА --- */}
+      <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-blue-100">
+        <h3 className="text-lg font-semibold mb-3">Создать новый список 📝</h3>
+        <form action={createList} className="flex gap-3">
+          <input
+            name="title"
+            placeholder="Например: Продукты на неделю..."
+            className="flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
+            required
+          />
+          <button
+            type="submit"
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition"
+          >
+            Создать
+          </button>
+        </form>
+      </div>
+
+      {/* --- Тут всё по-старому: Вывод списков --- */}
       <div className="space-y-6">
         {allLists.map((list) => (
           <div
             key={list.id}
             className="border p-6 rounded-xl shadow-sm bg-white"
           >
-            {/* Заголовок списка */}
             <h2 className="text-xl font-bold mb-4 border-b pb-2">
               {list.title}
             </h2>
 
-            {/* Список товаров */}
             <ul className="mb-4 space-y-2">
               {list.items.map((item) => (
                 <li
@@ -33,34 +122,26 @@ export default async function Home() {
                   className="flex items-center justify-between bg-gray-50 p-2 rounded"
                 >
                   <div className="flex items-center gap-2">
-                    {/* ФОРМА ПЕРЕКЛЮЧЕНИЯ (TOGGLE) */}
                     <form action={toggleItem}>
                       <input type="hidden" name="itemId" value={item.id} />
-                      {/* Передаем текущий статус, чтобы сервер знал, что инвертировать */}
                       <input
                         type="hidden"
                         name="isCompleted"
                         value={item.isCompleted.toString()}
                       />
-
                       <button
                         type="submit"
-                        className={`w-6 h-6 border-2 rounded-md flex items-center justify-center transition-all duration-200 shadow-sm hover:shadow-md hover:scale-105 ${
+                        className={`w-5 h-5 border rounded flex items-center justify-center transition-colors ${
                           item.isCompleted
-                            ? "bg-gradient-to-br from-sky-300 to-blue-400 border-sky-400 shadow-sky-200"
-                            : "bg-white border-gray-300 hover:border-sky-300"
+                            ? "bg-blue-500 border-blue-500"
+                            : "bg-white border-gray-300"
                         }`}
                       >
-                        {/* Если куплено — показываем галочку */}
                         {item.isCompleted && (
-                          <span className="text-white text-sm font-bold">
-                            ✔
-                          </span>
+                          <span className="text-white text-xs">✔</span>
                         )}
                       </button>
                     </form>
-
-                    {/* Название товара (зачеркиваем, если куплено) */}
                     <span
                       className={
                         item.isCompleted ? "line-through text-gray-400" : ""
@@ -69,8 +150,6 @@ export default async function Home() {
                       {item.name}
                     </span>
                   </div>
-
-                  {/* ФОРМА УДАЛЕНИЯ */}
                   <form action={deleteItem}>
                     <input type="hidden" name="itemId" value={item.id} />
                     <button
@@ -83,18 +162,14 @@ export default async function Home() {
                 </li>
               ))}
               {list.items.length === 0 && (
-                <li className="text-gray-400 text-sm text-center py-2">
+                <li className="text-gray-400 text-sm text-center">
                   Список пуст
                 </li>
               )}
             </ul>
 
-            {/* ФОРМА ДОБАВЛЕНИЯ */}
-            {/* action={addItem} — вызываем серверную функцию напрямую! */}
             <form action={addItem} className="flex gap-2">
-              {/* Скрытое поле, чтобы передать ID списка */}
               <input type="hidden" name="listId" value={list.id} />
-
               <input
                 name="itemName"
                 placeholder="Что купить?"
@@ -110,6 +185,15 @@ export default async function Home() {
             </form>
           </div>
         ))}
+
+        {allLists.length === 0 && (
+          <div className="text-center py-10 border-2 border-dashed rounded-xl">
+            <p className="text-gray-500">У вас пока нет списков.</p>
+            <p className="text-sm text-gray-400">
+              {/* TODO:Мы добавим кнопку создания списка на следующем шаге. */}
+            </p>
+          </div>
+        )}
       </div>
     </main>
   );

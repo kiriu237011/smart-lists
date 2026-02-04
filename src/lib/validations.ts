@@ -24,3 +24,11 @@ export const toggleItemSchema = z.object({
   itemId: z.string(),
   isCompleted: z.boolean(), // Мы будем преобразовывать строку в булево значение перед проверкой
 });
+
+// Схема для создания списка
+export const createListSchema = z.object({
+  title: z
+    .string()
+    .min(1, "Название обязательно")
+    .max(50, "Слишком длинное название"),
+});
