@@ -7,6 +7,7 @@ import {
   createList,
   shareList,
 } from "./actions";
+import ShoppingList from "@/app/components/ShoppingList";
 
 export default async function Home() {
   // 1. Проверяем сессию (кто зашел?)
@@ -66,7 +67,11 @@ export default async function Home() {
       ],
     },
     include: {
-      items: true,
+      items: {
+        orderBy: {
+          createdAt: "asc", // Сортировка по дате добавления (от старых к новым)
+        },
+      },
       owner: true, // <--- Добавим это, чтобы видеть, кто создал список (если это не я)
       sharedWith: true, // <--- И это, чтобы видеть, кто уже имеет доступ
     },
@@ -126,58 +131,7 @@ export default async function Home() {
               {list.title}
             </h2>
 
-            <ul className="mb-4 space-y-2">
-              {list.items.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center justify-between bg-gray-50 p-2 rounded"
-                >
-                  <div className="flex items-center gap-2">
-                    <form action={toggleItem}>
-                      <input type="hidden" name="itemId" value={item.id} />
-                      <input
-                        type="hidden"
-                        name="isCompleted"
-                        value={item.isCompleted.toString()}
-                      />
-                      <button
-                        type="submit"
-                        className={`w-5 h-5 border rounded flex items-center justify-center transition-colors ${
-                          item.isCompleted
-                            ? "bg-blue-500 border-blue-500"
-                            : "bg-white border-gray-300"
-                        }`}
-                      >
-                        {item.isCompleted && (
-                          <span className="text-white text-xs">✔</span>
-                        )}
-                      </button>
-                    </form>
-                    <span
-                      className={
-                        item.isCompleted ? "line-through text-gray-400" : ""
-                      }
-                    >
-                      {item.name}
-                    </span>
-                  </div>
-                  <form action={deleteItem}>
-                    <input type="hidden" name="itemId" value={item.id} />
-                    <button
-                      type="submit"
-                      className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
-                    >
-                      ✕
-                    </button>
-                  </form>
-                </li>
-              ))}
-              {list.items.length === 0 && (
-                <li className="text-gray-400 text-sm text-center">
-                  Список пуст
-                </li>
-              )}
-            </ul>
+            <ShoppingList items={list.items} listId={list.id} />
 
             <form action={addItem} className="flex gap-2">
               <input type="hidden" name="listId" value={list.id} />
