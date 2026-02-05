@@ -32,3 +32,9 @@ export const createListSchema = z.object({
     .min(1, "Название обязательно")
     .max(50, "Слишком длинное название"),
 });
+
+// Схема для совместного доступа к списку
+export const shareListSchema = z.object({
+  listId: z.string(),
+  email: z.string().email("Введите корректный email"),
+});

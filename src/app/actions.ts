@@ -5,6 +5,7 @@ import {
   deleteItemSchema,
   toggleItemSchema,
   createListSchema,
+  shareListSchema,
 } from "@/lib/validations"; // <--- Импорт схемы
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
@@ -114,6 +115,46 @@ export async function createList(formData: FormData) {
     data: {
       title: result.data.title,
       ownerId: session.user.id,
+    },
+  });
+
+  revalidatePath("/");
+}
+
+// Действие для предоставления совместного доступа к списку
+export async function shareList(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) return;
+
+  const rawData = {
+    listId: formData.get("listId"),
+    email: formData.get("email"),
+  };
+
+  const result = shareListSchema.safeParse(rawData);
+  if (!result.success) return;
+
+  // 1. Сначала ищем пользователя, которого хотим пригласить
+  const userToShare = await prisma.user.findUnique({
+    where: { email: result.data.email },
+  });
+
+  if (!userToShare) {
+    console.error("Пользователь с таким email не найден");
+    // В идеале тут надо вернуть ошибку на клиент, но пока просто выйдем
+    return;
+  }
+
+  // 2. Обновляем список
+  await prisma.shoppingList.update({
+    where: {
+      id: result.data.listId,
+      ownerId: session.user.id, // ВАЖНО: Только владелец может приглашать!
+    },
+    data: {
+      sharedWith: {
+        connect: { id: userToShare.id }, // <--- Магия Prisma: "Свяжи с этим ID"
+      },
     },
   });
 

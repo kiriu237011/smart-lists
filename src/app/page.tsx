@@ -1,6 +1,12 @@
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth"; // <--- Импортируем магию Auth.js
-import { addItem, deleteItem, toggleItem, createList } from "./actions";
+import {
+  addItem,
+  deleteItem,
+  toggleItem,
+  createList,
+  shareList,
+} from "./actions";
 
 export default async function Home() {
   // 1. Проверяем сессию (кто зашел?)
@@ -54,10 +60,15 @@ export default async function Home() {
   // 2. Загружаем списки ТОЛЬКО ЭТОГО пользователя
   const allLists = await prisma.shoppingList.findMany({
     where: {
-      ownerId: session.user.id, // <--- ФИЛЬТР! (Важнейшая строчка)
+      OR: [
+        { ownerId: session.user.id }, // Я владелец
+        { sharedWith: { some: { id: session.user.id } } }, // ИЛИ я есть среди "sharedWith"
+      ],
     },
     include: {
       items: true,
+      owner: true, // <--- Добавим это, чтобы видеть, кто создал список (если это не я)
+      sharedWith: true, // <--- И это, чтобы видеть, кто уже имеет доступ
     },
   });
 
@@ -183,6 +194,55 @@ export default async function Home() {
                 +
               </button>
             </form>
+            {/* ... выше код добавления товаров ... */}
+
+            {/* --- БЛОК SHARE (Только для владельца) --- */}
+            {list.ownerId === session?.user?.id && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase">
+                  Поделиться списком:
+                </h4>
+
+                {/* Список тех, кто уже имеет доступ */}
+                {list.sharedWith.length > 0 && (
+                  <div className="flex gap-1 mb-2 flex-wrap">
+                    {list.sharedWith.map((user) => (
+                      <span
+                        key={user.id}
+                        className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
+                      >
+                        {user.name || user.email}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Форма приглашения */}
+                <form action={shareList} className="flex gap-2 mt-3">
+                  <input type="hidden" name="listId" value={list.id} />
+                  <input
+                    name="email"
+                    type="email"
+                    placeholder="Email друга..."
+                    className="border p-1 rounded text-xs flex-1"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
+                  >
+                    Пригласить
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* Если я ГОСТЬ — показываем, кто владелец */}
+            {list.ownerId !== session?.user?.id && (
+              <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-400">
+                Владелец: {list.owner.name || list.owner.email}
+              </div>
+            )}
           </div>
         ))}
 
