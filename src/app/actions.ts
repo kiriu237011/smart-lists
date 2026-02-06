@@ -13,36 +13,42 @@ import { auth } from "@/auth";
 
 // Действие для добавления товара
 export async function addItem(formData: FormData) {
-  // 1. Собираем объект из FormData
-  // Zod удобнее работать с обычным объектом, а не с FormData
-  const rawData = {
-    itemName: formData.get("itemName"),
-    listId: formData.get("listId"),
-  };
+  try {
+    // 1. Собираем объект из FormData
+    // Zod удобнее работать с обычным объектом, а не с FormData
+    const rawData = {
+      itemName: formData.get("itemName"),
+      listId: formData.get("listId"),
+    };
 
-  // 2. Проверяем данные через Zod (safeParse)
-  // safeParse не ломает программу ошибкой, а возвращает отчет (успех/неуспех)
-  const result = createItemSchema.safeParse(rawData);
+    // 2. Проверяем данные через Zod (safeParse)
+    // safeParse не ломает программу ошибкой, а возвращает отчет (успех/неуспех)
+    const result = createItemSchema.safeParse(rawData);
 
-  // 3. Если проверка не прошла — выходим
-  if (!result.success) {
-    // Если данные невалидны, можно обработать ошибку или просто выйти
-    console.error("Ошибка валидации:", result.error);
-    return; // В будущем мы будем возвращать ошибку пользователю
+    // 3. Если проверка не прошла — выходим
+    if (!result.success) {
+      // Если данные невалидны, можно обработать ошибку или просто выйти
+      console.error("Ошибка валидации:", result.error);
+      return { success: false, error: "Некорректные данные" };
+    }
+
+    // 4. Если всё ок — берем ЧИСТЫЕ данные из result.data
+    // TypeScript теперь точно знает, что itemName — это string, а не null
+    await prisma.item.create({
+      data: {
+        name: result.data.itemName,
+        listId: result.data.listId, // Привязываем к конкретному списку
+      },
+    });
+
+    // 3. Обновляем страницу
+    // Эта команда говорит Next.js: "Данные изменились, перерисуй главную страницу"
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при добавлении товара:", error);
+    return { success: false, error: "Не удалось добавить товар" };
   }
-
-  // 4. Если всё ок — берем ЧИСТЫЕ данные из result.data
-  // TypeScript теперь точно знает, что itemName — это string, а не null
-  await prisma.item.create({
-    data: {
-      name: result.data.itemName,
-      listId: result.data.listId, // Привязываем к конкретному списку
-    },
-  });
-
-  // 3. Обновляем страницу
-  // Эта команда говорит Next.js: "Данные изменились, перерисуй главную страницу"
-  revalidatePath("/");
 }
 
 // Действие для удаления товара

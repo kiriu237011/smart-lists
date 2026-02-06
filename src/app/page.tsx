@@ -1,12 +1,6 @@
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth"; // <--- Импортируем магию Auth.js
-import {
-  addItem,
-  deleteItem,
-  toggleItem,
-  createList,
-  shareList,
-} from "./actions";
+import { createList, shareList } from "./actions";
 import ShoppingList from "@/app/components/ShoppingList";
 
 export default async function Home() {
@@ -132,22 +126,6 @@ export default async function Home() {
             </h2>
 
             <ShoppingList items={list.items} listId={list.id} />
-
-            <form action={addItem} className="flex gap-2">
-              <input type="hidden" name="listId" value={list.id} />
-              <input
-                name="itemName"
-                placeholder="Что купить?"
-                className="border p-2 rounded w-full text-sm"
-                required
-              />
-              <button
-                type="submit"
-                className="bg-black text-white px-4 py-2 rounded text-sm hover:bg-gray-800"
-              >
-                +
-              </button>
-            </form>
             {/* ... выше код добавления товаров ... */}
 
             {/* --- БЛОК SHARE (Только для владельца) --- */}
