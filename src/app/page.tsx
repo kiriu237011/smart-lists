@@ -10,8 +10,10 @@ export default async function Home() {
   // --- СЦЕНАРИЙ 1: ГОСТЬ (Не залогинен) ---
   if (!session || !session.user) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-24">
-        <h1 className="text-4xl font-bold mb-8">Smart Shopping List 🛒</h1>
+      <main className="flex min-h-screen flex-col items-center justify-center p-6 sm:p-24">
+        <h1 className="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8">
+          Smart Shopping List 🛒
+        </h1>
         <p className="text-gray-500 mb-8">
           Войдите, чтобы сохранять свои списки
         </p>
@@ -72,7 +74,7 @@ export default async function Home() {
   });
 
   return (
-    <main className="p-10 max-w-xl mx-auto">
+    <main className="p-4 sm:p-10 max-w-xl mx-auto">
       {/* Шапка с профилем */}
       <div className="flex justify-between items-center mb-8">
         <div>
@@ -98,16 +100,16 @@ export default async function Home() {
       {/* --- ФОРМА СОЗДАНИЯ НОВОГО СПИСКА --- */}
       <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-blue-100">
         <h3 className="text-lg font-semibold mb-3">Создать новый список 📝</h3>
-        <form action={createList} className="flex gap-3">
+        <form action={createList} className="flex flex-col gap-3 sm:flex-row">
           <input
             name="title"
             placeholder="Например: Продукты на неделю..."
-            className="flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
+            className="w-full min-w-0 flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
             required
           />
           <button
             type="submit"
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition"
+            className="w-full shrink-0 bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition sm:w-auto"
           >
             Создать
           </button>
