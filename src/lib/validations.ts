@@ -36,5 +36,5 @@ export const createListSchema = z.object({
 // Схема для совместного доступа к списку
 export const shareListSchema = z.object({
   listId: z.string(),
-  email: z.string().email("Введите корректный email"),
+  email: z.string().trim().pipe(z.email("Введите корректный email")),
 });

@@ -1,7 +1,8 @@
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth"; // <--- Импортируем магию Auth.js
-import { createList, shareList } from "./actions";
+import { createList } from "./actions";
 import ShoppingList from "@/app/components/ShoppingList";
+import ShareListForm from "@/app/components/ShareListForm";
 
 export default async function Home() {
   // 1. Проверяем сессию (кто зашел?)
@@ -132,43 +133,7 @@ export default async function Home() {
 
             {/* --- БЛОК SHARE (Только для владельца) --- */}
             {list.ownerId === session?.user?.id && (
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase">
-                  Поделиться списком:
-                </h4>
-
-                {/* Список тех, кто уже имеет доступ */}
-                {list.sharedWith.length > 0 && (
-                  <div className="flex gap-1 mb-2 flex-wrap">
-                    {list.sharedWith.map((user) => (
-                      <span
-                        key={user.id}
-                        className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
-                      >
-                        {user.name || user.email}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Форма приглашения */}
-                <form action={shareList} className="flex gap-2 mt-3">
-                  <input type="hidden" name="listId" value={list.id} />
-                  <input
-                    name="email"
-                    type="email"
-                    placeholder="Email друга..."
-                    className="border p-1 rounded text-xs flex-1"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
-                  >
-                    Пригласить
-                  </button>
-                </form>
-              </div>
+              <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
             )}
 
             {/* Если я ГОСТЬ — показываем, кто владелец */}

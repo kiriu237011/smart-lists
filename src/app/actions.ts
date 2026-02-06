@@ -129,40 +129,70 @@ export async function createList(formData: FormData) {
 
 // Действие для предоставления совместного доступа к списку
 export async function shareList(formData: FormData) {
-  const session = await auth();
-  if (!session?.user?.id) return;
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
 
-  const rawData = {
-    listId: formData.get("listId"),
-    email: formData.get("email"),
-  };
+    const rawData = {
+      listId: formData.get("listId"),
+      email: formData.get("email"),
+    };
 
-  const result = shareListSchema.safeParse(rawData);
-  if (!result.success) return;
+    const result = shareListSchema.safeParse(rawData);
+    if (!result.success) {
+      return { success: false, error: "Неверные данные" };
+    }
 
-  // 1. Сначала ищем пользователя, которого хотим пригласить
-  const userToShare = await prisma.user.findUnique({
-    where: { email: result.data.email },
-  });
+    // 1. Сначала ищем пользователя, которого хотим пригласить
+    const userToShare = await prisma.user.findUnique({
+      where: { email: result.data.email },
+    });
 
-  if (!userToShare) {
-    console.error("Пользователь с таким email не найден");
-    // В идеале тут надо вернуть ошибку на клиент, но пока просто выйдем
-    return;
-  }
+    if (!userToShare) {
+      return {
+        success: false,
+        error: "Пользователь с таким email не найден",
+      };
+    }
 
-  // 2. Обновляем список
-  await prisma.shoppingList.update({
-    where: {
-      id: result.data.listId,
-      ownerId: session.user.id, // ВАЖНО: Только владелец может приглашать!
-    },
-    data: {
-      sharedWith: {
-        connect: { id: userToShare.id }, // <--- Магия Prisma: "Свяжи с этим ID"
+    if (userToShare.id === session.user.id) {
+      return {
+        success: false,
+        error: "Нельзя поделиться списком с самим собой",
+      };
+    }
+
+    // 2. Обновляем список
+    await prisma.shoppingList.update({
+      where: {
+        id: result.data.listId,
+        ownerId: session.user.id, // ВАЖНО: Только владелец может приглашать!
       },
-    },
-  });
+      data: {
+        sharedWith: {
+          connect: { id: userToShare.id }, // <--- Магия Prisma: "Свяжи с этим ID"
+        },
+      },
+    });
 
-  revalidatePath("/");
+    revalidatePath("/");
+
+    return {
+      success: true,
+      user: {
+        id: userToShare.id,
+        name: userToShare.name,
+        email: userToShare.email,
+      },
+    };
+  } catch (error) {
+    console.error("Ошибка при предоставлении доступа:", error);
+    return {
+      success: false,
+      error: "Не удалось предоставить доступ",
+    };
+  }
 }
+
