@@ -1,6 +1,5 @@
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth"; // <--- Импортируем магию Auth.js
-import CreateListForm from "@/app/components/CreateListForm";
 import ListsContainer from "@/app/components/ListsContainer";
 
 export default async function Home() {
@@ -97,14 +96,13 @@ export default async function Home() {
         </form>
       </div>
 
-      {/* --- ФОРМА СОЗДАНИЯ НОВОГО СПИСКА --- */}
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-blue-100">
-        <h3 className="text-lg font-semibold mb-3">Создать новый список 📝</h3>
-        <CreateListForm />
-      </div>
-
       {/* --- Тут всё по-старому: Вывод списков --- */}
-      <ListsContainer allLists={allLists} currentUserId={session.user.id} />
+      <ListsContainer
+        allLists={allLists}
+        currentUserId={session.user.id}
+        currentUserName={session.user.name ?? null}
+        currentUserEmail={session.user.email ?? ""}
+      />
     </main>
   );
 }

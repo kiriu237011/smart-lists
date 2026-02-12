@@ -98,34 +98,61 @@ export async function toggleItem(formData: FormData) {
 
 // Действие для создания списка
 export async function createList(formData: FormData) {
-  // 1. Проверяем авторизацию НА СЕРВЕРЕ
-  const session = await auth();
-  if (!session || !session.user || !session.user.id) {
-    // Если юзер не залогинен — ничего не делаем (или можно бросить ошибку)
-    return;
+  try {
+    // 1. Проверяем авторизацию НА СЕРВЕРЕ
+    const session = await auth();
+    if (!session || !session.user || !session.user.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    // 2. Валидация данных
+    const rawData = {
+      title: formData.get("title"),
+    };
+
+    const result = createListSchema.safeParse(rawData);
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error.issues[0]?.message || "Неверные данные",
+      };
+    }
+
+    // 3. Создаем список
+    // Обрати внимание: ownerId мы берем из session.user.id, а не из формы!
+    const newList = await prisma.shoppingList.create({
+      data: {
+        title: result.data.title,
+        ownerId: session.user.id,
+      },
+      include: {
+        owner: true,
+        items: true,
+        sharedWith: true,
+      },
+    });
+
+    revalidatePath("/");
+
+    return {
+      success: true,
+      list: {
+        id: newList.id,
+        title: newList.title,
+        ownerId: newList.ownerId,
+        owner: {
+          name: newList.owner.name,
+          email: newList.owner.email,
+        },
+        items: newList.items,
+        sharedWith: newList.sharedWith,
+      },
+    };
+  } catch (error) {
+    console.error("Ошибка при создании списка:", error);
+    return { success: false, error: "Не удалось создать список" };
   }
-
-  // 2. Валидация данных
-  const rawData = {
-    title: formData.get("title"),
-  };
-
-  const result = createListSchema.safeParse(rawData);
-
-  if (!result.success) {
-    return;
-  }
-
-  // 3. Создаем список
-  // Обрати внимание: ownerId мы берем из session.user.id, а не из формы!
-  await prisma.shoppingList.create({
-    data: {
-      title: result.data.title,
-      ownerId: session.user.id,
-    },
-  });
-
-  revalidatePath("/");
 }
 
 // Действие для удаления списка

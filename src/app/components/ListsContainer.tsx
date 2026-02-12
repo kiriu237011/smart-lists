@@ -7,9 +7,10 @@ import {
   useOptimistic,
   useState,
 } from "react";
-import { deleteList } from "@/app/actions";
+import { createList, deleteList } from "@/app/actions";
 import ShoppingList from "@/app/components/ShoppingList";
 import ShareListForm from "@/app/components/ShareListForm";
+import CreateListForm from "@/app/components/CreateListForm";
 
 type SharedUser = {
   id: string;
@@ -40,13 +41,19 @@ type ShoppingListData = {
 type ListsContainerProps = {
   allLists: ShoppingListData[];
   currentUserId: string;
+  currentUserName: string | null;
+  currentUserEmail: string;
 };
 
 export default function ListsContainer({
   allLists,
   currentUserId,
+  currentUserName,
+  currentUserEmail,
 }: ListsContainerProps) {
-  const [listToDelete, setListToDelete] = useState<ShoppingListData | null>(null);
+  const [listToDelete, setListToDelete] = useState<ShoppingListData | null>(
+    null,
+  );
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [optimisticLists, setOptimisticLists] = useOptimistic(
@@ -57,18 +64,32 @@ export default function ListsContainer({
         action,
         listId,
         list,
-      }: { action: "delete" | "restore"; listId: string; list?: ShoppingListData },
+      }: {
+        action: "add" | "delete" | "restore" | "replace";
+        listId?: string;
+        list?: ShoppingListData;
+      },
     ) => {
       switch (action) {
+        case "add":
+          if (!list || state.some((item) => item.id === list.id)) {
+            return state;
+          }
+          return [list, ...state];
         case "delete":
+          if (!listId) {
+            return state;
+          }
           return state.filter((item) => item.id !== listId);
         case "restore":
-          if (!list || state.some((item) => item.id === list.id)) {
+          if (!list || !listId || state.some((item) => item.id === list.id)) {
             return state;
           }
 
           // Возвращаем список на исходную позицию, если удаление не удалось
-          const originalIndex = allLists.findIndex((item) => item.id === listId);
+          const originalIndex = allLists.findIndex(
+            (item) => item.id === listId,
+          );
           if (originalIndex < 0) {
             return [...state, list];
           }
@@ -76,10 +97,68 @@ export default function ListsContainer({
           const nextState = [...state];
           nextState.splice(originalIndex, 0, list);
           return nextState;
+        case "replace":
+          if (!list || !listId) {
+            return state;
+          }
+
+          return state.map((item) => (item.id === listId ? list : item));
         default:
           return state;
       }
     },
+  );
+
+  const handleCreateList = useCallback(
+    async (title: string) => {
+      const tempListId = `temp-${crypto.randomUUID()}`;
+      const optimisticList: ShoppingListData = {
+        id: tempListId,
+        title,
+        ownerId: currentUserId,
+        owner: {
+          name: currentUserName,
+          email: currentUserEmail,
+        },
+        items: [],
+        sharedWith: [],
+      };
+
+      startTransition(() => {
+        setOptimisticLists({ action: "add", list: optimisticList });
+      });
+
+      const formData = new FormData();
+      formData.append("title", title);
+      const result = await createList(formData);
+
+      if (!result || !result.success) {
+        startTransition(() => {
+          setOptimisticLists({ action: "delete", listId: tempListId });
+        });
+        alert(result?.error || "Не удалось создать список");
+        return { success: false };
+      }
+
+      if (!result.list) {
+        startTransition(() => {
+          setOptimisticLists({ action: "delete", listId: tempListId });
+        });
+        alert("Список создан, но возникла ошибка при загрузке данных");
+        return { success: false };
+      }
+
+      startTransition(() => {
+        setOptimisticLists({
+          action: "replace",
+          listId: tempListId,
+          list: result.list,
+        });
+      });
+
+      return { success: true };
+    },
+    [currentUserEmail, currentUserId, currentUserName, setOptimisticLists],
   );
 
   const handleConfirmDelete = useCallback(async () => {
@@ -139,28 +218,44 @@ export default function ListsContainer({
 
   return (
     <>
+      <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-blue-100">
+        <h3 className="text-lg font-semibold mb-3">Создать новый список 📝</h3>
+        <CreateListForm onCreateList={handleCreateList} />
+      </div>
+
       <div className="space-y-6">
         {optimisticLists.map((list) => (
-          <div key={list.id} className="border p-6 rounded-xl shadow-sm bg-white">
+          <div
+            key={list.id}
+            className="border p-6 rounded-xl shadow-sm bg-white"
+          >
+            {list.id.startsWith("temp-") && (
+              <div className="mb-3 text-xs text-blue-600 font-medium">
+                Создаём список...
+              </div>
+            )}
             <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
               <h2 className="text-xl font-bold">{list.title}</h2>
 
-              {list.ownerId === currentUserId && (
-                <button
-                  type="button"
-                  aria-label={`Удалить список ${list.title}`}
-                  disabled={isDeleting}
-                  onClick={() => setListToDelete(list)}
-                  className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
-                >
-                  ✕
-                </button>
-              )}
+              {list.ownerId === currentUserId &&
+                !list.id.startsWith("temp-") && (
+                  <button
+                    type="button"
+                    aria-label={`Удалить список ${list.title}`}
+                    disabled={isDeleting}
+                    onClick={() => setListToDelete(list)}
+                    className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
+                  >
+                    ✕
+                  </button>
+                )}
             </div>
 
-            <ShoppingList items={list.items} listId={list.id} />
+            {!list.id.startsWith("temp-") && (
+              <ShoppingList items={list.items} listId={list.id} />
+            )}
 
-            {list.ownerId === currentUserId && (
+            {list.ownerId === currentUserId && !list.id.startsWith("temp-") && (
               <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
             )}
 
