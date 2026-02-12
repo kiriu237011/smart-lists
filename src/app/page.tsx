@@ -1,8 +1,8 @@
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth"; // <--- Импортируем магию Auth.js
-import { createList } from "./actions";
 import ShoppingList from "@/app/components/ShoppingList";
 import ShareListForm from "@/app/components/ShareListForm";
+import CreateListForm from "@/app/components/CreateListForm";
 
 export default async function Home() {
   // 1. Проверяем сессию (кто зашел?)
@@ -101,20 +101,7 @@ export default async function Home() {
       {/* --- ФОРМА СОЗДАНИЯ НОВОГО СПИСКА --- */}
       <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-blue-100">
         <h3 className="text-lg font-semibold mb-3">Создать новый список 📝</h3>
-        <form action={createList} className="flex flex-col gap-3 sm:flex-row">
-          <input
-            name="title"
-            placeholder="Например: Продукты на неделю..."
-            className="w-full min-w-0 flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
-            required
-          />
-          <button
-            type="submit"
-            className="w-full shrink-0 bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition sm:w-auto"
-          >
-            Создать
-          </button>
-        </form>
+        <CreateListForm />
       </div>
 
       {/* --- Тут всё по-старому: Вывод списков --- */}
