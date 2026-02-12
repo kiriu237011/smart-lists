@@ -10,7 +10,7 @@ function CreateListSubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="w-full shrink-0 bg-blue-600 text-white px-6 py-2 rounded-lg font-medium transition sm:w-auto disabled:cursor-not-allowed disabled:bg-blue-400 hover:bg-blue-700"
+      className="w-full shrink-0 bg-blue-600 text-white px-6 py-2 rounded-lg font-medium transition sm:w-auto disabled:cursor-not-allowed disabled:bg-blue-700 hover:bg-blue-700"
     >
       {pending ? (
         <span className="inline-flex items-center gap-2">

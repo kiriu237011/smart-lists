@@ -5,6 +5,7 @@ import {
   deleteItemSchema,
   toggleItemSchema,
   createListSchema,
+  deleteListSchema,
   shareListSchema,
 } from "@/lib/validations"; // <--- Импорт схемы
 import prisma from "@/lib/db";
@@ -125,6 +126,46 @@ export async function createList(formData: FormData) {
   });
 
   revalidatePath("/");
+}
+
+// Действие для удаления списка
+export async function deleteList(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = {
+      listId: formData.get("listId"),
+    };
+
+    const result = deleteListSchema.safeParse(rawData);
+    if (!result.success) {
+      return { success: false, error: "Неверные данные" };
+    }
+
+    // Только владелец списка может удалить его целиком
+    const deleted = await prisma.shoppingList.deleteMany({
+      where: {
+        id: result.data.listId,
+        ownerId: session.user.id,
+      },
+    });
+
+    if (deleted.count === 0) {
+      return {
+        success: false,
+        error: "Только владелец может удалить список",
+      };
+    }
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при удалении списка:", error);
+    return { success: false, error: "Не удалось удалить список" };
+  }
 }
 
 // Действие для предоставления совместного доступа к списку

@@ -1,15 +1,14 @@
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth"; // <--- Импортируем магию Auth.js
-import ShoppingList from "@/app/components/ShoppingList";
-import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
+import ListsContainer from "@/app/components/ListsContainer";
 
 export default async function Home() {
   // 1. Проверяем сессию (кто зашел?)
   const session = await auth();
 
   // --- СЦЕНАРИЙ 1: ГОСТЬ (Не залогинен) ---
-  if (!session || !session.user) {
+  if (!session || !session.user || !session.user.id) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-6 sm:p-24">
         <h1 className="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8">
@@ -105,42 +104,7 @@ export default async function Home() {
       </div>
 
       {/* --- Тут всё по-старому: Вывод списков --- */}
-      <div className="space-y-6">
-        {allLists.map((list) => (
-          <div
-            key={list.id}
-            className="border p-6 rounded-xl shadow-sm bg-white"
-          >
-            <h2 className="text-xl font-bold mb-4 border-b pb-2">
-              {list.title}
-            </h2>
-
-            <ShoppingList items={list.items} listId={list.id} />
-            {/* ... выше код добавления товаров ... */}
-
-            {/* --- БЛОК SHARE (Только для владельца) --- */}
-            {list.ownerId === session?.user?.id && (
-              <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
-            )}
-
-            {/* Если я ГОСТЬ — показываем, кто владелец */}
-            {list.ownerId !== session?.user?.id && (
-              <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-400">
-                Владелец: {list.owner.name || list.owner.email}
-              </div>
-            )}
-          </div>
-        ))}
-
-        {allLists.length === 0 && (
-          <div className="text-center py-10 border-2 border-dashed rounded-xl">
-            <p className="text-gray-500">У вас пока нет списков.</p>
-            <p className="text-sm text-gray-400">
-              {/* TODO:Мы добавим кнопку создания списка на следующем шаге. */}
-            </p>
-          </div>
-        )}
-      </div>
+      <ListsContainer allLists={allLists} currentUserId={session.user.id} />
     </main>
   );
 }

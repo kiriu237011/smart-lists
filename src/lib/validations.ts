@@ -33,6 +33,11 @@ export const createListSchema = z.object({
     .max(50, "Слишком длинное название"),
 });
 
+// Схема для удаления списка
+export const deleteListSchema = z.object({
+  listId: z.string(),
+});
+
 // Схема для совместного доступа к списку
 export const shareListSchema = z.object({
   listId: z.string(),
