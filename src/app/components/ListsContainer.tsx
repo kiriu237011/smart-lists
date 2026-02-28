@@ -44,6 +44,7 @@ import toast from "react-hot-toast";
 import ShoppingList from "@/app/components/ShoppingList";
 import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
+import { useTranslations } from "next-intl";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 type SharedUser = {
@@ -102,6 +103,8 @@ export default function ListsContainer({
   currentUserName,
   currentUserEmail,
 }: ListsContainerProps) {
+  const t = useTranslations("ListsContainer");
+
   /**
    * Список, ожидающий подтверждения удаления.
    * `null` означает, что модальное окно закрыто.
@@ -272,7 +275,7 @@ export default function ListsContainer({
         startTransition(() => {
           setOptimisticLists({ action: "delete", listId: tempListId });
         });
-        toast.error(result?.error || "Не удалось создать список");
+        toast.error(result?.error || t("errors.createFailed"));
         return { success: false };
       }
 
@@ -280,7 +283,7 @@ export default function ListsContainer({
         startTransition(() => {
           setOptimisticLists({ action: "delete", listId: tempListId });
         });
-        toast.error("Список создан, но возникла ошибка при загрузке данных");
+        toast.error(t("errors.createLoadFailed"));
         return { success: false };
       }
 
@@ -343,7 +346,7 @@ export default function ListsContainer({
               list,
             });
           });
-          toast.error(result.error || "Не удалось переименовать список");
+          toast.error(result.error || t("errors.renameFailed"));
         }
       } finally {
         processingRenameRef.current = false;
@@ -385,7 +388,7 @@ export default function ListsContainer({
           list,
         });
       });
-      toast.error(result.error || "Не удалось удалить список");
+      toast.error(result.error || t("errors.deleteFailed"));
     }
 
     setIsDeleting(false);
@@ -418,7 +421,7 @@ export default function ListsContainer({
       startTransition(() => {
         setOptimisticLists({ action: "restore", listId: list.id, list });
       });
-      toast.error(result.error || "Не удалось отписаться от списка");
+      toast.error(result.error || t("errors.leaveFailed"));
     }
 
     setIsLeaving(false);
@@ -487,7 +490,7 @@ export default function ListsContainer({
     <>
       {/* Блок создания нового списка */}
       <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-blue-100">
-        <h3 className="text-lg font-semibold mb-3">Создать новый список 📝</h3>
+        <h3 className="text-lg font-semibold mb-3">{t("createTitle")}</h3>
         <CreateListForm onCreateList={handleCreateList} />
       </div>
 
@@ -508,9 +511,7 @@ export default function ListsContainer({
             }`}
           />
         </button>
-        <span className="text-xs text-gray-400">
-          Показывать авторов записей
-        </span>
+        <span className="text-xs text-gray-400">{t("showAuthors")}</span>
       </div>
 
       <div className="space-y-6">
@@ -522,7 +523,7 @@ export default function ListsContainer({
             {/* Индикатор ожидания для оптимистичного списка */}
             {list.id.startsWith("temp-") && (
               <div className="mb-3 text-xs text-blue-600 font-medium">
-                Создаём список...
+                {t("creating")}
               </div>
             )}
 
@@ -566,7 +567,7 @@ export default function ListsContainer({
                     {editingListId !== list.id && (
                       <button
                         type="button"
-                        aria-label={`Переименовать список ${list.title}`}
+                        aria-label={t("ariaRename", { title: list.title })}
                         onClick={() => {
                           setEditingListId(list.id);
                           setEditTitle(list.title);
@@ -578,7 +579,7 @@ export default function ListsContainer({
                     )}
                     <button
                       type="button"
-                      aria-label={`Удалить список ${list.title}`}
+                      aria-label={t("ariaDelete", { title: list.title })}
                       disabled={isDeleting}
                       onClick={() => setListToDelete(list)}
                       className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
@@ -610,7 +611,7 @@ export default function ListsContainer({
             {list.ownerId !== currentUserId && (
               <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
                 <span className="text-xs text-gray-400">
-                  Владелец: {list.owner.name || list.owner.email}
+                  {t("owner", { name: list.owner.name || list.owner.email })}
                 </span>
                 <button
                   type="button"
@@ -618,7 +619,7 @@ export default function ListsContainer({
                   onClick={() => setListToLeave(list)}
                   className="text-xs text-red-400 hover:text-red-600 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Отписаться от списка
+                  {t("unsubscribe")}
                 </button>
               </div>
             )}
@@ -628,7 +629,7 @@ export default function ListsContainer({
         {/* Сообщение о пустом состоянии */}
         {optimisticLists.length === 0 && (
           <div className="text-center py-10 border-2 border-dashed rounded-xl">
-            <p className="text-gray-500">У вас пока нет списков.</p>
+            <p className="text-gray-500">{t("noLists")}</p>
             <p className="text-sm text-gray-400" />
           </div>
         )}
@@ -653,11 +654,10 @@ export default function ListsContainer({
             onClick={(event) => event.stopPropagation()}
           >
             <h3 className="text-lg font-semibold mb-2">
-              Отписаться от списка?
+              {t("leaveModal.title")}
             </h3>
             <p className="text-sm text-gray-600 mb-5">
-              Вы хотите отписаться от списка «{listToLeave.title}»? Чтобы снова
-              получить доступ, попросите владельца поделиться им заново.
+              {t("leaveModal.body", { title: listToLeave.title })}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -665,14 +665,14 @@ export default function ListsContainer({
                 onClick={() => setListToLeave(null)}
                 className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
               >
-                Отмена
+                {t("leaveModal.cancel")}
               </button>
               <button
                 type="button"
                 onClick={handleConfirmLeave}
                 className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
               >
-                Отписаться
+                {t("leaveModal.confirm")}
               </button>
             </div>
           </div>
@@ -688,10 +688,11 @@ export default function ListsContainer({
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-2">Удалить список?</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {t("deleteModal.title")}
+            </h3>
             <p className="text-sm text-gray-600 mb-5">
-              Вы действительно хотите удалить список «{listToDelete.title}»? Это
-              действие нельзя будет отменить, и все его записи будут потеряны.
+              {t("deleteModal.body", { title: listToDelete.title })}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -699,14 +700,14 @@ export default function ListsContainer({
                 onClick={() => setListToDelete(null)}
                 className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
               >
-                Отмена
+                {t("deleteModal.cancel")}
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDelete}
                 className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
               >
-                Удалить
+                {t("deleteModal.confirm")}
               </button>
             </div>
           </div>

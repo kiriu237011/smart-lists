@@ -30,6 +30,7 @@ import {
 } from "react";
 import { removeSharedUser, shareList } from "@/app/actions";
 import toast from "react-hot-toast";
+import { useTranslations } from "next-intl";
 
 /** Пользователь, имеющий доступ к списку. */
 type SharedUser = {
@@ -56,6 +57,8 @@ export default function ShareListForm({
   listId,
   sharedWith,
 }: ShareListFormProps) {
+  const t = useTranslations("ShareListForm");
+
   /**
    * Оптимистичный список пользователей с доступом.
    *
@@ -126,7 +129,7 @@ export default function ShareListForm({
       startTransition(() => {
         setOptimisticSharedWith({ action: "add", user });
       });
-      toast.error(result.error || "Не удалось убрать доступ");
+      toast.error(result.error || t("errors.removeFailed"));
     }
 
     setIsRemovingUser(false);
@@ -207,7 +210,7 @@ export default function ShareListForm({
         setOptimisticSharedWith({ action: "remove", user: tempUser });
       });
       setEmail(normalizedEmail);
-      toast.error(result.error || "Не удалось предоставить доступ");
+      toast.error(result.error || t("errors.shareFailed"));
     }
     // При успехе: revalidatePath в Server Action обновит реальные данные из БД,
     // и Next.js заменит временного пользователя на настоящего автоматически.
@@ -241,7 +244,7 @@ export default function ShareListForm({
           <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
           <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
         </svg>
-        Поделиться списком
+        {t("share")}
         {/* Счётчик участников */}
         {optimisticSharedWith.length > 0 && (
           <span className="bg-blue-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center leading-none shrink-0">
@@ -283,8 +286,10 @@ export default function ShareListForm({
                     disabled={user.id.startsWith("temp-")}
                     title={
                       user.id.startsWith("temp-")
-                        ? "Сохраняется..."
-                        : `Удалить доступ для ${user.name || user.email}`
+                        ? t("saving")
+                        : t("ariaRemove", {
+                            name: user.name ?? user.email ?? "",
+                          })
                     }
                     className="ml-1 text-blue-500 hover:text-red-600 font-bold leading-none disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => setUserToRemove(user)}
@@ -303,7 +308,7 @@ export default function ShareListForm({
             <input
               name="email"
               type="email"
-              placeholder="Email друга..."
+              placeholder={t("placeholder")}
               className="border p-1 rounded text-xs flex-1"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -313,7 +318,7 @@ export default function ShareListForm({
               type="submit"
               className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
             >
-              Пригласить
+              {t("invite")}
             </button>
           </form>
         </>
@@ -331,10 +336,13 @@ export default function ShareListForm({
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-2">Убрать доступ?</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {t("removeModal.title")}
+            </h3>
             <p className="text-sm text-gray-600 mb-5">
-              Вы действительно хотите убрать доступ для пользователя «
-              {userToRemove.name || userToRemove.email}»?
+              {t("removeModal.body", {
+                name: userToRemove.name ?? userToRemove.email ?? "",
+              })}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -342,14 +350,14 @@ export default function ShareListForm({
                 onClick={() => setUserToRemove(null)}
                 className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
               >
-                Отмена
+                {t("removeModal.cancel")}
               </button>
               <button
                 type="button"
                 onClick={handleConfirmRemoveUser}
                 className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
               >
-                Удалить
+                {t("removeModal.confirm")}
               </button>
             </div>
           </div>

@@ -17,6 +17,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 
 /** Пропсы компонента `CreateListForm`. */
 type CreateListFormProps = {
@@ -36,6 +37,8 @@ type CreateListFormProps = {
  * @param onCreateList - Колбэк обработки создания (из `ListsContainer`).
  */
 export default function CreateListForm({ onCreateList }: CreateListFormProps) {
+  const t = useTranslations("CreateListForm");
+
   /** Текущее значение поля ввода названия. */
   const [title, setTitle] = useState("");
 
@@ -80,7 +83,7 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
       {/* Поле ввода названия списка */}
       <input
         name="title"
-        placeholder="Например: Продукты на неделю..."
+        placeholder={t("placeholder")}
         className="w-full min-w-0 flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
         value={title}
         onChange={(event) => setTitle(event.target.value)}
@@ -96,15 +99,14 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
       >
         {isCreating ? (
           <span className="inline-flex items-center gap-2">
-            {/* Анимированный спиннер */}
             <span
               aria-hidden="true"
               className="h-4 w-4 animate-spin rounded-full border-2 border-white/80 border-t-transparent"
             />
-            Создаём...
+            {t("creating")}
           </span>
         ) : (
-          "Создать"
+          t("submit")
         )}
       </button>
     </form>

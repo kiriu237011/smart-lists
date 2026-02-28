@@ -34,6 +34,7 @@ import {
 } from "react";
 import { addItem, deleteItem, toggleItem, renameItem } from "@/app/actions";
 import toast from "react-hot-toast";
+import { useTranslations } from "next-intl";
 
 // ---------------------------------------------------------------------------
 // Типы данных
@@ -82,6 +83,8 @@ export default function ShoppingList({
   currentUserEmail,
   showAuthors,
 }: ShoppingListProps) {
+  const t = useTranslations("ShoppingList");
+
   /**
    * Оптимистичный массив записей.
    *
@@ -247,13 +250,9 @@ export default function ShoppingList({
 
       if (result && !result.success) {
         startTransition(() => {
-          setOptimisticItems({
-            action: "rename",
-            itemId: item.id,
-            itemName: item.name,
-          });
+          setOptimisticItems({ action: "rename", itemId: item.id, itemName: item.name });
         });
-        toast.error(result.error || "Не удалось переименовать запись");
+        toast.error(result.error || t("errors.renameFailed"));
       }
     } finally {
       processingItemRenameRef.current = false;
@@ -302,7 +301,7 @@ export default function ShoppingList({
                     <button
                       type="submit"
                       disabled={isPending}
-                      title={isPending ? "Сохраняется..." : undefined}
+                      title={isPending ? t("saving") : undefined}
                       className={`w-5 h-5 border rounded flex items-center justify-center transition-colors ${
                         isPending
                           ? "border-gray-300 cursor-not-allowed"
@@ -367,16 +366,16 @@ export default function ShoppingList({
                     {/* Надпись "Сохраняется..." для ожидающей записи */}
                     {isPending && (
                       <span className="text-gray-400 text-xs">
-                        Сохраняется...
+                        {t("saving")}
                       </span>
                     )}
                   </div>
 
                   {/* Автор записи: показывается только если включён переключатель */}
-                  {!isPending && showAuthors && item.addedBy && (
+                    {!isPending && showAuthors && item.addedBy && (
                     <span className="text-gray-400 text-xs shrink-0">
                       {item.addedBy.id === currentUserId
-                        ? "Вы"
+                        ? t("you")
                         : item.addedBy.name || item.addedBy.email}
                     </span>
                   )}
@@ -387,7 +386,7 @@ export default function ShoppingList({
                   {!isPending && editingItemId !== item.id && (
                     <button
                       type="button"
-                      aria-label={`Переименовать запись ${item.name}`}
+                      aria-label={t("ariaRename", { name: item.name })}
                       onClick={() => {
                         setEditingItemId(item.id);
                         setEditItemName(item.name);
@@ -402,9 +401,9 @@ export default function ShoppingList({
                   <button
                     type="button"
                     disabled={isPending}
-                    title={isPending ? "Сохраняется..." : undefined}
+                    title={isPending ? t("saving") : undefined}
                     onClick={() => setItemToDelete(item)}
-                    aria-label={`Удалить запись ${item.name}`}
+                    aria-label={t("ariaDelete", { name: item.name })}
                     className={`text-xs font-bold px-2 py-1 transition-colors ${
                       isPending
                         ? "text-gray-300 cursor-not-allowed"
@@ -420,7 +419,7 @@ export default function ShoppingList({
 
           {/* Сообщение о пустом списке */}
           {optimisticItems.length === 0 && (
-            <li className="text-gray-400 text-sm text-center">Список пуст</li>
+            <li className="text-gray-400 text-sm text-center">{t("empty")}</li>
           )}
         </ul>
 
@@ -469,14 +468,14 @@ export default function ShoppingList({
                 setOptimisticItems({ action: "delete", itemId: tempId });
               });
               setNewItemName(trimmedName);
-              toast.error(result.error || "Не удалось добавить запись");
+              toast.error(result.error || t("errors.addFailed"));
             }
           }}
           className="flex gap-2"
         >
           <input
             name="itemName"
-            placeholder="Что хотите добавить?"
+            placeholder={t("placeholder")}
             className="border p-2 rounded w-full text-sm"
             value={newItemName}
             onChange={(e) => setNewItemName(e.target.value)}
@@ -505,9 +504,9 @@ export default function ShoppingList({
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-2">Удалить запись?</h3>
+            <h3 className="text-lg font-semibold mb-2">{t("deleteModal.title")}</h3>
             <p className="text-sm text-gray-600 mb-5">
-              Вы действительно хотите удалить запись «{itemToDelete.name}»?
+              {t("deleteModal.body", { name: itemToDelete.name })}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -515,14 +514,14 @@ export default function ShoppingList({
                 onClick={() => setItemToDelete(null)}
                 className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
               >
-                Отмена
+                {t("deleteModal.cancel")}
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDeleteItem}
                 className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
               >
-                Удалить
+                {t("deleteModal.confirm")}
               </button>
             </div>
           </div>

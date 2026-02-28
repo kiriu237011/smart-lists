@@ -1,0 +1,80 @@
+{
+  "Auth": {
+    "title": "Danh Sách Mua Sắm Thông Minh 🛒",
+    "subtitle": "Đăng nhập để lưu danh sách của bạn",
+    "signIn": "Đăng nhập bằng Google"
+  },
+  "Home": {
+    "greeting": "Xin chào, {name}!",
+    "signOut": "Đăng xuất"
+  },
+  "ListsContainer": {
+    "createTitle": "Tạo danh sách mới 📝",
+    "showAuthors": "Hiển thị tác giả ghi chú",
+    "creating": "Đang tạo danh sách...",
+    "owner": "Chủ sở hữu: {name}",
+    "unsubscribe": "Rời khỏi danh sách",
+    "noLists": "Bạn chưa có danh sách nào.",
+    "ariaRename": "Đổi tên danh sách {title}",
+    "ariaDelete": "Xóa danh sách {title}",
+    "leaveModal": {
+      "title": "Rời khỏi danh sách?",
+      "body": "Bạn có muốn rời khỏi danh sách «{title}»? Để có lại quyền truy cập, hãy yêu cầu chủ sở hữu chia sẻ lại.",
+      "cancel": "Hủy",
+      "confirm": "Rời khỏi"
+    },
+    "deleteModal": {
+      "title": "Xóa danh sách?",
+      "body": "Bạn có chắc muốn xóa danh sách «{title}»? Hành động này không thể hoàn tác và tất cả ghi chú sẽ bị mất.",
+      "cancel": "Hủy",
+      "confirm": "Xóa"
+    },
+    "errors": {
+      "createFailed": "Không thể tạo danh sách",
+      "createLoadFailed": "Danh sách đã được tạo nhưng có lỗi khi tải dữ liệu",
+      "renameFailed": "Không thể đổi tên danh sách",
+      "deleteFailed": "Không thể xóa danh sách",
+      "leaveFailed": "Không thể rời khỏi danh sách"
+    }
+  },
+  "ShoppingList": {
+    "saving": "Đang lưu...",
+    "you": "Bạn",
+    "empty": "Danh sách trống",
+    "placeholder": "Bạn muốn thêm gì?",
+    "ariaRename": "Đổi tên ghi chú {name}",
+    "ariaDelete": "Xóa ghi chú {name}",
+    "deleteModal": {
+      "title": "Xóa ghi chú?",
+      "body": "Bạn có chắc muốn xóa ghi chú «{name}»?",
+      "cancel": "Hủy",
+      "confirm": "Xóa"
+    },
+    "errors": {
+      "renameFailed": "Không thể đổi tên ghi chú",
+      "addFailed": "Không thể thêm ghi chú"
+    }
+  },
+  "CreateListForm": {
+    "placeholder": "Ví dụ: Thực phẩm cả tuần...",
+    "creating": "Đang tạo...",
+    "submit": "Tạo"
+  },
+  "ShareListForm": {
+    "share": "Chia sẻ danh sách",
+    "saving": "Đang lưu...",
+    "placeholder": "Email bạn bè...",
+    "invite": "Mời",
+    "ariaRemove": "Xóa quyền truy cập của {name}",
+    "removeModal": {
+      "title": "Xóa quyền truy cập?",
+      "body": "Bạn có chắc muốn xóa quyền truy cập của người dùng «{name}»?",
+      "cancel": "Hủy",
+      "confirm": "Xóa"
+    },
+    "errors": {
+      "removeFailed": "Không thể xóa quyền truy cập",
+      "shareFailed": "Không thể chia sẻ quyền truy cập"
+    }
+  }
+}
