@@ -217,67 +217,105 @@ export default function ShareListForm({
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase mb-2 hover:text-gray-700 transition-colors"
+        className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all duration-200 mb-2 ${
+          isOpen
+            ? "bg-blue-50 border-blue-300 text-blue-700"
+            : "bg-white border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50"
+        }`}
       >
-        Поделиться списком
-        <span
-          className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+        {/* Иконка «поделиться» */}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="w-3.5 h-3.5 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         >
-          ▾
-        </span>
+          <circle cx="18" cy="5" r="3" />
+          <circle cx="6" cy="12" r="3" />
+          <circle cx="18" cy="19" r="3" />
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+        </svg>
+        Поделиться списком
+        {/* Счётчик участников */}
+        {optimisticSharedWith.length > 0 && (
+          <span className="bg-blue-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center leading-none shrink-0">
+            {optimisticSharedWith.length}
+          </span>
+        )}
+        {/* Шеврон */}
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
 
-      {/* Бейджи пользователей, уже имеющих доступ */}
-      {optimisticSharedWith.length > 0 && (
-        <div className="flex gap-1 mb-2 flex-wrap">
-          {optimisticSharedWith.map((user) => (
-            <span
-              key={user.id}
-              className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
-            >
-              {/* Показываем имя, если есть; иначе email */}
-              {user.name || user.email}
-
-              {/* Кнопка удаления пользователя из доступа */}
-              <button
-                type="button"
-                disabled={user.id.startsWith("temp-")}
-                title={
-                  user.id.startsWith("temp-")
-                    ? "Сохраняется..."
-                    : `Удалить доступ для ${user.name || user.email}`
-                }
-                className="ml-1 text-blue-500 hover:text-red-600 font-bold leading-none disabled:opacity-40 disabled:cursor-not-allowed"
-                onClick={() => setUserToRemove(user)}
-              >
-                ✕
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Форма приглашения по email — скрыта до нажатия на кнопку */}
+      {/* Бейджи участников и форма приглашения — скрыты до нажатия на кнопку */}
       {isOpen && (
-        <form onSubmit={handleSubmit} className="flex gap-2 mt-3">
-          {/* Скрытое поле с ID списка — передаётся в Server Action */}
-          <input type="hidden" name="listId" value={listId} />
-          <input
-            name="email"
-            type="email"
-            placeholder="Email друга..."
-            className="border p-1 rounded text-xs flex-1"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-          <button
-            type="submit"
-            className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
-          >
-            Пригласить
-          </button>
-        </form>
+        <>
+          {/* Бейджи пользователей, уже имеющих доступ */}
+          {optimisticSharedWith.length > 0 && (
+            <div className="flex gap-1 mb-2 flex-wrap">
+              {optimisticSharedWith.map((user) => (
+                <span
+                  key={user.id}
+                  className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
+                >
+                  {/* Показываем имя, если есть; иначе email */}
+                  {user.name || user.email}
+
+                  {/* Кнопка удаления пользователя из доступа */}
+                  <button
+                    type="button"
+                    disabled={user.id.startsWith("temp-")}
+                    title={
+                      user.id.startsWith("temp-")
+                        ? "Сохраняется..."
+                        : `Удалить доступ для ${user.name || user.email}`
+                    }
+                    className="ml-1 text-blue-500 hover:text-red-600 font-bold leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+                    onClick={() => setUserToRemove(user)}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Форма приглашения по email */}
+          <form onSubmit={handleSubmit} className="flex gap-2 mt-3">
+            {/* Скрытое поле с ID списка — передаётся в Server Action */}
+            <input type="hidden" name="listId" value={listId} />
+            <input
+              name="email"
+              type="email"
+              placeholder="Email друга..."
+              className="border p-1 rounded text-xs flex-1"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+            <button
+              type="submit"
+              className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
+            >
+              Пригласить
+            </button>
+          </form>
+        </>
       )}
 
       {/* Модальное окно подтверждения удаления пользователя из доступа.
