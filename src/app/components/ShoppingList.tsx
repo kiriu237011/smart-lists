@@ -59,8 +59,8 @@ type ShoppingListProps = {
   currentUserName: string | null;
   /** Email текущего пользователя (для оптимистичного addedBy). */
   currentUserEmail: string;
-  /** Список пользователей с доступом к этому списку (кроме владельца). Если 0 — не показываем авторов. */
-  sharedUsersCount: number;
+  /** Глобальный флаг отображения авторов (управляется из ListsContainer). */
+  showAuthors: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ export default function ShoppingList({
   currentUserId,
   currentUserName,
   currentUserEmail,
-  sharedUsersCount,
+  showAuthors,
 }: ShoppingListProps) {
   /**
    * Оптимистичный массив товаров.
@@ -371,14 +371,12 @@ export default function ShoppingList({
                     )}
                   </div>
 
-                  {/* Автор товара: всегда у правого края левой части строки */}
-                  {!isPending && sharedUsersCount > 0 && item.addedBy && (
+                  {/* Автор товара: показывается только если включён переключатель */}
+                  {!isPending && showAuthors && item.addedBy && (
                     <span className="text-gray-400 text-xs shrink-0">
-                      (
                       {item.addedBy.id === currentUserId
                         ? "Вы"
                         : item.addedBy.name || item.addedBy.email}
-                      )
                     </span>
                   )}
                 </div>

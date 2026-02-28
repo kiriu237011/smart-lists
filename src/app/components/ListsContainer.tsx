@@ -121,6 +121,23 @@ export default function ListsContainer({
   /** Флаг ожидания ответа сервера при выходе из расшаренного списка. */
   const [isLeaving, setIsLeaving] = useState(false);
 
+  /** Глобальный флаг отображения авторов товаров. Сохраняется в localStorage. */
+  const [showAuthors, setShowAuthors] = useState<boolean>(false);
+
+  // Читаем сохранённое значение из localStorage только после гидрации,
+  // чтобы не было расхождения между серверным и клиентским HTML.
+  useEffect(() => {
+    setShowAuthors(localStorage.getItem("showAuthors") === "true");
+  }, []);
+
+  const toggleShowAuthors = () => {
+    setShowAuthors((prev) => {
+      const next = !prev;
+      localStorage.setItem("showAuthors", String(next));
+      return next;
+    });
+  };
+
   /** ID списка, чьё название сейчас редактируется. `null` — нет активного редактирования. */
   const [editingListId, setEditingListId] = useState<string | null>(null);
 
@@ -474,6 +491,27 @@ export default function ListsContainer({
       </div>
 
       {/* Лента всех списков */}
+      <div className="mb-4 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => toggleShowAuthors()}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+            showAuthors ? "bg-blue-500" : "bg-gray-200"
+          }`}
+          role="switch"
+          aria-checked={showAuthors}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
+              showAuthors ? "translate-x-4" : "translate-x-0"
+            }`}
+          />
+        </button>
+        <span className="text-xs text-gray-400">
+          Показывать авторов товаров
+        </span>
+      </div>
+
       <div className="space-y-6">
         {optimisticLists.map((list) => (
           <div
@@ -558,7 +596,7 @@ export default function ListsContainer({
                 currentUserId={currentUserId}
                 currentUserName={currentUserName}
                 currentUserEmail={currentUserEmail}
-                sharedUsersCount={list.sharedWith.length}
+                showAuthors={showAuthors}
               />
             )}
 
