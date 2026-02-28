@@ -34,7 +34,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { createList, deleteList, renameList } from "@/app/actions";
+import {
+  createList,
+  deleteList,
+  renameList,
+  leaveSharedList,
+} from "@/app/actions";
 import ShoppingList from "@/app/components/ShoppingList";
 import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
@@ -105,6 +110,15 @@ export default function ListsContainer({
 
   /** Флаг ожидания ответа сервера при удалении. Блокирует повторные запросы. */
   const [isDeleting, setIsDeleting] = useState(false);
+
+  /**
+   * Расшаренный список, от которого пользователь хочет отписаться.
+   * `null` означает, что модальное окно закрыто.
+   */
+  const [listToLeave, setListToLeave] = useState<ShoppingListData | null>(null);
+
+  /** Флаг ожидания ответа сервера при выходе из расшаренного списка. */
+  const [isLeaving, setIsLeaving] = useState(false);
 
   /** ID списка, чьё название сейчас редактируется. `null` — нет активного редактирования. */
   const [editingListId, setEditingListId] = useState<string | null>(null);
@@ -359,6 +373,64 @@ export default function ListsContainer({
   }, [listToDelete, setOptimisticLists]);
 
   /**
+   * Обработчик подтверждения выхода из расшаренного списка.
+   *
+   * Оптимистично убирает список из UI, затем вызывает `leaveSharedList`.
+   * При ошибке — восстанавливает список на исходной позиции.
+   */
+  const handleConfirmLeave = useCallback(async () => {
+    if (!listToLeave) return;
+
+    const list = listToLeave;
+    setIsLeaving(true);
+    setListToLeave(null); // Закрываем модал немедленно
+
+    // Оптимистично убираем список из UI
+    startTransition(() => {
+      setOptimisticLists({ action: "delete", listId: list.id });
+    });
+
+    const formData = new FormData();
+    formData.append("listId", list.id);
+    const result = await leaveSharedList(formData);
+
+    if (result && !result.success) {
+      // Откат: возвращаем список на исходную позицию
+      startTransition(() => {
+        setOptimisticLists({ action: "restore", listId: list.id, list });
+      });
+      alert(result.error || "Не удалось отписаться от списка");
+    }
+
+    setIsLeaving(false);
+  }, [listToLeave, setOptimisticLists]);
+
+  /**
+   * Эффект: клавиатурные события при открытом модале выхода из списка.
+   *
+   * - `Escape` — закрывает модал.
+   * - `Enter`  — подтверждает выход.
+   */
+  useEffect(() => {
+    if (!listToLeave) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setListToLeave(null);
+        return;
+      }
+      if (event.key === "Enter" && !isLeaving) {
+        event.preventDefault();
+        void handleConfirmLeave();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleConfirmLeave, isLeaving, listToLeave]);
+
+  /**
    * Эффект: подписка на клавиатурные события при открытом модале.
    *
    * - `Escape` — закрывает модал без удаления.
@@ -487,10 +559,20 @@ export default function ListsContainer({
               <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
             )}
 
-            {/* Подпись владельца: показывается, если текущий пользователь — не владелец */}
+            {/* Подпись владельца + кнопка Отписаться от списка: только для гостевого доступа */}
             {list.ownerId !== currentUserId && (
-              <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-400">
-                Владелец: {list.owner.name || list.owner.email}
+              <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-xs text-gray-400">
+                  Владелец: {list.owner.name || list.owner.email}
+                </span>
+                <button
+                  type="button"
+                  disabled={isLeaving}
+                  onClick={() => setListToLeave(list)}
+                  className="text-xs text-red-400 hover:text-red-600 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Отписаться от списка
+                </button>
               </div>
             )}
           </div>
@@ -511,6 +593,45 @@ export default function ListsContainer({
           Клик на фон (overlay) — закрыть без удаления.
           Клик внутри модала — не закрывает (stopPropagation).
       ----------------------------------------------------------------------- */}
+      {/* -----------------------------------------------------------------------
+          Модальное окно подтверждения выхода из расшаренного списка.
+      ----------------------------------------------------------------------- */}
+      {listToLeave && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setListToLeave(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-2">
+              Отписаться от списка?
+            </h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Вы хотите отписаться от списка «{listToLeave.title}»? Чтобы снова
+              получить доступ, попросите владельца поделиться им заново.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setListToLeave(null)}
+                className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLeave}
+                className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
+              >
+                Отписаться
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {listToDelete && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"

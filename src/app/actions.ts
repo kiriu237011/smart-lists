@@ -463,6 +463,52 @@ export async function removeSharedUser(formData: FormData) {
 }
 
 /**
+ * Позволяет пользователю самостоятельно покинуть расшаренный список.
+ *
+ * В отличие от `removeSharedUser` (где действует владелец), здесь
+ * действует сам пользователь: он отключает себя из `sharedWith`.
+ *
+ * Защита: в WHERE-условии стоит `sharedWith: { some: { id: session.user.id } }`,
+ * что гарантирует — пользователь действительно входит в список и не может
+ * покинуть чужой список, к которому у него нет доступа.
+ *
+ * @param formData - FormData с полем:
+ *   - `listId` {string} — ID списка, от которого пользователь хочет отписаться.
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function leaveSharedList(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const listId = formData.get("listId");
+    if (!listId || typeof listId !== "string" || !listId.trim()) {
+      return { success: false, error: "Неверные данные" };
+    }
+
+    await prisma.shoppingList.update({
+      where: {
+        id: listId,
+        sharedWith: { some: { id: session.user.id } }, // Убеждаемся, что пользователь в списке
+      },
+      data: {
+        sharedWith: {
+          disconnect: { id: session.user.id }, // Пользователь удаляет себя сам
+        },
+      },
+    });
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при выходе из списка:", error);
+    return { success: false, error: "Не удалось отписаться от списка" };
+  }
+}
+
+/**
  * Переименовывает список покупок.
  *
  * Защита: `updateMany` с фильтром `ownerId === session.user.id` гарантирует,
