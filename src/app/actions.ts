@@ -69,12 +69,17 @@ export async function addItem(formData: FormData) {
       return { success: false, error: "Некорректные данные" };
     }
 
+    // Получаем текущего пользователя, чтобы сохранить кто добавил товар
+    const session = await auth();
+
     // После safeParse TypeScript точно знает, что result.data.itemName — string
     await prisma.item.create({
       data: {
         name: result.data.itemName,
         listId: result.data.listId,
-      },
+        addedById: session?.user?.id ?? null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
     });
 
     // Сообщаем Next.js, что данные на "/" изменились → перефетч Server Component
@@ -237,7 +242,8 @@ export async function createList(formData: FormData) {
 
     // 3. Создаём список в БД.
     // ownerId берём из сессии — клиент не может его подменить!
-    const newList = await prisma.shoppingList.create({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const newList = (await (prisma.shoppingList.create as any)({
       data: {
         title: result.data.title,
         ownerId: session.user.id,
@@ -245,10 +251,28 @@ export async function createList(formData: FormData) {
       // include подгружает связанные записи одним запросом
       include: {
         owner: true,
-        items: true,
+        items: {
+          include: {
+            addedBy: {
+              select: { id: true, name: true, email: true },
+            },
+          },
+        },
         sharedWith: true,
       },
-    });
+    })) as {
+      id: string;
+      title: string;
+      ownerId: string;
+      owner: { name: string | null; email: string };
+      items: {
+        id: string;
+        name: string;
+        isCompleted: boolean;
+        addedBy: { id: string; name: string | null; email: string } | null;
+      }[];
+      sharedWith: { id: string; name: string | null; email: string | null }[];
+    };
 
     revalidatePath("/");
 
@@ -263,7 +287,18 @@ export async function createList(formData: FormData) {
           name: newList.owner.name,
           email: newList.owner.email,
         },
-        items: newList.items,
+        items: newList.items.map((item) => ({
+          id: item.id,
+          name: item.name,
+          isCompleted: item.isCompleted,
+          addedBy: item.addedBy
+            ? {
+                id: item.addedBy.id,
+                name: item.addedBy.name,
+                email: item.addedBy.email,
+              }
+            : null,
+        })),
         sharedWith: newList.sharedWith,
       },
     };

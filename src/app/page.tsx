@@ -107,6 +107,11 @@ export default async function Home() {
         orderBy: {
           createdAt: "asc", // Товары отсортированы от старых к новым
         },
+        include: {
+          addedBy: {
+            select: { id: true, name: true, email: true },
+          },
+        },
       },
       owner: true, // Информация о владельце (для отображения "Создано: X")
       sharedWith: true, // Список пользователей с доступом (для блока "Поделиться")

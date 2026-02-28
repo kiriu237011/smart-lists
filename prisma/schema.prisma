@@ -52,6 +52,9 @@ model User {
   /// Списки покупок, к которым пользователь имеет доступ по приглашению.
   sharedLists   ShoppingList[]  @relation("Shared")
 
+  /// Товары, добавленные этим пользователем.
+  addedItems    Item[]          @relation("AddedItems")
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -155,6 +158,14 @@ model Item {
 
   /// Родительский список. Каскадное удаление: при удалении списка все его товары тоже удаляются.
   list        ShoppingList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  // ---- Кто добавил товар ----
+
+  /// ID пользователя, добавившего товар (опционально: NULL для старых записей).
+  addedById   String?
+
+  /// Пользователь, добавивший товар. При удалении пользователя поле обнуляется.
+  addedBy     User?        @relation("AddedItems", fields: [addedById], references: [id], onDelete: SetNull)
 
   createdAt   DateTime     @default(now())
 }

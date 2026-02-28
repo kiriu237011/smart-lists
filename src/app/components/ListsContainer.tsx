@@ -62,6 +62,7 @@ type Item = {
   id: string;
   name: string;
   isCompleted: boolean;
+  addedBy: { id: string; name: string | null; email: string } | null;
 };
 
 /** Полные данные списка покупок (включая связанные сущности). */
@@ -551,7 +552,14 @@ export default function ListsContainer({
 
             {/* Список товаров: рендерится только для реальных (не temp) списков */}
             {!list.id.startsWith("temp-") && (
-              <ShoppingList items={list.items} listId={list.id} />
+              <ShoppingList
+                items={list.items}
+                listId={list.id}
+                currentUserId={currentUserId}
+                currentUserName={currentUserName}
+                currentUserEmail={currentUserEmail}
+                sharedUsersCount={list.sharedWith.length}
+              />
             )}
 
             {/* Форма совместного доступа: только для владельца и только для реальных списков */}

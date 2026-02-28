@@ -43,6 +43,8 @@ type Item = {
   id: string;
   name: string;
   isCompleted: boolean;
+  /** Пользователь, добавивший товар. null — для старых записей или temp-товаров. */
+  addedBy: { id: string; name: string | null; email: string } | null;
 };
 
 /** Пропсы компонента `ShoppingList`. */
@@ -51,6 +53,14 @@ type ShoppingListProps = {
   items: Item[];
   /** ID списка покупок, которому принадлежат эти товары. */
   listId: string;
+  /** ID текущего пользователя (для отображения "Вы" вместо имени). */
+  currentUserId: string;
+  /** Имя текущего пользователя (для оптимистичного addedBy). */
+  currentUserName: string | null;
+  /** Email текущего пользователя (для оптимистичного addedBy). */
+  currentUserEmail: string;
+  /** Список пользователей с доступом к этому списку (кроме владельца). Если 0 — не показываем авторов. */
+  sharedUsersCount: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -63,7 +73,14 @@ type ShoppingListProps = {
  * @param items - Начальный массив товаров (с сервера).
  * @param listId - ID списка для привязки новых товаров.
  */
-export default function ShoppingList({ items, listId }: ShoppingListProps) {
+export default function ShoppingList({
+  items,
+  listId,
+  currentUserId,
+  currentUserName,
+  currentUserEmail,
+  sharedUsersCount,
+}: ShoppingListProps) {
   /**
    * Оптимистичный массив товаров.
    *
@@ -84,10 +101,12 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
         action,
         itemId,
         itemName,
+        addedBy,
       }: {
         action: "toggle" | "delete" | "add" | "rename";
         itemId: string;
         itemName?: string;
+        addedBy?: Item["addedBy"];
       },
     ) => {
       switch (action) {
@@ -106,6 +125,7 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
               id: itemId,
               name: itemName || "",
               isCompleted: false,
+              addedBy: addedBy ?? null,
             },
           ];
         case "rename":
@@ -348,6 +368,15 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
                       Сохраняется...
                     </span>
                   )}
+
+                  {/* Автор товара: показываем только если список расшарен и автор известен */}
+                  {!isPending && sharedUsersCount > 0 && item.addedBy && (
+                    <span className="text-gray-400 text-xs ml-1">
+                      ({item.addedBy.id === currentUserId
+                        ? "Вы"
+                        : item.addedBy.name || item.addedBy.email})
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -411,6 +440,11 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
                 action: "add",
                 itemId: tempId,
                 itemName: trimmedName,
+                addedBy: {
+                  id: currentUserId,
+                  name: currentUserName,
+                  email: currentUserEmail,
+                },
               });
             });
 
