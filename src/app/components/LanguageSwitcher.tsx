@@ -8,19 +8,33 @@ import { routing, type Locale } from "@/i18n/routing";
 /** Метки и флаги для каждой локали */
 const LOCALE_LABELS: Record<
   Locale,
-  { title: string; flag: string; switchingTo: string }
+  { title: string; flagCode: string; switchingTo: string }
 > = {
   ru: {
     title: "Русский язык",
-    flag: "🇷🇺",
-    switchingTo: "Переключаем на русский язык",
+    flagCode: "ru",
+    switchingTo: "Переключаем на русский",
   },
   vi: {
     title: "Tiếng Việt",
-    flag: "🇻🇳",
+    flagCode: "vn",
     switchingTo: "Đang chuyển sang Tiếng Việt",
   },
 };
+
+/** Компонент флага через flagcdn.com — корректно отображается на всех платформах */
+function Flag({ code, size = 20 }: { code: string; size?: number }) {
+  return (
+    <img
+      src={`https://flagcdn.com/${code}.svg`}
+      width={size}
+      height={size * 0.75}
+      alt={code.toUpperCase()}
+      className="rounded-sm object-cover"
+      style={{ width: size, height: size * 0.75 }}
+    />
+  );
+}
 
 /**
  * Компонент переключения языка.
@@ -47,9 +61,7 @@ export default function LanguageSwitcher() {
       {isPending && pendingLocale && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 backdrop-blur-[2px]">
           <div className="flex flex-col items-center gap-3 bg-white/90 rounded-2xl px-8 py-6 shadow-lg">
-            <span className="text-4xl">
-              {LOCALE_LABELS[pendingLocale].flag}
-            </span>
+            <Flag code={LOCALE_LABELS[pendingLocale].flagCode} size={40} />
             <p className="text-sm text-gray-500 font-medium">
               {LOCALE_LABELS[pendingLocale].switchingTo}
             </p>
@@ -83,7 +95,7 @@ export default function LanguageSwitcher() {
         }`}
       >
         {routing.locales.map((loc) => {
-          const { title, flag } = LOCALE_LABELS[loc];
+          const { title, flagCode } = LOCALE_LABELS[loc];
           const isActive = loc === locale;
 
           return (
@@ -91,13 +103,13 @@ export default function LanguageSwitcher() {
               key={loc}
               onClick={() => handleSwitch(loc)}
               title={title}
-              className={`px-2.5 py-1 rounded-full text-base transition-all duration-200 ${
+              className={`px-2.5 py-1 rounded-full transition-all duration-200 ${
                 isActive
                   ? "bg-white shadow-sm"
                   : "text-gray-400 hover:text-gray-600"
               }`}
             >
-              {flag}
+              <Flag code={flagCode} size={18} />
             </button>
           );
         })}
