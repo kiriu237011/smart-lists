@@ -21,7 +21,13 @@
 
 "use client";
 
-import { startTransition, useOptimistic, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useOptimistic,
+  useState,
+} from "react";
 import { removeSharedUser, shareList } from "@/app/actions";
 
 /** Пользователь, имеющий доступ к списку. */
@@ -83,6 +89,72 @@ export default function ShareListForm({
 
   /** Открыта ли форма приглашения. */
   const [isOpen, setIsOpen] = useState(false);
+
+  /**
+   * Пользователь, ожидающий подтверждения удаления доступа.
+   * `null` означает, что модальное окно закрыто.
+   */
+  const [userToRemove, setUserToRemove] = useState<SharedUser | null>(null);
+
+  /** Флаг ожидания ответа сервера при удалении пользователя. */
+  const [isRemovingUser, setIsRemovingUser] = useState(false);
+
+  /**
+   * Обработчик подтверждения удаления пользователя из доступа.
+   * Вызывается из модального окна или по нажатию Enter.
+   */
+  const handleConfirmRemoveUser = useCallback(async () => {
+    if (!userToRemove) return;
+
+    const user = userToRemove;
+    setIsRemovingUser(true);
+    setUserToRemove(null); // Закрываем модал немедленно
+
+    // Оптимистично убираем пользователя из списка
+    startTransition(() => {
+      setOptimisticSharedWith({ action: "remove", user });
+    });
+
+    const formData = new FormData();
+    formData.set("listId", listId);
+    formData.set("userId", user.id);
+    const result = await removeSharedUser(formData);
+
+    // Откат при ошибке
+    if (result && !result.success) {
+      startTransition(() => {
+        setOptimisticSharedWith({ action: "add", user });
+      });
+      alert(result.error || "Не удалось убрать доступ");
+    }
+
+    setIsRemovingUser(false);
+  }, [userToRemove, setOptimisticSharedWith, listId]);
+
+  /**
+   * Эффект: подписка на клавиатурные события при открытом модале удаления пользователя.
+   *
+   * - `Escape` — закрывает модал без удаления.
+   * - `Enter`  — подтверждает удаление.
+   */
+  useEffect(() => {
+    if (!userToRemove) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setUserToRemove(null);
+        return;
+      }
+      if (event.key === "Enter" && !isRemovingUser) {
+        event.preventDefault();
+        void handleConfirmRemoveUser();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleConfirmRemoveUser, isRemovingUser, userToRemove]);
 
   /**
    * Обработчик отправки формы приглашения.
@@ -176,26 +248,7 @@ export default function ShareListForm({
                     : `Удалить доступ для ${user.name || user.email}`
                 }
                 className="ml-1 text-blue-500 hover:text-red-600 font-bold leading-none disabled:opacity-40 disabled:cursor-not-allowed"
-                onClick={async () => {
-                  // 1. Оптимистично убираем пользователя из списка
-                  startTransition(() => {
-                    setOptimisticSharedWith({ action: "remove", user });
-                  });
-
-                  // 2. Отправляем запрос на сервер
-                  const formData = new FormData();
-                  formData.set("listId", listId);
-                  formData.set("userId", user.id);
-                  const result = await removeSharedUser(formData);
-
-                  // 3. Откат при ошибке
-                  if (result && !result.success) {
-                    startTransition(() => {
-                      setOptimisticSharedWith({ action: "add", user });
-                    });
-                    alert(result.error || "Не удалось убрать доступ");
-                  }
-                }}
+                onClick={() => setUserToRemove(user)}
               >
                 ✕
               </button>
@@ -225,6 +278,43 @@ export default function ShareListForm({
             Пригласить
           </button>
         </form>
+      )}
+
+      {/* Модальное окно подтверждения удаления пользователя из доступа.
+          Клик на фон (overlay) — закрыть без удаления.
+          Клик внутри модала — не закрывает (stopPropagation). */}
+      {userToRemove && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setUserToRemove(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-2">Убрать доступ?</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Вы действительно хотите убрать доступ для пользователя «
+              {userToRemove.name || userToRemove.email}»?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUserToRemove(null)}
+                className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRemoveUser}
+                className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
+              >
+                Удалить
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
