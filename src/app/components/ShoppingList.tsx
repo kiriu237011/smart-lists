@@ -120,17 +120,11 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
     },
   );
 
-  /**
-   * Ref на элемент `<form>` добавления товара.
-   * Используется для сброса формы (`formRef.current?.reset()`) после отправки.
-   */
-  const formRef = useRef<HTMLFormElement>(null);
+  /** Текущее значение поля ввода нового товара. */
+  const [newItemName, setNewItemName] = useState("");
 
-  /**
-   * Ref на элемент `<input>` с названием товара.
-   * Используется для возврата значения при откате (если сервер вернул ошибку).
-   */
-  const inputRef = useRef<HTMLInputElement>(null);
+  /** Флаг ожидания ответа сервера при добавлении товара. */
+  const [isAddingItem, setIsAddingItem] = useState(false);
 
   /**
    * Товар, ожидающий подтверждения удаления.
@@ -302,7 +296,7 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
                       ) : (
                         // Галочка для купленного товара
                         item.isCompleted && (
-                          <span className="text-blue-500 text-xs">✔</span>
+                          <span className="text-blue-500 text-xs">✔︎</span>
                         )
                       )}
                     </button>
@@ -402,42 +396,53 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
           Форма добавления нового товара
       ----------------------------------------------------------------------- */}
         <form
-          ref={formRef}
-          action={async (formData) => {
-            const itemName = formData.get("itemName") as string;
+          onSubmit={async (event) => {
+            event.preventDefault();
+
+            const trimmedName = newItemName.trim();
+            if (!trimmedName || isAddingItem) return;
 
             // 1. Генерируем временный ID для оптимистичного обновления
             const tempId = `temp-${Date.now()}`;
 
             // 2. Мгновенно добавляем товар на экран
-            setOptimisticItems({ action: "add", itemId: tempId, itemName });
+            startTransition(() => {
+              setOptimisticItems({
+                action: "add",
+                itemId: tempId,
+                itemName: trimmedName,
+              });
+            });
 
-            // 3. Сбрасываем форму (очищаем поле ввода)
-            formRef.current?.reset();
+            // 3. Сразу очищаем поле ввода (пользователь может начинать следующий)
+            setNewItemName("");
+            setIsAddingItem(true);
 
             // 4. Отправляем данные на сервер в фоне
+            const formData = new FormData();
+            formData.append("listId", listId);
+            formData.append("itemName", trimmedName);
             const result = await addItem(formData);
+
+            setIsAddingItem(false);
 
             // 5. При ошибке — откат: удаляем временный товар и возвращаем введённое название
             if (result && !result.success) {
-              setOptimisticItems({ action: "delete", itemId: tempId });
-
-              if (inputRef.current) {
-                inputRef.current.value = itemName;
-              }
-
+              startTransition(() => {
+                setOptimisticItems({ action: "delete", itemId: tempId });
+              });
+              setNewItemName(trimmedName);
               alert(result.error || "Не удалось добавить товар");
             }
           }}
           className="flex gap-2"
         >
-          {/* Скрытое поле: ID списка для привязки нового товара */}
-          <input type="hidden" name="listId" value={listId} />
           <input
-            ref={inputRef}
             name="itemName"
             placeholder="Что купить?"
             className="border p-2 rounded w-full text-sm"
+            value={newItemName}
+            onChange={(e) => setNewItemName(e.target.value)}
             required
           />
           <button
