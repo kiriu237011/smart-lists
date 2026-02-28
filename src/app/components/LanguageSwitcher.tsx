@@ -27,11 +27,9 @@ function Flag({ code, size = 20 }: { code: string; size?: number }) {
   return (
     <img
       src={`https://flagcdn.com/${code}.svg`}
-      width={size}
-      height={size * 0.75}
       alt={code.toUpperCase()}
-      className="rounded-sm object-cover"
-      style={{ width: size, height: size * 0.75 }}
+      className="rounded-sm object-contain flex-shrink-0"
+      style={{ width: size, height: Math.round(size * 0.75), minWidth: size }}
     />
   );
 }
