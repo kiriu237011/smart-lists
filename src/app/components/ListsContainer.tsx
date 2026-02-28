@@ -1,3 +1,29 @@
+/**
+ * @file ListsContainer.tsx
+ * @description Контейнер всех списков покупок пользователя.
+ *
+ * Client Component (`"use client"`).
+ *
+ * Это главный клиентский компонент приложения. Он:
+ *   - Отображает все списки покупок (свои и расшаренные).
+ *   - Содержит форму создания нового списка (`CreateListForm`).
+ *   - Управляет оптимистичным состоянием списков через `useOptimistic`.
+ *   - Реализует модальное окно подтверждения удаления.
+ *
+ * Оптимистичные обновления (`useOptimistic`):
+ *   Список обновляется МГНОВЕННО на клиенте, не дожидаясь ответа сервера.
+ *   Если Server Action вернул ошибку — изменение откатывается.
+ *
+ * Поддерживаемые действия reducer:
+ *   - `add`     — добавить новый список (используется при создании).
+ *   - `delete`  — удалить список по id.
+ *   - `restore` — восстановить список на исходную позицию (откат удаления).
+ *   - `replace` — заменить оптимистичный список реальным (после ответа сервера).
+ *
+ * Удаление через модальное окно:
+ *   Клик на ✕ → модал → подтверждение/отмена (или Esc/Enter с клавиатуры).
+ */
+
 "use client";
 
 import {
@@ -12,23 +38,27 @@ import ShoppingList from "@/app/components/ShoppingList";
 import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
 
+/** Пользователь, которому предоставлен доступ к списку. */
 type SharedUser = {
   id: string;
   name: string | null;
   email: string | null;
 };
 
+/** Данные о владельце списка. */
 type ListOwner = {
   name: string | null;
   email: string;
 };
 
+/** Товар внутри списка покупок. */
 type Item = {
   id: string;
   name: string;
   isCompleted: boolean;
 };
 
+/** Полные данные списка покупок (включая связанные сущности). */
 type ShoppingListData = {
   id: string;
   title: string;
@@ -38,24 +68,52 @@ type ShoppingListData = {
   sharedWith: SharedUser[];
 };
 
+/** Пропсы компонента `ListsContainer`. */
 type ListsContainerProps = {
+  /** Все списки, доступные пользователю (свои + расшаренные). Загружаются на сервере. */
   allLists: ShoppingListData[];
+  /** ID текущего авторизованного пользователя. Используется для проверки прав. */
   currentUserId: string;
+  /** Имя текущего пользователя (для оптимистичного placeholder нового списка). */
   currentUserName: string | null;
+  /** Email текущего пользователя (аналогично). */
   currentUserEmail: string;
 };
 
+/**
+ * Главный контейнер списков покупок.
+ *
+ * @param allLists - Начальные данные со всеми доступными списками.
+ * @param currentUserId - ID авторизованного пользователя.
+ * @param currentUserName - Имя авторизованного пользователя.
+ * @param currentUserEmail - Email авторизованного пользователя.
+ */
 export default function ListsContainer({
   allLists,
   currentUserId,
   currentUserName,
   currentUserEmail,
 }: ListsContainerProps) {
+  /**
+   * Список, ожидающий подтверждения удаления.
+   * `null` означает, что модальное окно закрыто.
+   */
   const [listToDelete, setListToDelete] = useState<ShoppingListData | null>(
     null,
   );
+
+  /** Флаг ожидания ответа сервера при удалении. Блокирует повторные запросы. */
   const [isDeleting, setIsDeleting] = useState(false);
 
+  /**
+   * Оптимистичный список всех списков покупок.
+   *
+   * Reducer обрабатывает 4 действия:
+   *   - `add`     — добавляет список в начало массива (с защитой от дублей).
+   *   - `delete`  — удаляет список по id.
+   *   - `restore` — возвращает список на исходную позицию при откате удаления.
+   *   - `replace` — заменяет временный список (temp-*) реальным из ответа сервера.
+   */
   const [optimisticLists, setOptimisticLists] = useOptimistic(
     allLists,
     (
@@ -76,42 +134,59 @@ export default function ListsContainer({
             return state;
           }
           return [list, ...state];
+
         case "delete":
           if (!listId) {
             return state;
           }
           return state.filter((item) => item.id !== listId);
+
         case "restore":
           if (!list || !listId || state.some((item) => item.id === list.id)) {
             return state;
           }
-
-          // Возвращаем список на исходную позицию, если удаление не удалось
+          // Ищем исходную позицию в немутированном `allLists`
           const originalIndex = allLists.findIndex(
             (item) => item.id === listId,
           );
           if (originalIndex < 0) {
-            return [...state, list];
+            return [...state, list]; // Не нашли позицию — добавляем в конец
           }
-
           const nextState = [...state];
           nextState.splice(originalIndex, 0, list);
           return nextState;
+
         case "replace":
           if (!list || !listId) {
             return state;
           }
-
           return state.map((item) => (item.id === listId ? list : item));
+
         default:
           return state;
       }
     },
   );
 
+  /**
+   * Обработчик создания нового списка.
+   *
+   * Передаётся в `CreateListForm` как колбэк.
+   * Выполняет полный цикл оптимистичного обновления:
+   *   1. Генерирует временный ID и создаёт placeholder-список.
+   *   2. Немедленно добавляет его в UI через `setOptimisticLists`.
+   *   3. Вызывает Server Action `createList`.
+   *   4. При успехе — заменяет placeholder реальным объектом из БД.
+   *   5. При ошибке — удаляет placeholder и показывает alert.
+   *
+   * @param title - Название нового списка (уже нормализованное).
+   * @returns `{ success: boolean }` для `CreateListForm`.
+   */
   const handleCreateList = useCallback(
     async (title: string) => {
       const tempListId = `temp-${crypto.randomUUID()}`;
+
+      // Оптимистичный объект с временным ID и данными текущего пользователя
       const optimisticList: ShoppingListData = {
         id: tempListId,
         title,
@@ -148,6 +223,7 @@ export default function ListsContainer({
         return { success: false };
       }
 
+      // Заменяем временный список реальным объектом из БД
       startTransition(() => {
         setOptimisticLists({
           action: "replace",
@@ -161,6 +237,12 @@ export default function ListsContainer({
     [currentUserEmail, currentUserId, currentUserName, setOptimisticLists],
   );
 
+  /**
+   * Обработчик подтверждения удаления списка.
+   *
+   * Вызывается из модального окна подтверждения или по нажатию Enter.
+   * Выполняет оптимистичное удаление с откатом при ошибке.
+   */
   const handleConfirmDelete = useCallback(async () => {
     if (!listToDelete) {
       return;
@@ -168,7 +250,9 @@ export default function ListsContainer({
 
     const list = listToDelete;
     setIsDeleting(true);
-    setListToDelete(null);
+    setListToDelete(null); // Закрываем модал немедленно
+
+    // Оптимистично убираем список из UI
     startTransition(() => {
       setOptimisticLists({ action: "delete", listId: list.id });
     });
@@ -178,6 +262,7 @@ export default function ListsContainer({
     const result = await deleteList(formData);
 
     if (result && !result.success) {
+      // Откат: возвращаем список на исходную позицию
       startTransition(() => {
         setOptimisticLists({
           action: "restore",
@@ -191,6 +276,15 @@ export default function ListsContainer({
     setIsDeleting(false);
   }, [listToDelete, setOptimisticLists]);
 
+  /**
+   * Эффект: подписка на клавиатурные события при открытом модале.
+   *
+   * - `Escape` — закрывает модал без удаления.
+   * - `Enter`  — подтверждает удаление (если не идёт другое удаление).
+   *
+   * Подписка активна только пока `listToDelete !== null`.
+   * Отписка происходит автоматически при закрытии модала.
+   */
   useEffect(() => {
     if (!listToDelete) {
       return;
@@ -218,25 +312,31 @@ export default function ListsContainer({
 
   return (
     <>
+      {/* Блок создания нового списка */}
       <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-blue-100">
         <h3 className="text-lg font-semibold mb-3">Создать новый список 📝</h3>
         <CreateListForm onCreateList={handleCreateList} />
       </div>
 
+      {/* Лента всех списков */}
       <div className="space-y-6">
         {optimisticLists.map((list) => (
           <div
             key={list.id}
             className="border p-6 rounded-xl shadow-sm bg-white"
           >
+            {/* Индикатор ожидания для оптимистичного списка */}
             {list.id.startsWith("temp-") && (
               <div className="mb-3 text-xs text-blue-600 font-medium">
                 Создаём список...
               </div>
             )}
+
+            {/* Заголовок и кнопка удаления */}
             <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
               <h2 className="text-xl font-bold">{list.title}</h2>
 
+              {/* Кнопка удаления: только для владельца и только для реальных (не temp) списков */}
               {list.ownerId === currentUserId &&
                 !list.id.startsWith("temp-") && (
                   <button
@@ -251,14 +351,17 @@ export default function ListsContainer({
                 )}
             </div>
 
+            {/* Список товаров: рендерится только для реальных (не temp) списков */}
             {!list.id.startsWith("temp-") && (
               <ShoppingList items={list.items} listId={list.id} />
             )}
 
+            {/* Форма совместного доступа: только для владельца и только для реальных списков */}
             {list.ownerId === currentUserId && !list.id.startsWith("temp-") && (
               <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
             )}
 
+            {/* Подпись владельца: показывается, если текущий пользователь — не владелец */}
             {list.ownerId !== currentUserId && (
               <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-400">
                 Владелец: {list.owner.name || list.owner.email}
@@ -267,6 +370,7 @@ export default function ListsContainer({
           </div>
         ))}
 
+        {/* Сообщение о пустом состоянии */}
         {optimisticLists.length === 0 && (
           <div className="text-center py-10 border-2 border-dashed rounded-xl">
             <p className="text-gray-500">У вас пока нет списков.</p>
@@ -275,6 +379,12 @@ export default function ListsContainer({
         )}
       </div>
 
+      {/* -----------------------------------------------------------------------
+          Модальное окно подтверждения удаления.
+          Отображается только если listToDelete !== null.
+          Клик на фон (overlay) — закрыть без удаления.
+          Клик внутри модала — не закрывает (stopPropagation).
+      ----------------------------------------------------------------------- */}
       {listToDelete && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"

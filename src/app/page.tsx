@@ -1,12 +1,40 @@
+/**
+ * @file page.tsx
+ * @description Главная (и единственная) страница приложения Smart Shopping List.
+ *
+ * Это Server Component — он рендерится на сервере при каждом запросе. Это означает:
+ *   - Можно безопасно делать запросы к БД напрямую (без API-роутов).
+ *   - Данные не утекают на клиент (Prisma Client-код невидим браузеру).
+ *   - Страница доступна по маршруту `/` (корень приложения).
+ *
+ * Логика страницы:
+ *   1. Читаем сессию через `auth()`.
+ *   2. Если пользователь НЕ авторизован → показываем экран входа.
+ *   3. Если пользователь авторизован → загружаем его списки из БД
+ *      и передаём в клиентский компонент `ListsContainer`.
+ */
+
 import prisma from "@/lib/db";
-import { auth, signIn, signOut } from "@/auth"; // <--- Импортируем магию Auth.js
+import { auth, signIn, signOut } from "@/auth";
 import ListsContainer from "@/app/components/ListsContainer";
 
+/**
+ * Компонент главной страницы.
+ *
+ * Server Component: рендерится на сервере, имеет доступ к БД и сессии.
+ *
+ * @returns JSX-разметка в зависимости от статуса авторизации:
+ *   - Экран входа через Google — для гостей.
+ *   - Список покупок с профилем — для авторизованных пользователей.
+ */
 export default async function Home() {
-  // 1. Проверяем сессию (кто зашел?)
+  // Получаем текущую сессию. Если пользователь не залогинен — session равна null.
   const session = await auth();
 
-  // --- СЦЕНАРИЙ 1: ГОСТЬ (Не залогинен) ---
+  // -----------------------------------------------------------------------
+  // СЦЕНАРИЙ 1: ГОСТЬ (не залогинен)
+  // Показываем лендинг с кнопкой входа через Google.
+  // -----------------------------------------------------------------------
   if (!session || !session.user || !session.user.id) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-6 sm:p-24">
@@ -17,15 +45,19 @@ export default async function Home() {
           Войдите, чтобы сохранять свои списки
         </p>
 
-        {/* Кнопка Входа (Server Action внутри формы) */}
+        {/*
+         * Кнопка входа через Google.
+         * Используется Server Action: директива "use server" внутри action-атрибута формы
+         * позволяет вызвать серверную функцию signIn прямо из JSX.
+         */}
         <form
           action={async () => {
-            "use server"; // Говорим Next.js, что это серверный код
-            await signIn("google"); // Перенаправляем на Google
+            "use server";
+            await signIn("google"); // Перенаправляем на страницу авторизации Google
           }}
         >
           <button className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition shadow-lg flex items-center gap-2">
-            {/* Иконка Google (SVG) для красоты */}
+            {/* SVG-иконка логотипа Google */}
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
               <path
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -51,30 +83,39 @@ export default async function Home() {
     );
   }
 
-  // --- СЦЕНАРИЙ 2: ПОЛЬЗОВАТЕЛЬ (Залогинен) ---
+  // -----------------------------------------------------------------------
+  // СЦЕНАРИЙ 2: АВТОРИЗОВАННЫЙ ПОЛЬЗОВАТЕЛЬ
+  // Загружаем списки и показываем интерфейс приложения.
+  // -----------------------------------------------------------------------
 
-  // 2. Загружаем списки ТОЛЬКО ЭТОГО пользователя
+  /**
+   * Загружаем все списки, доступные текущему пользователю:
+   * - Списки, где пользователь является владельцем (ownerId === session.user.id).
+   * - Списки, к которым пользователю предоставили совместный доступ (sharedWith).
+   *
+   * `include` подгружает связанные записи из других таблиц одним SQL-запросом (JOIN).
+   */
   const allLists = await prisma.shoppingList.findMany({
     where: {
       OR: [
         { ownerId: session.user.id }, // Я владелец
-        { sharedWith: { some: { id: session.user.id } } }, // ИЛИ я есть среди "sharedWith"
+        { sharedWith: { some: { id: session.user.id } } }, // Мне предоставлен доступ
       ],
     },
     include: {
       items: {
         orderBy: {
-          createdAt: "asc", // Сортировка по дате добавления (от старых к новым)
+          createdAt: "asc", // Товары отсортированы от старых к новым
         },
       },
-      owner: true, // <--- Добавим это, чтобы видеть, кто создал список (если это не я)
-      sharedWith: true, // <--- И это, чтобы видеть, кто уже имеет доступ
+      owner: true, // Информация о владельце (для отображения "Создано: X")
+      sharedWith: true, // Список пользователей с доступом (для блока "Поделиться")
     },
   });
 
   return (
     <main className="p-4 sm:p-10 max-w-xl mx-auto">
-      {/* Шапка с профилем */}
+      {/* Шапка: имя пользователя, email и кнопка выхода */}
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-2xl font-bold">
@@ -83,7 +124,10 @@ export default async function Home() {
           <p className="text-gray-500 text-sm">{session.user.email}</p>
         </div>
 
-        {/* Кнопка Выхода */}
+        {/*
+         * Кнопка выхода из системы.
+         * Аналогично кнопке входа — используется Server Action внутри формы.
+         */}
         <form
           action={async () => {
             "use server";
@@ -96,7 +140,11 @@ export default async function Home() {
         </form>
       </div>
 
-      {/* --- Тут всё по-старому: Вывод списков --- */}
+      {/*
+       * Клиентский компонент со всеми списками.
+       * Принимает начальные данные с сервера и сам управляет
+       * оптимистичными обновлениями на клиенте.
+       */}
       <ListsContainer
         allLists={allLists}
         currentUserId={session.user.id}

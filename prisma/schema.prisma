@@ -1,32 +1,64 @@
+// =============================================================================
+// Конфигурация генератора Prisma Client
+// =============================================================================
+
+/// Генератор создаёт TypeScript-клиент (`@prisma/client`) на основе этой схемы.
+/// Запускается командой: `npx prisma generate`
 generator client {
   provider = "prisma-client-js"
 }
 
+// =============================================================================
+// Источник данных (PostgreSQL)
+// =============================================================================
+
+/// Подключение к базе данных PostgreSQL.
+/// URL хранится в переменной окружения DATABASE_URL (файл .env.local).
+/// Формат: postgresql://USER:PASSWORD@HOST:PORT/DATABASE
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// --- AUTH.JS MODELS (Нужны для работы библиотеки) ---
+// =============================================================================
+// МОДЕЛИ AUTH.JS
+// Эти модели требуются библиотекой Auth.js (NextAuth v5) и управляются
+// автоматически через PrismaAdapter. Не удалять и не переименовывать поля!
+// =============================================================================
 
+/// Пользователь приложения.
+/// Создаётся Auth.js автоматически при первом входе через Google.
+/// Мы расширили модель двумя полями для бизнес-логики (`myLists`, `sharedLists`).
 model User {
   id            String          @id @default(cuid())
   name          String?
   email         String          @unique
   emailVerified DateTime?
   image         String?
+
+  /// Связанные OAuth-аккаунты пользователя (например, Google).
   accounts      Account[]
+
+  /// Активные сессии пользователя.
   sessions      Session[]
-  
-    // --- НАШИ ДОБАВЛЕНИЯ ---
-  myLists       ShoppingList[]  @relation("Owner") // Списки, которые я создал
-  sharedLists   ShoppingList[]  @relation("Shared") // Списки, куда меня пригласили
-  // -----------------------
+
+  // -------------------------------------------------------------------------
+  // Наши бизнес-поля (добавлены поверх базовой схемы Auth.js)
+  // -------------------------------------------------------------------------
+
+  /// Списки покупок, созданные этим пользователем (он — владелец).
+  myLists       ShoppingList[]  @relation("Owner")
+
+  /// Списки покупок, к которым пользователь имеет доступ по приглашению.
+  sharedLists   ShoppingList[]  @relation("Shared")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
 
+/// OAuth-аккаунт, привязанный к пользователю.
+/// Хранит токены доступа от провайдера (Google и т.д.).
+/// Составной первичный ключ: provider + providerAccountId.
 model Account {
   userId            String
   type              String
@@ -48,6 +80,8 @@ model Account {
   @@id([provider, providerAccountId])
 }
 
+/// Сессия пользователя, управляемая Auth.js.
+/// Хранит токен сессии в cookie. Автоматически удаляется по истечении `expires`.
 model Session {
   sessionToken String   @unique
   userId       String
@@ -58,6 +92,8 @@ model Session {
   updatedAt DateTime @updatedAt
 }
 
+/// Токен для верификации email (используется при passwordless-входе).
+/// В текущей реализации не применяется (вход только через Google).
 model VerificationToken {
   identifier String
   token      String
@@ -66,34 +102,58 @@ model VerificationToken {
   @@id([identifier, token])
 }
 
-// --- НАШИ БИЗНЕС МОДЕЛИ ---
+// =============================================================================
+// БИЗНЕС-МОДЕЛИ ПРИЛОЖЕНИЯ
+// =============================================================================
 
+/// Список покупок.
+/// Может принадлежать одному владельцу и быть общим для нескольких пользователей.
 model ShoppingList {
   id        String   @id @default(cuid())
   title     String
-  color     String   @default("blue") // Цвет иконки списка (для красоты)
+
+  /// Цвет иконки списка (зарезервировано для будущей функциональности).
+  color     String   @default("blue")
   
-  // Связь: Кто владелец?
+  // ---- Связь "Владелец" (Many-to-One) ----
+
+  /// ID пользователя-владельца. Используется для проверки прав в Server Actions.
   ownerId   String
+
+  /// Объект владельца. Каскадное удаление: при удалении пользователя его списки тоже удаляются.
   owner     User     @relation("Owner", fields: [ownerId], references: [id], onDelete: Cascade)
 
-  // Связь: Товары внутри списка
+  // ---- Связь "Товары" (One-to-Many) ----
+
+  /// Товары, входящие в этот список.
   items     Item[]
 
-  // Связь: С кем поделен список (Many-to-Many)
+  // ---- Связь "Общий доступ" (Many-to-Many) ----
+
+  /// Пользователи, которые имеют доступ к списку по приглашению (не владельцы).
+  /// Prisma автоматически создаёт таблицу-связку для этого отношения.
   sharedWith User[] @relation("Shared")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
+/// Товар внутри списка покупок.
 model Item {
   id          String       @id @default(cuid())
+
+  /// Название товара (например, "Молоко 1л").
   name        String
-  isCompleted Boolean      @default(false) // Куплено или нет?
+
+  /// Статус покупки: false — не куплен, true — куплен (зачёркнут в UI).
+  isCompleted Boolean      @default(false)
   
-  // Связь: К какому списку принадлежит
+  // ---- Связь с ShoppingList (Many-to-One) ----
+
+  /// ID списка, которому принадлежит товар.
   listId      String
+
+  /// Родительский список. Каскадное удаление: при удалении списка все его товары тоже удаляются.
   list        ShoppingList @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   createdAt   DateTime     @default(now())
