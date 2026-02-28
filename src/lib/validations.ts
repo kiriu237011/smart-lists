@@ -102,3 +102,14 @@ export const shareListSchema = z.object({
    */
   email: z.string().trim().pipe(z.email("Введите корректный email")),
 });
+
+/**
+ * Схема для удаления пользователя из совместного доступа к списку.
+ * Используется в Server Action `removeSharedUser`.
+ */
+export const removeSharedUserSchema = z.object({
+  /** ID списка, из которого убирают доступ. */
+  listId: z.string(),
+  /** ID пользователя, которого убирают из доступа. */
+  userId: z.string(),
+});

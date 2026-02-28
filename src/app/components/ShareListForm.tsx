@@ -22,7 +22,7 @@
 "use client";
 
 import { startTransition, useOptimistic, useState } from "react";
-import { shareList } from "@/app/actions";
+import { removeSharedUser, shareList } from "@/app/actions";
 
 /** Пользователь, имеющий доступ к списку. */
 type SharedUser = {
@@ -149,10 +149,44 @@ export default function ShareListForm({
           {optimisticSharedWith.map((user) => (
             <span
               key={user.id}
-              className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
+              className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
             >
               {/* Показываем имя, если есть; иначе email */}
               {user.name || user.email}
+
+              {/* Кнопка удаления пользователя из доступа */}
+              <button
+                type="button"
+                disabled={user.id.startsWith("temp-")}
+                title={
+                  user.id.startsWith("temp-")
+                    ? "Сохраняется..."
+                    : `Удалить доступ для ${user.name || user.email}`
+                }
+                className="ml-1 text-blue-500 hover:text-red-600 font-bold leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={async () => {
+                  // 1. Оптимистично убираем пользователя из списка
+                  startTransition(() => {
+                    setOptimisticSharedWith({ action: "remove", user });
+                  });
+
+                  // 2. Отправляем запрос на сервер
+                  const formData = new FormData();
+                  formData.set("listId", listId);
+                  formData.set("userId", user.id);
+                  const result = await removeSharedUser(formData);
+
+                  // 3. Откат при ошибке
+                  if (result && !result.success) {
+                    startTransition(() => {
+                      setOptimisticSharedWith({ action: "add", user });
+                    });
+                    alert(result.error || "Не удалось убрать доступ");
+                  }
+                }}
+              >
+                ✕
+              </button>
             </span>
           ))}
         </div>

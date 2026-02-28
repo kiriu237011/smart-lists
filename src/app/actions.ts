@@ -29,6 +29,7 @@ import {
   createListSchema,
   deleteListSchema,
   shareListSchema,
+  removeSharedUserSchema,
 } from "@/lib/validations";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
@@ -361,5 +362,54 @@ export async function shareList(formData: FormData) {
       success: false,
       error: "Не удалось предоставить доступ",
     };
+  }
+}
+
+/**
+ * Убирает пользователя из совместного доступа к списку.
+ *
+ * Защита: `update` с условием `ownerId === session.user.id` гарантирует,
+ * что только владелец может отзывать доступ.
+ *
+ * @param formData - FormData с полями:
+ *   - `listId` {string} — ID списка.
+ *   - `userId` {string} — ID пользователя, которого убирают.
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function removeSharedUser(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = {
+      listId: formData.get("listId"),
+      userId: formData.get("userId"),
+    };
+
+    const result = removeSharedUserSchema.safeParse(rawData);
+    if (!result.success) {
+      return { success: false, error: "Неверные данные" };
+    }
+
+    // `disconnect` убирает связь в Many-to-Many без удаления самого пользователя
+    await prisma.shoppingList.update({
+      where: {
+        id: result.data.listId,
+        ownerId: session.user.id, // Только владелец может отзывать доступ
+      },
+      data: {
+        sharedWith: {
+          disconnect: { id: result.data.userId },
+        },
+      },
+    });
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при удалении доступа:", error);
+    return { success: false, error: "Не удалось убрать доступ" };
   }
 }
