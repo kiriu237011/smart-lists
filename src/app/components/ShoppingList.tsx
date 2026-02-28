@@ -322,59 +322,63 @@ export default function ShoppingList({
                     </button>
                   </form>
 
-                  {/* Название товара (или поле редактирования) */}
-                  {!isPending && editingItemId === item.id ? (
-                    <input
-                      autoFocus
-                      value={editItemName}
-                      maxLength={100}
-                      onChange={(e) => setEditItemName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
+                  {/* Название товара (или поле редактирования) + "Сохраняется..." */}
+                  <div className="flex-1 min-w-0 flex items-center gap-1">
+                    {!isPending && editingItemId === item.id ? (
+                      <input
+                        autoFocus
+                        value={editItemName}
+                        maxLength={100}
+                        onChange={(e) => setEditItemName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleConfirmItemRename(item);
+                          }
+                          if (e.key === "Escape") {
+                            skipItemBlurRef.current = true;
+                            setEditingItemId(null);
+                          }
+                        }}
+                        onBlur={() => {
+                          if (skipItemBlurRef.current) {
+                            skipItemBlurRef.current = false;
+                            return;
+                          }
                           void handleConfirmItemRename(item);
+                        }}
+                        className="text-sm border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition w-full min-w-0"
+                      />
+                    ) : (
+                      <span
+                        className={
+                          isPending
+                            ? "text-gray-400 italic text-sm"
+                            : item.isCompleted
+                              ? "line-through text-gray-400"
+                              : ""
                         }
-                        if (e.key === "Escape") {
-                          skipItemBlurRef.current = true;
-                          setEditingItemId(null);
-                        }
-                      }}
-                      onBlur={() => {
-                        if (skipItemBlurRef.current) {
-                          skipItemBlurRef.current = false;
-                          return;
-                        }
-                        void handleConfirmItemRename(item);
-                      }}
-                      className="text-sm border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition w-full min-w-0"
-                    />
-                  ) : (
-                    <span
-                      className={
-                        isPending
-                          ? "text-gray-400 italic text-sm"
-                          : item.isCompleted
-                            ? "line-through text-gray-400"
-                            : ""
-                      }
-                    >
-                      {item.name}
-                    </span>
-                  )}
+                      >
+                        {item.name}
+                      </span>
+                    )}
 
-                  {/* Надпись "Сохраняется..." для ожидающего товара */}
-                  {isPending && (
-                    <span className="text-gray-400 text-xs">
-                      Сохраняется...
-                    </span>
-                  )}
+                    {/* Надпись "Сохраняется..." для ожидающего товара */}
+                    {isPending && (
+                      <span className="text-gray-400 text-xs">
+                        Сохраняется...
+                      </span>
+                    )}
+                  </div>
 
-                  {/* Автор товара: показываем только если список расшарен и автор известен */}
+                  {/* Автор товара: всегда у правого края левой части строки */}
                   {!isPending && sharedUsersCount > 0 && item.addedBy && (
-                    <span className="text-gray-400 text-xs ml-1">
-                      ({item.addedBy.id === currentUserId
+                    <span className="text-gray-400 text-xs shrink-0">
+                      (
+                      {item.addedBy.id === currentUserId
                         ? "Вы"
-                        : item.addedBy.name || item.addedBy.email})
+                        : item.addedBy.name || item.addedBy.email}
+                      )
                     </span>
                   )}
                 </div>
