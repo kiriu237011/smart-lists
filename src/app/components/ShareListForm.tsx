@@ -81,6 +81,9 @@ export default function ShareListForm({
   /** Текущее значение поля email. */
   const [email, setEmail] = useState("");
 
+  /** Открыта ли форма приглашения. */
+  const [isOpen, setIsOpen] = useState(false);
+
   /**
    * Обработчик отправки формы приглашения.
    *
@@ -139,9 +142,18 @@ export default function ShareListForm({
 
   return (
     <div className="mt-4 pt-4 border-t border-gray-100">
-      <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase">
-        Поделиться списком:
-      </h4>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase mb-2 hover:text-gray-700 transition-colors"
+      >
+        Поделиться списком
+        <span
+          className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+        >
+          ▾
+        </span>
+      </button>
 
       {/* Бейджи пользователей, уже имеющих доступ */}
       {optimisticSharedWith.length > 0 && (
@@ -192,26 +204,28 @@ export default function ShareListForm({
         </div>
       )}
 
-      {/* Форма приглашения по email */}
-      <form onSubmit={handleSubmit} className="flex gap-2 mt-3">
-        {/* Скрытое поле с ID списка — передаётся в Server Action */}
-        <input type="hidden" name="listId" value={listId} />
-        <input
-          name="email"
-          type="email"
-          placeholder="Email друга..."
-          className="border p-1 rounded text-xs flex-1"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-        />
-        <button
-          type="submit"
-          className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
-        >
-          Пригласить
-        </button>
-      </form>
+      {/* Форма приглашения по email — скрыта до нажатия на кнопку */}
+      {isOpen && (
+        <form onSubmit={handleSubmit} className="flex gap-2 mt-3">
+          {/* Скрытое поле с ID списка — передаётся в Server Action */}
+          <input type="hidden" name="listId" value={listId} />
+          <input
+            name="email"
+            type="email"
+            placeholder="Email друга..."
+            className="border p-1 rounded text-xs flex-1"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+          <button
+            type="submit"
+            className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
+          >
+            Пригласить
+          </button>
+        </form>
+      )}
     </div>
   );
 }
