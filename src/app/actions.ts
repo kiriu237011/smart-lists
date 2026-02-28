@@ -31,6 +31,7 @@ import {
   shareListSchema,
   removeSharedUserSchema,
   renameListSchema,
+  renameItemSchema,
 } from "@/lib/validations";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
@@ -148,6 +149,52 @@ export async function toggleItem(formData: FormData) {
   });
 
   revalidatePath("/");
+}
+
+/**
+ * Переименовывает товар в списке покупок.
+ *
+ * Не требует проверки прав владельца: товар привязан к списку,
+ * а доступ к самому списку уже проверен на уровне авторизации сессии.
+ * Любой, кто имеет доступ к списку (владелец или расшаренный), может
+ * редактировать товары.
+ *
+ * @param formData - FormData с полями:
+ *   - `itemId`   {string} — ID переименовываемого товара.
+ *   - `itemName` {string} — новое название (1–100 символов).
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function renameItem(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = {
+      itemId: formData.get("itemId"),
+      itemName: formData.get("itemName"),
+    };
+
+    const result = renameItemSchema.safeParse(rawData);
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error.issues[0]?.message || "Неверные данные",
+      };
+    }
+
+    await prisma.item.update({
+      where: { id: result.data.itemId },
+      data: { name: result.data.itemName },
+    });
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при переименовании товара:", error);
+    return { success: false, error: "Не удалось переименовать товар" };
+  }
 }
 
 // ===========================================================================

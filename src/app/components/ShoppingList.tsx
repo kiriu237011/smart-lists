@@ -24,8 +24,8 @@
 
 "use client";
 
-import { useOptimistic, useRef } from "react";
-import { addItem, deleteItem, toggleItem } from "@/app/actions";
+import { startTransition, useOptimistic, useRef, useState } from "react";
+import { addItem, deleteItem, toggleItem, renameItem } from "@/app/actions";
 
 // ---------------------------------------------------------------------------
 // Типы данных
@@ -78,7 +78,7 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
         itemId,
         itemName,
       }: {
-        action: "toggle" | "delete" | "add";
+        action: "toggle" | "delete" | "add" | "rename";
         itemId: string;
         itemName?: string;
       },
@@ -96,11 +96,17 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
           return [
             ...state,
             {
-              id: itemId, // Временный ID вида "temp-<timestamp>"
+              id: itemId,
               name: itemName || "",
               isCompleted: false,
             },
           ];
+        case "rename":
+          return state.map((item) =>
+            item.id === itemId
+              ? { ...item, name: itemName || item.name }
+              : item,
+          );
         default:
           return state;
       }
@@ -118,6 +124,60 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
    * Используется для возврата значения при откате (если сервер вернул ошибку).
    */
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /** ID товара, название которого сейчас редактируется. */
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+
+  /** Текущее значение поля ввода при редактировании товара. */
+  const [editItemName, setEditItemName] = useState("");
+
+  /** Защита от двойного вызова rename (Enter → blur). */
+  const processingItemRenameRef = useRef(false);
+
+  /** Сигнал для игнорирования blur при нажатии Escape. */
+  const skipItemBlurRef = useRef(false);
+
+  /**
+   * Подтверждает переименование товара.
+   * Вызывается при Enter или blur.
+   */
+  const handleConfirmItemRename = async (item: Item) => {
+    if (processingItemRenameRef.current) return;
+    processingItemRenameRef.current = true;
+
+    try {
+      const trimmedName = editItemName.trim();
+      setEditingItemId(null);
+
+      if (!trimmedName || trimmedName === item.name) return;
+
+      startTransition(() => {
+        setOptimisticItems({
+          action: "rename",
+          itemId: item.id,
+          itemName: trimmedName,
+        });
+      });
+
+      const formData = new FormData();
+      formData.append("itemId", item.id);
+      formData.append("itemName", trimmedName);
+      const result = await renameItem(formData);
+
+      if (result && !result.success) {
+        startTransition(() => {
+          setOptimisticItems({
+            action: "rename",
+            itemId: item.id,
+            itemName: item.name,
+          });
+        });
+        alert(result.error || "Не удалось переименовать товар");
+      }
+    } finally {
+      processingItemRenameRef.current = false;
+    }
+  };
 
   return (
     <div>
@@ -139,7 +199,7 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
                 isPending ? "bg-gray-100 opacity-60" : "bg-gray-50"
               }`}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
                 {/* Кнопка переключения статуса (чекбокс) */}
                 <form
                   action={async () => {
@@ -178,18 +238,45 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
                   </button>
                 </form>
 
-                {/* Название товара */}
-                <span
-                  className={
-                    isPending
-                      ? "text-gray-400 italic text-sm"
-                      : item.isCompleted
-                        ? "line-through text-gray-400"
-                        : ""
-                  }
-                >
-                  {item.name}
-                </span>
+                {/* Название товара (или поле редактирования) */}
+                {!isPending && editingItemId === item.id ? (
+                  <input
+                    autoFocus
+                    value={editItemName}
+                    maxLength={100}
+                    onChange={(e) => setEditItemName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleConfirmItemRename(item);
+                      }
+                      if (e.key === "Escape") {
+                        skipItemBlurRef.current = true;
+                        setEditingItemId(null);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (skipItemBlurRef.current) {
+                        skipItemBlurRef.current = false;
+                        return;
+                      }
+                      void handleConfirmItemRename(item);
+                    }}
+                    className="text-sm border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition w-full min-w-0"
+                  />
+                ) : (
+                  <span
+                    className={
+                      isPending
+                        ? "text-gray-400 italic text-sm"
+                        : item.isCompleted
+                          ? "line-through text-gray-400"
+                          : ""
+                    }
+                  >
+                    {item.name}
+                  </span>
+                )}
 
                 {/* Надпись "Сохраняется..." для ожидающего товара */}
                 {isPending && (
@@ -197,31 +284,48 @@ export default function ShoppingList({ items, listId }: ShoppingListProps) {
                 )}
               </div>
 
-              {/* Кнопка удаления товара */}
-              <form
-                action={async () => {
-                  // 1. Мгновенно убираем товар из UI
-                  setOptimisticItems({ action: "delete", itemId: item.id });
+              <div className="flex items-center gap-1">
+                {/* Кнопка переименования товара */}
+                {!isPending && editingItemId !== item.id && (
+                  <button
+                    type="button"
+                    aria-label={`Переименовать товар ${item.name}`}
+                    onClick={() => {
+                      setEditingItemId(item.id);
+                      setEditItemName(item.name);
+                    }}
+                    className="text-gray-400 hover:text-blue-500 text-sm px-1 py-1 leading-none transition-colors"
+                  >
+                    ✎
+                  </button>
+                )}
 
-                  // 2. Удаляем из БД в фоне
-                  const formData = new FormData();
-                  formData.append("itemId", item.id);
-                  await deleteItem(formData);
-                }}
-              >
-                <button
-                  type="submit"
-                  disabled={isPending}
-                  title={isPending ? "Сохраняется..." : undefined}
-                  className={`text-xs font-bold px-2 py-1 transition-colors ${
-                    isPending
-                      ? "text-gray-300 cursor-not-allowed"
-                      : "text-red-500 hover:text-red-700"
-                  }`}
+                {/* Кнопка удаления товара */}
+                <form
+                  action={async () => {
+                    // 1. Мгновенно убираем товар из UI
+                    setOptimisticItems({ action: "delete", itemId: item.id });
+
+                    // 2. Удаляем из БД в фоне
+                    const formData = new FormData();
+                    formData.append("itemId", item.id);
+                    await deleteItem(formData);
+                  }}
                 >
-                  ✕
-                </button>
-              </form>
+                  <button
+                    type="submit"
+                    disabled={isPending}
+                    title={isPending ? "Сохраняется..." : undefined}
+                    className={`text-xs font-bold px-2 py-1 transition-colors ${
+                      isPending
+                        ? "text-gray-300 cursor-not-allowed"
+                        : "text-red-500 hover:text-red-700"
+                    }`}
+                  >
+                    ✕
+                  </button>
+                </form>
+              </div>
             </li>
           );
         })}
