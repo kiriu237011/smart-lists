@@ -57,7 +57,7 @@ type ListOwner = {
   email: string;
 };
 
-/** Товар внутри списка покупок. */
+/** Запись внутри списка. */
 type Item = {
   id: string;
   name: string;
@@ -121,7 +121,7 @@ export default function ListsContainer({
   /** Флаг ожидания ответа сервера при выходе из расшаренного списка. */
   const [isLeaving, setIsLeaving] = useState(false);
 
-  /** Глобальный флаг отображения авторов товаров. Сохраняется в localStorage. */
+  /** Глобальный флаг отображения авторов записей. Сохраняется в localStorage. */
   const [showAuthors, setShowAuthors] = useState<boolean>(false);
 
   // Читаем сохранённое значение из localStorage только после гидрации,
@@ -508,7 +508,7 @@ export default function ListsContainer({
           />
         </button>
         <span className="text-xs text-gray-400">
-          Показывать авторов товаров
+          Показывать авторов записей
         </span>
       </div>
 
@@ -588,7 +588,7 @@ export default function ListsContainer({
                 )}
             </div>
 
-            {/* Список товаров: рендерится только для реальных (не temp) списков */}
+            {/* Список записей: рендерится только для реальных (не temp) списков */}
             {!list.id.startsWith("temp-") && (
               <ShoppingList
                 items={list.items}
@@ -689,7 +689,8 @@ export default function ListsContainer({
           >
             <h3 className="text-lg font-semibold mb-2">Удалить список?</h3>
             <p className="text-sm text-gray-600 mb-5">
-              Вы действительно хотите удалить список «{listToDelete.title}»?
+              Вы действительно хотите удалить список «{listToDelete.title}»? Это
+              действие нельзя будет отменить, и все его записи будут потеряны.
             </p>
             <div className="flex justify-end gap-2">
               <button

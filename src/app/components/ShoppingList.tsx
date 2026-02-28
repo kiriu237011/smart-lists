@@ -4,21 +4,21 @@
  *
  * Client Component (`"use client"`).
  *
- * Отображает список товаров и форму добавления нового товара.
+ * Отображает список записей и форму добавления новой записи.
  * Все три операции (добавление, удаление, переключение статуса) реализованы
  * с оптимистичным обновлением: UI меняется МГНОВЕННО, а запрос к серверу
  * выполняется в фоне.
  *
  * Паттерн "оптимистичный ID":
- *   При добавлении товар получает временный ID `temp-<timestamp>`.
- *   Пока товар имеет такой ID, он визуально помечается как "сохраняется":
+ *   При добавлении запись получает временный ID `temp-<timestamp>`.
+ *   Пока запись имеет такой ID, она визуально помечается как "сохраняется":
  *     - Полупрозрачность (opacity-60)
  *     - Анимированный спиннер вместо чекбокса
  *     - Надпись "Сохраняется..." рядом с названием
- *   После ответа сервера `revalidatePath("/")` заменяет временный товар реальным.
+ *   После ответа сервера `revalidatePath("/")` заменяет временную запись реальной.
  *
  * Откат при ошибке (только для addItem):
- *   Если сервер вернул ошибку — временный товар удаляется из UI,
+ *   Если сервер вернул ошибку — временная запись удаляется из UI,
  *   а введённое название возвращается в поле ввода.
  */
 
@@ -38,20 +38,20 @@ import { addItem, deleteItem, toggleItem, renameItem } from "@/app/actions";
 // Типы данных
 // ---------------------------------------------------------------------------
 
-/** Один товар в списке покупок. */
+/** Одна запись в списке. */
 type Item = {
   id: string;
   name: string;
   isCompleted: boolean;
-  /** Пользователь, добавивший товар. null — для старых записей или temp-товаров. */
+  /** Пользователь, добавивший запись. null — для старых записей или temp-записей. */
   addedBy: { id: string; name: string | null; email: string } | null;
 };
 
 /** Пропсы компонента `ShoppingList`. */
 type ShoppingListProps = {
-  /** Начальные данные о товарах (загружаются с сервера). */
+  /** Начальные данные о записях (загружаются с сервера). */
   items: Item[];
-  /** ID списка покупок, которому принадлежат эти товары. */
+  /** ID списка, которому принадлежат эти записи. */
   listId: string;
   /** ID текущего пользователя (для отображения "Вы" вместо имени). */
   currentUserId: string;
@@ -68,10 +68,10 @@ type ShoppingListProps = {
 // ---------------------------------------------------------------------------
 
 /**
- * Компонент списка товаров с оптимистичными обновлениями.
+ * Компонент списка записей с оптимистичными обновлениями.
  *
- * @param items - Начальный массив товаров (с сервера).
- * @param listId - ID списка для привязки новых товаров.
+ * @param items - Начальный массив записей (с сервера).
+ * @param listId - ID списка для привязки новых записей.
  */
 export default function ShoppingList({
   items,
@@ -82,16 +82,16 @@ export default function ShoppingList({
   showAuthors,
 }: ShoppingListProps) {
   /**
-   * Оптимистичный массив товаров.
+   * Оптимистичный массив записей.
    *
    * `useOptimistic` принимает:
    *   - начальное состояние (`items` с сервера)
    *   - reducer-функцию, описывающую как изменить состояние локально
    *
    * Поддерживаемые действия:
-   *   - `toggle`  — инвертирует `isCompleted` у товара с заданным `itemId`.
-   *   - `delete`  — удаляет товар с заданным `itemId` из массива.
-   *   - `add`     — добавляет временный товар с `itemId` как временным ID.
+   *   - `toggle`  — инвертирует `isCompleted` у записи с заданным `itemId`.
+   *   - `delete`  — удаляет запись с заданным `itemId` из массива.
+   *   - `add`     — добавляет временную запись с `itemId` как временным ID.
    */
   const [optimisticItems, setOptimisticItems] = useOptimistic(
     items,
@@ -140,25 +140,25 @@ export default function ShoppingList({
     },
   );
 
-  /** Текущее значение поля ввода нового товара. */
+  /** Текущее значение поля ввода новой записи. */
   const [newItemName, setNewItemName] = useState("");
 
-  /** Флаг ожидания ответа сервера при добавлении товара. */
+  /** Флаг ожидания ответа сервера при добавлении записи. */
   const [isAddingItem, setIsAddingItem] = useState(false);
 
   /**
-   * Товар, ожидающий подтверждения удаления.
+   * Запись, ожидающая подтверждения удаления.
    * `null` означает, что модальное окно закрыто.
    */
   const [itemToDelete, setItemToDelete] = useState<Item | null>(null);
 
-  /** Флаг ожидания ответа сервера при удалении товара. Блокирует повторные запросы. */
+  /** Флаг ожидания ответа сервера при удалении записи. Блокирует повторные запросы. */
   const [isDeletingItem, setIsDeletingItem] = useState(false);
 
-  /** ID товара, название которого сейчас редактируется. */
+  /** ID записи, название которой сейчас редактируется. */
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
-  /** Текущее значение поля ввода при редактировании товара. */
+  /** Текущее значение поля ввода при редактировании записи. */
   const [editItemName, setEditItemName] = useState("");
 
   /** Защита от двойного вызова rename (Enter → blur). */
@@ -168,7 +168,7 @@ export default function ShoppingList({
   const skipItemBlurRef = useRef(false);
 
   /**
-   * Обработчик подтверждения удаления товара.
+   * Обработчик подтверждения удаления записи.
    *
    * Вызывается из модального окна или по нажатию Enter.
    * Выполняет оптимистичное удаление.
@@ -180,7 +180,7 @@ export default function ShoppingList({
     setIsDeletingItem(true);
     setItemToDelete(null); // Закрываем модал немедленно
 
-    // Оптимистично убираем товар из UI
+    // Оптимистично убираем запись из UI
     startTransition(() => {
       setOptimisticItems({ action: "delete", itemId: item.id });
     });
@@ -193,7 +193,7 @@ export default function ShoppingList({
   }, [itemToDelete, setOptimisticItems]);
 
   /**
-   * Эффект: подписка на клавиатурные события при открытом модале удаления товара.
+   * Эффект: подписка на клавиатурные события при открытом модале удаления записи.
    *
    * - `Escape` — закрывает модал без удаления.
    * - `Enter`  — подтверждает удаление.
@@ -218,7 +218,7 @@ export default function ShoppingList({
   }, [handleConfirmDeleteItem, isDeletingItem, itemToDelete]);
 
   /**
-   * Подтверждает переименование товара.
+   * Подтверждает переименование записи.
    * Вызывается при Enter или blur.
    */
   const handleConfirmItemRename = async (item: Item) => {
@@ -252,7 +252,7 @@ export default function ShoppingList({
             itemName: item.name,
           });
         });
-        alert(result.error || "Не удалось переименовать товар");
+        alert(result.error || "Не удалось переименовать запись");
       }
     } finally {
       processingItemRenameRef.current = false;
@@ -263,12 +263,12 @@ export default function ShoppingList({
     <>
       <div>
         {/* -----------------------------------------------------------------------
-          Список товаров
+          Список записей
       ----------------------------------------------------------------------- */}
         <ul className="mb-4 space-y-2">
           {optimisticItems.map((item) => {
             /**
-             * Товар считается "в ожидании" (pending), если его ID начинается с "temp-".
+             * Запись считается "в ожидании" (pending), если её ID начинается с "temp-".
              * В этом состоянии интерактивные элементы заблокированы.
              */
             const isPending = item.id.startsWith("temp-");
@@ -311,10 +311,10 @@ export default function ShoppingList({
                       }`}
                     >
                       {isPending ? (
-                        // Спиннер для ожидающего товара
+                        // Спиннер для ожидающей записи
                         <span className="block w-2.5 h-2.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
                       ) : (
-                        // Галочка для купленного товара
+                        // Галочка для выполненной записи
                         item.isCompleted && (
                           <span className="text-blue-500 text-xs">✔︎</span>
                         )
@@ -322,7 +322,7 @@ export default function ShoppingList({
                     </button>
                   </form>
 
-                  {/* Название товара (или поле редактирования) + "Сохраняется..." */}
+                  {/* Название записи (или поле редактирования) + "Сохраняется..." */}
                   <div className="flex-1 min-w-0 flex items-center gap-1">
                     {!isPending && editingItemId === item.id ? (
                       <input
@@ -363,7 +363,7 @@ export default function ShoppingList({
                       </span>
                     )}
 
-                    {/* Надпись "Сохраняется..." для ожидающего товара */}
+                    {/* Надпись "Сохраняется..." для ожидающей записи */}
                     {isPending && (
                       <span className="text-gray-400 text-xs">
                         Сохраняется...
@@ -371,7 +371,7 @@ export default function ShoppingList({
                     )}
                   </div>
 
-                  {/* Автор товара: показывается только если включён переключатель */}
+                  {/* Автор записи: показывается только если включён переключатель */}
                   {!isPending && showAuthors && item.addedBy && (
                     <span className="text-gray-400 text-xs shrink-0">
                       {item.addedBy.id === currentUserId
@@ -382,11 +382,11 @@ export default function ShoppingList({
                 </div>
 
                 <div className="flex items-center gap-1">
-                  {/* Кнопка переименования товара */}
+                  {/* Кнопка переименования записи */}
                   {!isPending && editingItemId !== item.id && (
                     <button
                       type="button"
-                      aria-label={`Переименовать товар ${item.name}`}
+                      aria-label={`Переименовать запись ${item.name}`}
                       onClick={() => {
                         setEditingItemId(item.id);
                         setEditItemName(item.name);
@@ -397,13 +397,13 @@ export default function ShoppingList({
                     </button>
                   )}
 
-                  {/* Кнопка удаления товара */}
+                  {/* Кнопка удаления записи */}
                   <button
                     type="button"
                     disabled={isPending}
                     title={isPending ? "Сохраняется..." : undefined}
                     onClick={() => setItemToDelete(item)}
-                    aria-label={`Удалить товар ${item.name}`}
+                    aria-label={`Удалить запись ${item.name}`}
                     className={`text-xs font-bold px-2 py-1 transition-colors ${
                       isPending
                         ? "text-gray-300 cursor-not-allowed"
@@ -424,7 +424,7 @@ export default function ShoppingList({
         </ul>
 
         {/* -----------------------------------------------------------------------
-          Форма добавления нового товара
+          Форма добавления новой записи
       ----------------------------------------------------------------------- */}
         <form
           onSubmit={async (event) => {
@@ -436,7 +436,7 @@ export default function ShoppingList({
             // 1. Генерируем временный ID для оптимистичного обновления
             const tempId = `temp-${Date.now()}`;
 
-            // 2. Мгновенно добавляем товар на экран
+            // 2. Мгновенно добавляем запись на экран
             startTransition(() => {
               setOptimisticItems({
                 action: "add",
@@ -462,20 +462,20 @@ export default function ShoppingList({
 
             setIsAddingItem(false);
 
-            // 5. При ошибке — откат: удаляем временный товар и возвращаем введённое название
+            // 5. При ошибке — откат: удаляем временную запись и возвращаем введённое название
             if (result && !result.success) {
               startTransition(() => {
                 setOptimisticItems({ action: "delete", itemId: tempId });
               });
               setNewItemName(trimmedName);
-              alert(result.error || "Не удалось добавить товар");
+              alert(result.error || "Не удалось добавить запись");
             }
           }}
           className="flex gap-2"
         >
           <input
             name="itemName"
-            placeholder="Что купить?"
+            placeholder="Что хотите добавить?"
             className="border p-2 rounded w-full text-sm"
             value={newItemName}
             onChange={(e) => setNewItemName(e.target.value)}
@@ -491,7 +491,7 @@ export default function ShoppingList({
       </div>
 
       {/* -----------------------------------------------------------------------
-          Модальное окно подтверждения удаления товара.
+          Модальное окно подтверждения удаления записи.
           Клик на фон (overlay) — закрыть без удаления.
           Клик внутри модала — не закрывает (stopPropagation).
       ----------------------------------------------------------------------- */}
@@ -504,9 +504,9 @@ export default function ShoppingList({
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-2">Удалить товар?</h3>
+            <h3 className="text-lg font-semibold mb-2">Удалить запись?</h3>
             <p className="text-sm text-gray-600 mb-5">
-              Вы действительно хотите удалить товар «{itemToDelete.name}»?
+              Вы действительно хотите удалить запись «{itemToDelete.name}»?
             </p>
             <div className="flex justify-end gap-2">
               <button

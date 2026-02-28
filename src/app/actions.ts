@@ -38,19 +38,19 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 
 // ===========================================================================
-// SERVER ACTIONS ДЛЯ ТОВАРОВ (Item)
+// SERVER ACTIONS ДЛЯ ЗАПИСЕЙ (Item)
 // ===========================================================================
 
 /**
- * Добавляет новый товар в список покупок.
+ * Добавляет новую запись в список.
  *
- * Вызывается из компонента `ShoppingList` оптимистично: товар сначала
+ * Вызывается из компонента `ShoppingList` оптимистично: запись сначала
  * появляется на экране мгновенно (с временным ID), а эта функция
  * сохраняет его в БД в фоне.
  *
  * @param formData - FormData с полями:
- *   - `itemName` {string} — название товара (1–100 символов).
- *   - `listId`   {string} — ID списка, к которому добавляется товар.
+ *   - `itemName` {string} — название записи (1–100 символов).
+ *   - `listId`   {string} — ID списка, к которому добавляется запись.
  * @returns `{ success: true }` или `{ success: false, error: string }`.
  */
 export async function addItem(formData: FormData) {
@@ -69,7 +69,7 @@ export async function addItem(formData: FormData) {
       return { success: false, error: "Некорректные данные" };
     }
 
-    // Получаем текущего пользователя, чтобы сохранить кто добавил товар
+    // Получаем текущего пользователя, чтобы сохранить кто добавил запись
     const session = await auth();
 
     // После safeParse TypeScript точно знает, что result.data.itemName — string
@@ -86,19 +86,19 @@ export async function addItem(formData: FormData) {
     revalidatePath("/");
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при добавлении товара:", error);
-    return { success: false, error: "Не удалось добавить товар" };
+    console.error("Ошибка при добавлении записи:", error);
+    return { success: false, error: "Не удалось добавить запись" };
   }
 }
 
 /**
- * Удаляет товар из списка покупок по его ID.
+ * Удаляет запись из списка по её ID.
  *
- * Используется оптимистично: товар исчезает с экрана немедленно,
+ * Используется оптимистично: запись исчезает с экрана немедленно,
  * а эта функция удаляет его из БД в фоне.
  *
  * @param formData - FormData с полем:
- *   - `itemId` {string} — ID удаляемого товара.
+ *   - `itemId` {string} — ID удаляемой записи.
  * @returns `void` (ошибки логируются в консоль, но не передаются клиенту).
  */
 export async function deleteItem(formData: FormData) {
@@ -119,7 +119,7 @@ export async function deleteItem(formData: FormData) {
 }
 
 /**
- * Переключает статус товара: "куплен" ↔ "не куплен".
+ * Переключает статус записи: "выполнено" ↔ "не выполнено".
  *
  * Важный нюанс: FormData всегда возвращает строки.
  * Поэтому `isCompleted` нужно явно преобразовать до отправки в схему:
@@ -128,7 +128,7 @@ export async function deleteItem(formData: FormData) {
  * Логика: мы передаём ТЕКУЩЕЕ значение `isCompleted`, а в БД сохраняем ИНВЕРСИЮ.
  *
  * @param formData - FormData с полями:
- *   - `itemId`      {string} — ID товара.
+ *   - `itemId`      {string} — ID записи.
  *   - `isCompleted` {string} — текущий статус ("true" | "false").
  * @returns `void`.
  */
@@ -157,15 +157,15 @@ export async function toggleItem(formData: FormData) {
 }
 
 /**
- * Переименовывает товар в списке покупок.
+ * Переименовывает запись в списке.
  *
- * Не требует проверки прав владельца: товар привязан к списку,
+ * Не требует проверки прав владельца: запись привязана к списку,
  * а доступ к самому списку уже проверен на уровне авторизации сессии.
  * Любой, кто имеет доступ к списку (владелец или расшаренный), может
- * редактировать товары.
+ * редактировать записи.
  *
  * @param formData - FormData с полями:
- *   - `itemId`   {string} — ID переименовываемого товара.
+ *   - `itemId`   {string} — ID переименовываемой записи.
  *   - `itemName` {string} — новое название (1–100 символов).
  * @returns `{ success: true }` или `{ success: false, error: string }`.
  */
@@ -197,8 +197,8 @@ export async function renameItem(formData: FormData) {
     revalidatePath("/");
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при переименовании товара:", error);
-    return { success: false, error: "Не удалось переименовать товар" };
+    console.error("Ошибка при переименовании записи:", error);
+    return { success: false, error: "Не удалось переименовать запись" };
   }
 }
 

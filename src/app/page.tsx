@@ -102,10 +102,13 @@ export default async function Home() {
         { sharedWith: { some: { id: session.user.id } } }, // Мне предоставлен доступ
       ],
     },
+    orderBy: {
+      createdAt: "desc", // Новые списки отображаются первыми
+    },
     include: {
       items: {
         orderBy: {
-          createdAt: "asc", // Товары отсортированы от старых к новым
+          createdAt: "asc", // Записи отсортированы от старых к новым
         },
         include: {
           addedBy: {
@@ -123,9 +126,7 @@ export default async function Home() {
       {/* Шапка: имя пользователя, email и кнопка выхода */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold">
-            Привет, {session.user.name}! 👋
-          </h1>
+          <h1 className="text-2xl font-bold">Привет, {session.user.name}!</h1>
           <p className="text-gray-500 text-sm">{session.user.email}</p>
         </div>
 
