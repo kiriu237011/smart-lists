@@ -40,6 +40,7 @@ import {
   renameList,
   leaveSharedList,
 } from "@/app/actions";
+import toast from "react-hot-toast";
 import ShoppingList from "@/app/components/ShoppingList";
 import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
@@ -271,7 +272,7 @@ export default function ListsContainer({
         startTransition(() => {
           setOptimisticLists({ action: "delete", listId: tempListId });
         });
-        alert(result?.error || "Не удалось создать список");
+        toast.error(result?.error || "Не удалось создать список");
         return { success: false };
       }
 
@@ -279,7 +280,7 @@ export default function ListsContainer({
         startTransition(() => {
           setOptimisticLists({ action: "delete", listId: tempListId });
         });
-        alert("Список создан, но возникла ошибка при загрузке данных");
+        toast.error("Список создан, но возникла ошибка при загрузке данных");
         return { success: false };
       }
 
@@ -342,7 +343,7 @@ export default function ListsContainer({
               list,
             });
           });
-          alert(result.error || "Не удалось переименовать список");
+          toast.error(result.error || "Не удалось переименовать список");
         }
       } finally {
         processingRenameRef.current = false;
@@ -384,7 +385,7 @@ export default function ListsContainer({
           list,
         });
       });
-      alert(result.error || "Не удалось удалить список");
+      toast.error(result.error || "Не удалось удалить список");
     }
 
     setIsDeleting(false);
@@ -417,7 +418,7 @@ export default function ListsContainer({
       startTransition(() => {
         setOptimisticLists({ action: "restore", listId: list.id, list });
       });
-      alert(result.error || "Не удалось отписаться от списка");
+      toast.error(result.error || "Не удалось отписаться от списка");
     }
 
     setIsLeaving(false);

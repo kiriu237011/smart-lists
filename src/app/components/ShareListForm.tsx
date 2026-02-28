@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 import { removeSharedUser, shareList } from "@/app/actions";
+import toast from "react-hot-toast";
 
 /** Пользователь, имеющий доступ к списку. */
 type SharedUser = {
@@ -125,7 +126,7 @@ export default function ShareListForm({
       startTransition(() => {
         setOptimisticSharedWith({ action: "add", user });
       });
-      alert(result.error || "Не удалось убрать доступ");
+      toast.error(result.error || "Не удалось убрать доступ");
     }
 
     setIsRemovingUser(false);
@@ -206,7 +207,7 @@ export default function ShareListForm({
         setOptimisticSharedWith({ action: "remove", user: tempUser });
       });
       setEmail(normalizedEmail);
-      alert(result.error || "Не удалось предоставить доступ");
+      toast.error(result.error || "Не удалось предоставить доступ");
     }
     // При успехе: revalidatePath в Server Action обновит реальные данные из БД,
     // и Next.js заменит временного пользователя на настоящего автоматически.

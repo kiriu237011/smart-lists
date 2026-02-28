@@ -33,6 +33,7 @@ import {
   useState,
 } from "react";
 import { addItem, deleteItem, toggleItem, renameItem } from "@/app/actions";
+import toast from "react-hot-toast";
 
 // ---------------------------------------------------------------------------
 // Типы данных
@@ -252,7 +253,7 @@ export default function ShoppingList({
             itemName: item.name,
           });
         });
-        alert(result.error || "Не удалось переименовать запись");
+        toast.error(result.error || "Не удалось переименовать запись");
       }
     } finally {
       processingItemRenameRef.current = false;
@@ -468,7 +469,7 @@ export default function ShoppingList({
                 setOptimisticItems({ action: "delete", itemId: tempId });
               });
               setNewItemName(trimmedName);
-              alert(result.error || "Не удалось добавить запись");
+              toast.error(result.error || "Не удалось добавить запись");
             }
           }}
           className="flex gap-2"
