@@ -31,9 +31,10 @@ import {
   useCallback,
   useEffect,
   useOptimistic,
+  useRef,
   useState,
 } from "react";
-import { createList, deleteList } from "@/app/actions";
+import { createList, deleteList, renameList } from "@/app/actions";
 import ShoppingList from "@/app/components/ShoppingList";
 import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
@@ -105,14 +106,33 @@ export default function ListsContainer({
   /** Флаг ожидания ответа сервера при удалении. Блокирует повторные запросы. */
   const [isDeleting, setIsDeleting] = useState(false);
 
+  /** ID списка, чьё название сейчас редактируется. `null` — нет активного редактирования. */
+  const [editingListId, setEditingListId] = useState<string | null>(null);
+
+  /** Текущее значение поля ввода при редактировании названия. */
+  const [editTitle, setEditTitle] = useState("");
+
+  /**
+   * Ref-флаг: предотвращает двойной вызов `handleConfirmRename`.
+   * Нужен потому, что нажатие Enter → blur → оба обработчика вызывают rename одновременно.
+   */
+  const processingRenameRef = useRef(false);
+
+  /**
+   * Ref-флаг: сигнализирует, что blur должен быть проигнорирован.
+   * Устанавливается при нажатии Escape, чтобы blur не инициировал сохранение.
+   */
+  const skipBlurRef = useRef(false);
+
   /**
    * Оптимистичный список всех списков покупок.
    *
-   * Reducer обрабатывает 4 действия:
+   * Reducer обрабатывает 5 действий:
    *   - `add`     — добавляет список в начало массива (с защитой от дублей).
    *   - `delete`  — удаляет список по id.
    *   - `restore` — возвращает список на исходную позицию при откате удаления.
    *   - `replace` — заменяет временный список (temp-*) реальным из ответа сервера.
+   *   - `rename`  — обновляет название списка (оптимистично или откат).
    */
   const [optimisticLists, setOptimisticLists] = useOptimistic(
     allLists,
@@ -123,7 +143,7 @@ export default function ListsContainer({
         listId,
         list,
       }: {
-        action: "add" | "delete" | "restore" | "replace";
+        action: "add" | "delete" | "restore" | "replace" | "rename";
         listId?: string;
         list?: ShoppingListData;
       },
@@ -161,6 +181,14 @@ export default function ListsContainer({
             return state;
           }
           return state.map((item) => (item.id === listId ? list : item));
+
+        case "rename":
+          if (!list || !listId) {
+            return state;
+          }
+          return state.map((item) =>
+            item.id === listId ? { ...item, title: list.title } : item,
+          );
 
         default:
           return state;
@@ -235,6 +263,60 @@ export default function ListsContainer({
       return { success: true };
     },
     [currentUserEmail, currentUserId, currentUserName, setOptimisticLists],
+  );
+
+  /**
+   * Обработчик подтверждения переименования списка.
+   *
+   * Вызывается при нажатии Enter или потере фокуса (blur) полем ввода.
+   * Использует `processingRenameRef` для защиты от двойного вызова
+   * (Enter → blur оба срабатывают одновременно).
+   *
+   * @param list - Список, название которого редактировалось.
+   */
+  const handleConfirmRename = useCallback(
+    async (list: ShoppingListData) => {
+      // Защита от двойного вызова (Enter + blur)
+      if (processingRenameRef.current) return;
+      processingRenameRef.current = true;
+
+      try {
+        const trimmedTitle = editTitle.trim();
+        setEditingListId(null);
+
+        // Если название не изменилось или пустое — ничего не делаем
+        if (!trimmedTitle || trimmedTitle === list.title) return;
+
+        // Оптимистично обновляем название в UI
+        startTransition(() => {
+          setOptimisticLists({
+            action: "rename",
+            listId: list.id,
+            list: { ...list, title: trimmedTitle },
+          });
+        });
+
+        const formData = new FormData();
+        formData.append("listId", list.id);
+        formData.append("title", trimmedTitle);
+        const result = await renameList(formData);
+
+        if (result && !result.success) {
+          // Откат: восстанавливаем исходное название
+          startTransition(() => {
+            setOptimisticLists({
+              action: "rename",
+              listId: list.id,
+              list,
+            });
+          });
+          alert(result.error || "Не удалось переименовать список");
+        }
+      } finally {
+        processingRenameRef.current = false;
+      }
+    },
+    [editTitle, setOptimisticLists],
   );
 
   /**
@@ -332,22 +414,66 @@ export default function ListsContainer({
               </div>
             )}
 
-            {/* Заголовок и кнопка удаления */}
+            {/* Заголовок и кнопки управления */}
             <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
-              <h2 className="text-xl font-bold">{list.title}</h2>
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                {editingListId === list.id ? (
+                  <input
+                    autoFocus
+                    className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
+                    value={editTitle}
+                    maxLength={50}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleConfirmRename(list);
+                      }
+                      if (e.key === "Escape") {
+                        skipBlurRef.current = true;
+                        setEditingListId(null);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (skipBlurRef.current) {
+                        skipBlurRef.current = false;
+                        return;
+                      }
+                      void handleConfirmRename(list);
+                    }}
+                  />
+                ) : (
+                  <h2 className="text-xl font-bold truncate">{list.title}</h2>
+                )}
+              </div>
 
-              {/* Кнопка удаления: только для владельца и только для реальных (не temp) списков */}
+              {/* Кнопки переименования и удаления: только для владельца и только для реальных списков */}
               {list.ownerId === currentUserId &&
                 !list.id.startsWith("temp-") && (
-                  <button
-                    type="button"
-                    aria-label={`Удалить список ${list.title}`}
-                    disabled={isDeleting}
-                    onClick={() => setListToDelete(list)}
-                    className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
-                  >
-                    ✕
-                  </button>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {editingListId !== list.id && (
+                      <button
+                        type="button"
+                        aria-label={`Переименовать список ${list.title}`}
+                        onClick={() => {
+                          setEditingListId(list.id);
+                          setEditTitle(list.title);
+                        }}
+                        className="text-gray-400 hover:text-blue-500 text-base px-2 py-1 leading-none"
+                      >
+                        ✎
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={`Удалить список ${list.title}`}
+                      disabled={isDeleting}
+                      onClick={() => setListToDelete(list)}
+                      className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 )}
             </div>
 

@@ -30,6 +30,7 @@ import {
   deleteListSchema,
   shareListSchema,
   removeSharedUserSchema,
+  renameListSchema,
 } from "@/lib/validations";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
@@ -411,5 +412,62 @@ export async function removeSharedUser(formData: FormData) {
   } catch (error) {
     console.error("Ошибка при удалении доступа:", error);
     return { success: false, error: "Не удалось убрать доступ" };
+  }
+}
+
+/**
+ * Переименовывает список покупок.
+ *
+ * Защита: `updateMany` с фильтром `ownerId === session.user.id` гарантирует,
+ * что только владелец может переименовать свой список.
+ *
+ * @param formData - FormData с полями:
+ *   - `listId` {string} — ID переименовываемого списка.
+ *   - `title`  {string} — новое название (1–50 символов).
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function renameList(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = {
+      listId: formData.get("listId"),
+      title: formData.get("title"),
+    };
+
+    const result = renameListSchema.safeParse(rawData);
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error.issues[0]?.message || "Неверные данные",
+      };
+    }
+
+    // updateMany с двойным условием — атомарная проверка прав
+    const updated = await prisma.shoppingList.updateMany({
+      where: {
+        id: result.data.listId,
+        ownerId: session.user.id, // Только владелец может переименовать список
+      },
+      data: {
+        title: result.data.title,
+      },
+    });
+
+    if (updated.count === 0) {
+      return {
+        success: false,
+        error: "Только владелец может переименовать список",
+      };
+    }
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при переименовании списка:", error);
+    return { success: false, error: "Не удалось переименовать список" };
   }
 }
