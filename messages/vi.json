@@ -9,7 +9,7 @@
     "signOut": "Đăng xuất"
   },
   "ListsContainer": {
-    "createTitle": "Tạo danh sách mới 📝",
+    "createTitle": "Tạo danh sách mới",
     "showAuthors": "Hiển thị tác giả ghi chú",
     "creating": "Đang tạo danh sách...",
     "owner": "Chủ sở hữu: {name}",

@@ -87,16 +87,27 @@ export default async function Home() {
   return (
     <main className="p-4 sm:p-10 max-w-xl mx-auto">
       {/* Шапка */}
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-2xl font-bold">
-            {t("Home.greeting", { name: session.user.name ?? "" })}
-          </h1>
-          <p className="text-gray-500 text-sm">{session.user.email}</p>
+      <div className="flex items-center justify-between gap-4 mb-8 p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+        {/* Аватар + имя + email */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 font-semibold text-sm flex items-center justify-center uppercase">
+            {(session.user.name ?? session.user.email ?? "?").charAt(0)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-800 truncate">
+              {t("Home.greeting", { name: session.user.name ?? "" })}
+            </p>
+            <p className="text-xs text-gray-400 truncate">
+              {session.user.email}
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Правая часть: переключатель + разделитель + логаут */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <LanguageSwitcher />
+
+          <div className="w-px h-5 bg-gray-200" />
 
           <form
             action={async () => {
@@ -104,7 +115,22 @@ export default async function Home() {
               await signOut();
             }}
           >
-            <button className="text-sm text-red-500 hover:underline">
+            <button className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-red-500 transition-colors cursor-pointer">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
               {t("Home.signOut")}
             </button>
           </form>
