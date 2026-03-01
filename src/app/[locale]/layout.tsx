@@ -18,8 +18,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Smart Shopping List",
-  description: "A smart shopping list for the family",
+  title: "Smart Lists",
+  description: "A smart, shareable list for everyone",
 };
 
 /**

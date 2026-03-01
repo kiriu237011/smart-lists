@@ -47,11 +47,11 @@ model User {
   // Наши бизнес-поля (добавлены поверх базовой схемы Auth.js)
   // -------------------------------------------------------------------------
 
-  /// Списки покупок, созданные этим пользователем (он — владелец).
-  myLists       ShoppingList[]  @relation("Owner")
+  /// Списки, созданные этим пользователем (он — владелец).
+  myLists       List[]  @relation("Owner")
 
-  /// Списки покупок, к которым пользователь имеет доступ по приглашению.
-  sharedLists   ShoppingList[]  @relation("Shared")
+  /// Списки, к которым пользователь имеет доступ по приглашению.
+  sharedLists   List[]  @relation("Shared")
 
   /// Записи, добавленные этим пользователем.
   addedItems    Item[]          @relation("AddedItems")
@@ -110,9 +110,9 @@ model VerificationToken {
 // БИЗНЕС-МОДЕЛИ ПРИЛОЖЕНИЯ
 // =============================================================================
 
-/// Список покупок.
+/// Список.
 /// Может принадлежать одному владельцу и быть общим для нескольких пользователей.
-model ShoppingList {
+model List {
   id        String   @id @default(cuid())
   title     String
 
@@ -140,6 +140,9 @@ model ShoppingList {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  /// Сохраняем имя таблицы в БД без изменений (миграция не требуется).
+  @@map("ShoppingList")
 }
 
 /// Запись внутри списка.
@@ -152,13 +155,13 @@ model Item {
   /// Статус покупки: false — не куплен, true — куплен (зачёркнут в UI).
   isCompleted Boolean      @default(false)
   
-  // ---- Связь с ShoppingList (Many-to-One) ----
+  // ---- Связь с List (Many-to-One) ----
 
   /// ID списка, которому принадлежит запись.
   listId      String
 
   /// Родительский список. Каскадное удаление: при удалении списка все его записи тоже удаляются.
-  list        ShoppingList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  list        List @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   // ---- Кто добавил запись ----
 

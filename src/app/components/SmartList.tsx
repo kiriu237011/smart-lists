@@ -1,6 +1,6 @@
 /**
- * @file ShoppingList.tsx
- * @description Компонент отдельного списка покупок с поддержкой оптимистичных обновлений.
+ * @file SmartList.tsx
+ * @description Компонент отдельного списка с поддержкой оптимистичных обновлений.
  *
  * Client Component (`"use client"`).
  *
@@ -49,8 +49,8 @@ type Item = {
   addedBy: { id: string; name: string | null; email: string } | null;
 };
 
-/** Пропсы компонента `ShoppingList`. */
-type ShoppingListProps = {
+/** Пропсы компонента `SmartList`. */
+type SmartListProps = {
   /** Начальные данные о записях (загружаются с сервера). */
   items: Item[];
   /** ID списка, которому принадлежат эти записи. */
@@ -75,15 +75,15 @@ type ShoppingListProps = {
  * @param items - Начальный массив записей (с сервера).
  * @param listId - ID списка для привязки новых записей.
  */
-export default function ShoppingList({
+export default function SmartList({
   items,
   listId,
   currentUserId,
   currentUserName,
   currentUserEmail,
   showAuthors,
-}: ShoppingListProps) {
-  const t = useTranslations("ShoppingList");
+}: SmartListProps) {
+  const t = useTranslations("SmartList");
 
   /**
    * Оптимистичный массив записей.

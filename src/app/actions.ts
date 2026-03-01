@@ -44,7 +44,7 @@ import { auth } from "@/auth";
 /**
  * Добавляет новую запись в список.
  *
- * Вызывается из компонента `ShoppingList` оптимистично: запись сначала
+ * Вызывается из компонента `SmartList` оптимистично: запись сначала
  * появляется на экране мгновенно (с временным ID), а эта функция
  * сохраняет его в БД в фоне.
  *
@@ -203,11 +203,11 @@ export async function renameItem(formData: FormData) {
 }
 
 // ===========================================================================
-// SERVER ACTIONS ДЛЯ СПИСКОВ ПОКУПОК (ShoppingList)
+// SERVER ACTIONS ДЛЯ СПИСКОВ (List)
 // ===========================================================================
 
 /**
- * Создаёт новый список покупок для авторизованного пользователя.
+ * Создаёт новый список для авторизованного пользователя.
  *
  * Ключевой принцип безопасности: `ownerId` берётся из серверной сессии,
  * а не из FormData. Клиент не может подменить владельца списка.
@@ -215,7 +215,7 @@ export async function renameItem(formData: FormData) {
  * @param formData - FormData с полем:
  *   - `title` {string} — название списка (1–50 символов).
  * @returns
- *   - `{ success: true, list: ShoppingListData }` — созданный список с полными данными.
+ *   - `{ success: true, list: ListData }` — созданный список с полными данными.
  *   - `{ success: false, error: string }` — ошибка авторизации или валидации.
  */
 export async function createList(formData: FormData) {
@@ -243,7 +243,7 @@ export async function createList(formData: FormData) {
     // 3. Создаём список в БД.
     // ownerId берём из сессии — клиент не может его подменить!
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const newList = (await (prisma.shoppingList.create as any)({
+    const newList = (await (prisma.list.create as any)({
       data: {
         title: result.data.title,
         ownerId: session.user.id,
@@ -309,7 +309,7 @@ export async function createList(formData: FormData) {
 }
 
 /**
- * Удаляет список покупок.
+ * Удаляет список.
  *
  * Защита: `deleteMany` с фильтром `ownerId === session.user.id` гарантирует,
  * что только владелец может удалить свой список. Если `deleted.count === 0`,
@@ -336,7 +336,7 @@ export async function deleteList(formData: FormData) {
     }
 
     // deleteMany с двойным условием — атомарная проверка прав
-    const deleted = await prisma.shoppingList.deleteMany({
+    const deleted = await prisma.list.deleteMany({
       where: {
         id: result.data.listId,
         ownerId: session.user.id, // Только владелец может удалить список
@@ -417,7 +417,7 @@ export async function shareList(formData: FormData) {
 
     // 2. Связываем пользователя со списком через Prisma's `connect`
     // (Many-to-Many: один список может быть у нескольких пользователей)
-    await prisma.shoppingList.update({
+    await prisma.list.update({
       where: {
         id: result.data.listId,
         ownerId: session.user.id, // Только владелец может приглашать
@@ -477,7 +477,7 @@ export async function removeSharedUser(formData: FormData) {
     }
 
     // `disconnect` убирает связь в Many-to-Many без удаления самого пользователя
-    await prisma.shoppingList.update({
+    await prisma.list.update({
       where: {
         id: result.data.listId,
         ownerId: session.user.id, // Только владелец может отзывать доступ
@@ -523,7 +523,7 @@ export async function leaveSharedList(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
-    await prisma.shoppingList.update({
+    await prisma.list.update({
       where: {
         id: listId,
         sharedWith: { some: { id: session.user.id } }, // Убеждаемся, что пользователь в списке
@@ -575,7 +575,7 @@ export async function renameList(formData: FormData) {
     }
 
     // updateMany с двойным условием — атомарная проверка прав
-    const updated = await prisma.shoppingList.updateMany({
+    const updated = await prisma.list.updateMany({
       where: {
         id: result.data.listId,
         ownerId: session.user.id, // Только владелец может переименовать список

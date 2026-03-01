@@ -1,6 +1,6 @@
 {
   "Auth": {
-    "title": "Danh Sách Mua Sắm Thông Minh 🛒",
+    "title": "Smart Lists ✨",
     "subtitle": "Đăng nhập để lưu danh sách của bạn",
     "signIn": "Đăng nhập bằng Google"
   },
@@ -37,7 +37,7 @@
       "leaveFailed": "Không thể rời khỏi danh sách"
     }
   },
-  "ShoppingList": {
+  "SmartList": {
     "saving": "Đang lưu...",
     "you": "Bạn",
     "empty": "Danh sách trống",

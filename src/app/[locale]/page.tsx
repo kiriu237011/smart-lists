@@ -62,7 +62,7 @@ export default async function Home() {
   // -----------------------------------------------------------------------
   // СЦЕНАРИЙ 2: АВТОРИЗОВАННЫЙ ПОЛЬЗОВАТЕЛЬ
   // -----------------------------------------------------------------------
-  const allLists = await prisma.shoppingList.findMany({
+  const allLists = await prisma.list.findMany({
     where: {
       OR: [
         { ownerId: session.user.id },

@@ -1,11 +1,11 @@
 /**
  * @file ListsContainer.tsx
- * @description Контейнер всех списков покупок пользователя.
+ * @description Контейнер всех списков пользователя.
  *
  * Client Component (`"use client"`).
  *
  * Это главный клиентский компонент приложения. Он:
- *   - Отображает все списки покупок (свои и расшаренные).
+ *   - Отображает все списки (свои и расшаренные).
  *   - Содержит форму создания нового списка (`CreateListForm`).
  *   - Управляет оптимистичным состоянием списков через `useOptimistic`.
  *   - Реализует модальное окно подтверждения удаления.
@@ -41,7 +41,7 @@ import {
   leaveSharedList,
 } from "@/app/actions";
 import toast from "react-hot-toast";
-import ShoppingList from "@/app/components/ShoppingList";
+import SmartList from "@/app/components/SmartList";
 import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
 import { useTranslations } from "next-intl";
@@ -67,8 +67,8 @@ type Item = {
   addedBy: { id: string; name: string | null; email: string } | null;
 };
 
-/** Полные данные списка покупок (включая связанные сущности). */
-type ShoppingListData = {
+/** Полные данные списка (включая связанные сущности). */
+type ListData = {
   id: string;
   title: string;
   ownerId: string;
@@ -80,7 +80,7 @@ type ShoppingListData = {
 /** Пропсы компонента `ListsContainer`. */
 type ListsContainerProps = {
   /** Все списки, доступные пользователю (свои + расшаренные). Загружаются на сервере. */
-  allLists: ShoppingListData[];
+  allLists: ListData[];
   /** ID текущего авторизованного пользователя. Используется для проверки прав. */
   currentUserId: string;
   /** Имя текущего пользователя (для оптимистичного placeholder нового списка). */
@@ -90,7 +90,7 @@ type ListsContainerProps = {
 };
 
 /**
- * Главный контейнер списков покупок.
+ * Главный контейнер списков.
  *
  * @param allLists - Начальные данные со всеми доступными списками.
  * @param currentUserId - ID авторизованного пользователя.
@@ -109,9 +109,7 @@ export default function ListsContainer({
    * Список, ожидающий подтверждения удаления.
    * `null` означает, что модальное окно закрыто.
    */
-  const [listToDelete, setListToDelete] = useState<ShoppingListData | null>(
-    null,
-  );
+  const [listToDelete, setListToDelete] = useState<ListData | null>(null);
 
   /** Флаг ожидания ответа сервера при удалении. Блокирует повторные запросы. */
   const [isDeleting, setIsDeleting] = useState(false);
@@ -120,7 +118,7 @@ export default function ListsContainer({
    * Расшаренный список, от которого пользователь хочет отписаться.
    * `null` означает, что модальное окно закрыто.
    */
-  const [listToLeave, setListToLeave] = useState<ShoppingListData | null>(null);
+  const [listToLeave, setListToLeave] = useState<ListData | null>(null);
 
   /** Флаг ожидания ответа сервера при выходе из расшаренного списка. */
   const [isLeaving, setIsLeaving] = useState(false);
@@ -181,7 +179,7 @@ export default function ListsContainer({
       }: {
         action: "add" | "delete" | "restore" | "replace" | "rename";
         listId?: string;
-        list?: ShoppingListData;
+        list?: ListData;
       },
     ) => {
       switch (action) {
@@ -251,7 +249,7 @@ export default function ListsContainer({
       const tempListId = `temp-${crypto.randomUUID()}`;
 
       // Оптимистичный объект с временным ID и данными текущего пользователя
-      const optimisticList: ShoppingListData = {
+      const optimisticList: ListData = {
         id: tempListId,
         title,
         ownerId: currentUserId,
@@ -311,7 +309,7 @@ export default function ListsContainer({
    * @param list - Список, название которого редактировалось.
    */
   const handleConfirmRename = useCallback(
-    async (list: ShoppingListData) => {
+    async (list: ListData) => {
       // Защита от двойного вызова (Enter + blur)
       if (processingRenameRef.current) return;
       processingRenameRef.current = true;
@@ -592,7 +590,7 @@ export default function ListsContainer({
 
             {/* Список записей: рендерится только для реальных (не temp) списков */}
             {!list.id.startsWith("temp-") && (
-              <ShoppingList
+              <SmartList
                 items={list.items}
                 listId={list.id}
                 currentUserId={currentUserId}

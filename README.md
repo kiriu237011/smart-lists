@@ -32,8 +32,8 @@ A modern shopping list management application built with Next.js 15, TypeScript,
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/smart-shopping-list.git
-cd smart-shopping-list
+git clone https://github.com/yourusername/smart-lists.git
+cd smart-lists
 ```
 
 2. **Install dependencies**
@@ -80,7 +80,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser to see the a
 ## 📁 Project Structure
 
 ```
-smart-shopping-list/
+smart-lists/
 ├── src/
 │   ├── app/
 │   │   ├── actions.ts          # Server Actions
@@ -89,7 +89,7 @@ smart-shopping-list/
 │   │   ├── api/
 │   │   │   └── auth/           # NextAuth API routes
 │   │   └── components/
-│   │       └── ShoppingList.tsx # List component
+│   │       └── SmartList.tsx    # List component
 │   ├── lib/
 │   │   ├── db.ts               # Prisma client
 │   │   └── validations.ts      # Zod schemas
