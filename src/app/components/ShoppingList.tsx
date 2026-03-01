@@ -250,9 +250,13 @@ export default function ShoppingList({
 
       if (result && !result.success) {
         startTransition(() => {
-          setOptimisticItems({ action: "rename", itemId: item.id, itemName: item.name });
+          setOptimisticItems({
+            action: "rename",
+            itemId: item.id,
+            itemName: item.name,
+          });
         });
-        toast.error(result.error || t("errors.renameFailed"));
+        toast.error(t("errors.renameFailed"));
       }
     } finally {
       processingItemRenameRef.current = false;
@@ -372,7 +376,7 @@ export default function ShoppingList({
                   </div>
 
                   {/* Автор записи: показывается только если включён переключатель */}
-                    {!isPending && showAuthors && item.addedBy && (
+                  {!isPending && showAuthors && item.addedBy && (
                     <span className="text-gray-400 text-xs shrink-0">
                       {item.addedBy.id === currentUserId
                         ? t("you")
@@ -468,7 +472,7 @@ export default function ShoppingList({
                 setOptimisticItems({ action: "delete", itemId: tempId });
               });
               setNewItemName(trimmedName);
-              toast.error(result.error || t("errors.addFailed"));
+              toast.error(t("errors.addFailed"));
             }
           }}
           className="flex gap-2"
@@ -504,7 +508,9 @@ export default function ShoppingList({
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-2">{t("deleteModal.title")}</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {t("deleteModal.title")}
+            </h3>
             <p className="text-sm text-gray-600 mb-5">
               {t("deleteModal.body", { name: itemToDelete.name })}
             </p>

@@ -129,7 +129,7 @@ export default function ShareListForm({
       startTransition(() => {
         setOptimisticSharedWith({ action: "add", user });
       });
-      toast.error(result.error || t("errors.removeFailed"));
+      toast.error(t("errors.removeFailed"));
     }
 
     setIsRemovingUser(false);
@@ -210,7 +210,7 @@ export default function ShareListForm({
         setOptimisticSharedWith({ action: "remove", user: tempUser });
       });
       setEmail(normalizedEmail);
-      toast.error(result.error || t("errors.shareFailed"));
+      toast.error(t("errors.shareFailed"));
     }
     // При успехе: revalidatePath в Server Action обновит реальные данные из БД,
     // и Next.js заменит временного пользователя на настоящего автоматически.

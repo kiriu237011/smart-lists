@@ -275,7 +275,7 @@ export default function ListsContainer({
         startTransition(() => {
           setOptimisticLists({ action: "delete", listId: tempListId });
         });
-        toast.error(result?.error || t("errors.createFailed"));
+        toast.error(t("errors.createFailed"));
         return { success: false };
       }
 
@@ -346,7 +346,7 @@ export default function ListsContainer({
               list,
             });
           });
-          toast.error(result.error || t("errors.renameFailed"));
+          toast.error(t("errors.renameFailed"));
         }
       } finally {
         processingRenameRef.current = false;
@@ -388,7 +388,7 @@ export default function ListsContainer({
           list,
         });
       });
-      toast.error(result.error || t("errors.deleteFailed"));
+      toast.error(t("errors.deleteFailed"));
     }
 
     setIsDeleting(false);
@@ -421,7 +421,7 @@ export default function ListsContainer({
       startTransition(() => {
         setOptimisticLists({ action: "restore", listId: list.id, list });
       });
-      toast.error(result.error || t("errors.leaveFailed"));
+      toast.error(t("errors.leaveFailed"));
     }
 
     setIsLeaving(false);
