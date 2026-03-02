@@ -3,6 +3,7 @@ import { auth, signIn, signOut } from "@/auth";
 import { getTranslations } from "next-intl/server";
 import ListsContainer from "@/app/components/ListsContainer";
 import LanguageSwitcher from "@/app/components/LanguageSwitcher";
+import AvatarButton from "@/app/components/AvatarButton";
 
 /**
  * Главная страница приложения (Server Component).
@@ -90,9 +91,10 @@ export default async function Home() {
       <div className="flex items-center justify-between gap-4 mb-8 p-3 sm:p-5 bg-white border border-gray-100 rounded-2xl shadow-sm">
         {/* Аватар + имя + email */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="flex-shrink-0 w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-indigo-100 text-indigo-600 font-semibold text-xs sm:text-base flex items-center justify-center uppercase">
-            {(session.user.name ?? session.user.email ?? "?").charAt(0)}
-          </div>
+          <AvatarButton
+            initial={(session.user.name ?? session.user.email ?? "?").charAt(0)}
+            email={session.user.email ?? ""}
+          />
           <div className="min-w-0">
             <p className="text-sm sm:text-base font-semibold text-gray-800 truncate">
               {t("Home.greeting", {
