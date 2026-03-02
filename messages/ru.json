@@ -5,8 +5,9 @@
     "signIn": "Войти через Google"
   },
   "Home": {
-    "greeting": "Привет, {name}!",
-    "signOut": "Выйти"
+    "greeting": "{name}",
+    "signOut": "Выйти",
+    "listsLabel": "{count, plural, one {список} few {списка} other {списков}}"
   },
   "ListsContainer": {
     "createTitle": "Создать новый список",

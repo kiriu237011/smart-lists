@@ -12,6 +12,7 @@
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
     "@prisma/client": "^6.19.2",
+    "framer-motion": "^12.34.3",
     "next": "16.1.4",
     "next-auth": "^5.0.0-beta.30",
     "next-intl": "^4.8.3",

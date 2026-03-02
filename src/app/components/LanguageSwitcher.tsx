@@ -88,29 +88,46 @@ export default function LanguageSwitcher() {
 
       {/* Сама таблетка */}
       <div
-        className={`flex items-center gap-0.5 bg-gray-100 rounded-full p-0.5 transition-opacity ${
+        className={`flex items-center gap-1 bg-gray-100 border border-gray-200 rounded-full px-1.5 py-0.5 transition-opacity ${
           isPending ? "opacity-60 pointer-events-none" : ""
         }`}
       >
-        {routing.locales.map((loc) => {
-          const { title, flagCode } = LOCALE_LABELS[loc];
-          const isActive = loc === locale;
+        {/* Иконка глобуса — только на sm+ */}
+        <svg
+          className="hidden sm:block w-3.5 h-3.5 text-gray-400 flex-shrink-0 ml-0.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
 
-          return (
-            <button
-              key={loc}
-              onClick={() => handleSwitch(loc)}
-              title={title}
-              className={`px-2.5 py-1 rounded-full transition-all duration-200 ${
-                isActive
-                  ? "bg-white shadow-sm"
-                  : "text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              <Flag code={flagCode} size={18} />
-            </button>
-          );
-        })}
+        <div className="flex items-center gap-0.5">
+          {routing.locales.map((loc) => {
+            const { title, flagCode } = LOCALE_LABELS[loc];
+            const isActive = loc === locale;
+
+            return (
+              <button
+                key={loc}
+                onClick={() => handleSwitch(loc)}
+                title={title}
+                className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full transition-all duration-200 text-xs font-semibold ${
+                  isActive
+                    ? "bg-white shadow-sm text-indigo-600"
+                    : "text-gray-400 hover:text-gray-500 hover:bg-white/60"
+                }`}
+              >
+                <Flag code={flagCode} size={14} />
+                <span className="hidden sm:inline">{loc.toUpperCase()}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </>
   );
