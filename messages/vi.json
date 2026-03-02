@@ -5,8 +5,9 @@
     "signIn": "Đăng nhập bằng Google"
   },
   "Home": {
-    "greeting": "Xin chào, {name}!",
-    "signOut": "Đăng xuất"
+    "greeting": "{name}",
+    "signOut": "Đăng xuất",
+    "listsLabel": "danh sách"
   },
   "ListsContainer": {
     "createTitle": "Tạo danh sách mới",

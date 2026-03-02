@@ -85,26 +85,39 @@ export default async function Home() {
   });
 
   return (
-    <main className="p-4 sm:p-10 max-w-xl mx-auto">
+    <main className="p-4 sm:p-10 max-w-7xl mx-auto">
       {/* Шапка */}
-      <div className="flex items-center justify-between gap-4 mb-8 p-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+      <div className="flex items-center justify-between gap-4 mb-8 p-3 sm:p-5 bg-white border border-gray-100 rounded-2xl shadow-sm">
         {/* Аватар + имя + email */}
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 font-semibold text-sm flex items-center justify-center uppercase">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="flex-shrink-0 w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-indigo-100 text-indigo-600 font-semibold text-xs sm:text-base flex items-center justify-center uppercase">
             {(session.user.name ?? session.user.email ?? "?").charAt(0)}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-800 truncate">
-              {t("Home.greeting", { name: session.user.name ?? "" })}
+            <p className="text-sm sm:text-base font-semibold text-gray-800 truncate">
+              {t("Home.greeting", {
+                name: session.user.name ?? session.user.email ?? "",
+              })}
             </p>
-            <p className="text-xs text-gray-400 truncate">
+            <p className="hidden [@media(min-width:480px)]:block text-xs sm:text-sm text-gray-400 truncate">
               {session.user.email}
             </p>
           </div>
         </div>
 
-        {/* Правая часть: переключатель + разделитель + логаут */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Правая часть: счётчик + язык + логаут */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex flex-col items-center flex-shrink-0">
+            <span className="text-base sm:text-xl font-bold text-gray-800 leading-none">
+              {allLists.length}
+            </span>
+            <span className="text-[10px] sm:text-xs text-gray-400 mt-0.5">
+              {t("Home.listsLabel", { count: allLists.length })}
+            </span>
+          </div>
+
+          <div className="w-px h-5 bg-gray-200" />
+
           <LanguageSwitcher />
 
           <div className="w-px h-5 bg-gray-200" />
@@ -115,7 +128,7 @@ export default async function Home() {
               await signOut();
             }}
           >
-            <button className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-red-500 transition-colors cursor-pointer">
+            <button className="flex items-center gap-1 sm:gap-1.5 text-sm sm:text-base text-gray-400 hover:text-red-500 transition-colors cursor-pointer">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="15"
@@ -131,7 +144,7 @@ export default async function Home() {
                 <polyline points="16 17 21 12 16 7" />
                 <line x1="21" y1="12" x2="9" y2="12" />
               </svg>
-              {t("Home.signOut")}
+              <span className="hidden sm:inline">{t("Home.signOut")}</span>
             </button>
           </form>
         </div>

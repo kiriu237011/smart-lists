@@ -316,7 +316,7 @@ export default function ShareListForm({
             />
             <button
               type="submit"
-              className="bg-blue-100 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-200"
+              className="bg-gray-800 text-white px-3 py-1 rounded text-xs font-medium hover:bg-gray-900 transition"
             >
               {t("invite")}
             </button>

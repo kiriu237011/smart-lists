@@ -270,156 +270,177 @@ export default function SmartList({
           Список записей
       ----------------------------------------------------------------------- */}
         <ul className="mb-4 space-y-2">
-          {optimisticItems.map((item) => {
-            /**
-             * Запись считается "в ожидании" (pending), если её ID начинается с "temp-".
-             * В этом состоянии интерактивные элементы заблокированы.
-             */
-            const isPending = item.id.startsWith("temp-");
+          {[...optimisticItems]
+            .sort((a, b) => Number(a.isCompleted) - Number(b.isCompleted))
+            .map((item) => {
+              /**
+               * Запись считается "в ожидании" (pending), если её ID начинается с "temp-".
+               * В этом состоянии интерактивные элементы заблокированы.
+               */
+              const isPending = item.id.startsWith("temp-");
 
-            return (
-              <li
-                key={item.id}
-                className={`flex items-center justify-between p-2 rounded transition-opacity ${
-                  isPending ? "bg-gray-100 opacity-60" : "bg-gray-50"
-                }`}
-              >
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  {/* Кнопка переключения статуса (чекбокс) */}
-                  <form
-                    action={async () => {
-                      // 1. Мгновенно меняем UI
-                      setOptimisticItems({ action: "toggle", itemId: item.id });
+              return (
+                <li
+                  key={item.id}
+                  className={`flex items-center justify-between p-2 rounded transition-all duration-200 ${
+                    isPending
+                      ? "bg-gray-100 opacity-60"
+                      : item.isCompleted
+                        ? "bg-gray-100"
+                        : "bg-gray-50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    {/* Кнопка переключения статуса (чекбокс) */}
+                    <form
+                      action={async () => {
+                        // 1. Мгновенно меняем UI
+                        setOptimisticItems({
+                          action: "toggle",
+                          itemId: item.id,
+                        });
 
-                      // 2. Отправляем данные на сервер
-                      const formData = new FormData();
-                      formData.append("itemId", item.id);
-                      formData.append(
-                        "isCompleted",
-                        item.isCompleted.toString(),
-                      );
+                        // 2. Отправляем данные на сервер
+                        const formData = new FormData();
+                        formData.append("itemId", item.id);
+                        formData.append(
+                          "isCompleted",
+                          item.isCompleted.toString(),
+                        );
 
-                      await toggleItem(formData);
-                    }}
-                  >
-                    <button
-                      type="submit"
-                      disabled={isPending}
-                      title={isPending ? t("saving") : undefined}
-                      className={`w-5 h-5 border rounded flex items-center justify-center transition-colors ${
-                        isPending
-                          ? "border-gray-300 cursor-not-allowed"
-                          : item.isCompleted
-                            ? "bg-white border-blue-500"
-                            : "bg-white border-gray-300"
-                      }`}
+                        await toggleItem(formData);
+                      }}
                     >
-                      {isPending ? (
-                        // Спиннер для ожидающей записи
-                        <span className="block w-2.5 h-2.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        // Галочка для выполненной записи
-                        item.isCompleted && (
-                          <span className="text-blue-500 text-xs">✔︎</span>
-                        )
-                      )}
-                    </button>
-                  </form>
-
-                  {/* Название записи (или поле редактирования) + "Сохраняется..." */}
-                  <div className="flex-1 min-w-0 flex items-center gap-1">
-                    {!isPending && editingItemId === item.id ? (
-                      <input
-                        autoFocus
-                        value={editItemName}
-                        maxLength={100}
-                        onChange={(e) => setEditItemName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            void handleConfirmItemRename(item);
-                          }
-                          if (e.key === "Escape") {
-                            skipItemBlurRef.current = true;
-                            setEditingItemId(null);
-                          }
-                        }}
-                        onBlur={() => {
-                          if (skipItemBlurRef.current) {
-                            skipItemBlurRef.current = false;
-                            return;
-                          }
-                          void handleConfirmItemRename(item);
-                        }}
-                        className="text-sm border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition w-full min-w-0"
-                      />
-                    ) : (
-                      <span
-                        className={
+                      <button
+                        type="submit"
+                        disabled={isPending}
+                        title={isPending ? t("saving") : undefined}
+                        className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
                           isPending
-                            ? "text-gray-400 italic text-sm"
+                            ? "border-gray-300 cursor-not-allowed"
                             : item.isCompleted
-                              ? "line-through text-gray-400"
-                              : ""
-                        }
+                              ? "bg-gray-600 border-gray-600 scale-105 shadow-sm shadow-gray-200"
+                              : "bg-white border-gray-300 hover:border-gray-500 hover:shadow-sm"
+                        }`}
                       >
-                        {item.name}
-                      </span>
-                    )}
+                        {isPending ? (
+                          // Спиннер для ожидающей записи
+                          <span className="block w-2.5 h-2.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          // Галочка для выполненной записи
+                          item.isCompleted && (
+                            <svg
+                              className="w-3 h-3 text-white"
+                              viewBox="0 0 12 12"
+                              fill="none"
+                            >
+                              <path
+                                d="M2 6.5l3 3 5-5"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          )
+                        )}
+                      </button>
+                    </form>
 
-                    {/* Надпись "Сохраняется..." для ожидающей записи */}
-                    {isPending && (
-                      <span className="text-gray-400 text-xs">
-                        {t("saving")}
+                    {/* Название записи (или поле редактирования) + "Сохраняется..." */}
+                    <div className="flex-1 min-w-0 flex items-center gap-1">
+                      {!isPending && editingItemId === item.id ? (
+                        <input
+                          autoFocus
+                          value={editItemName}
+                          maxLength={100}
+                          onChange={(e) => setEditItemName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleConfirmItemRename(item);
+                            }
+                            if (e.key === "Escape") {
+                              skipItemBlurRef.current = true;
+                              setEditingItemId(null);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (skipItemBlurRef.current) {
+                              skipItemBlurRef.current = false;
+                              return;
+                            }
+                            void handleConfirmItemRename(item);
+                          }}
+                          className="text-sm border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition w-full min-w-0"
+                        />
+                      ) : (
+                        <span
+                          className={`transition-all duration-200 ${
+                            isPending
+                              ? "text-gray-400 italic text-sm"
+                              : item.isCompleted
+                                ? "line-through text-gray-400 opacity-60"
+                                : ""
+                          }`}
+                        >
+                          {item.name}
+                        </span>
+                      )}
+
+                      {/* Надпись "Сохраняется..." для ожидающей записи */}
+                      {isPending && (
+                        <span className="text-gray-400 text-xs">
+                          {t("saving")}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Автор записи: показывается только если включён переключатель */}
+                    {!isPending && showAuthors && item.addedBy && (
+                      <span className="text-gray-400 text-xs shrink-0">
+                        {item.addedBy.id === currentUserId
+                          ? t("you")
+                          : item.addedBy.name || item.addedBy.email}
                       </span>
                     )}
                   </div>
 
-                  {/* Автор записи: показывается только если включён переключатель */}
-                  {!isPending && showAuthors && item.addedBy && (
-                    <span className="text-gray-400 text-xs shrink-0">
-                      {item.addedBy.id === currentUserId
-                        ? t("you")
-                        : item.addedBy.name || item.addedBy.email}
-                    </span>
-                  )}
-                </div>
+                  <div className="flex items-center gap-1">
+                    {/* Кнопка переименования записи */}
+                    {!isPending && editingItemId !== item.id && (
+                      <button
+                        type="button"
+                        aria-label={t("ariaRename", { name: item.name })}
+                        onClick={() => {
+                          setEditingItemId(item.id);
+                          setEditItemName(item.name);
+                        }}
+                        className="text-gray-400 hover:text-blue-500 text-sm px-1 py-1 leading-none transition-colors"
+                      >
+                        ✎
+                      </button>
+                    )}
 
-                <div className="flex items-center gap-1">
-                  {/* Кнопка переименования записи */}
-                  {!isPending && editingItemId !== item.id && (
+                    {/* Кнопка удаления записи */}
                     <button
                       type="button"
-                      aria-label={t("ariaRename", { name: item.name })}
-                      onClick={() => {
-                        setEditingItemId(item.id);
-                        setEditItemName(item.name);
-                      }}
-                      className="text-gray-400 hover:text-blue-500 text-sm px-1 py-1 leading-none transition-colors"
+                      disabled={isPending}
+                      title={isPending ? t("saving") : undefined}
+                      onClick={() => setItemToDelete(item)}
+                      aria-label={t("ariaDelete", { name: item.name })}
+                      className={`text-xs font-bold px-2 py-1 transition-colors ${
+                        isPending
+                          ? "text-gray-300 cursor-not-allowed"
+                          : "text-red-500 hover:text-red-700"
+                      }`}
                     >
-                      ✎
+                      ✕
                     </button>
-                  )}
-
-                  {/* Кнопка удаления записи */}
-                  <button
-                    type="button"
-                    disabled={isPending}
-                    title={isPending ? t("saving") : undefined}
-                    onClick={() => setItemToDelete(item)}
-                    aria-label={t("ariaDelete", { name: item.name })}
-                    className={`text-xs font-bold px-2 py-1 transition-colors ${
-                      isPending
-                        ? "text-gray-300 cursor-not-allowed"
-                        : "text-red-500 hover:text-red-700"
-                    }`}
-                  >
-                    ✕
-                  </button>
-                </div>
-              </li>
-            );
-          })}
+                  </div>
+                </li>
+              );
+            })}
 
           {/* Сообщение о пустом списке */}
           {optimisticItems.length === 0 && (
@@ -487,7 +508,7 @@ export default function SmartList({
           />
           <button
             type="submit"
-            className="bg-black text-white px-4 py-2 rounded text-sm hover:bg-gray-800"
+            className="bg-gray-800 text-white px-4 py-2 rounded text-sm hover:bg-gray-900"
           >
             +
           </button>

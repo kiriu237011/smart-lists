@@ -34,6 +34,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   createList,
   deleteList,
@@ -512,134 +513,144 @@ export default function ListsContainer({
         <span className="text-xs text-gray-400">{t("showAuthors")}</span>
       </div>
 
-      <div className="space-y-6">
-        {optimisticLists.map((list) => (
-          <div
-            key={list.id}
-            className="border p-6 rounded-xl shadow-sm bg-white"
-          >
-            {/* Индикатор ожидания для оптимистичного списка */}
-            {list.id.startsWith("temp-") && (
-              <div className="mb-3 text-xs text-blue-600 font-medium">
-                {t("creating")}
-              </div>
-            )}
+      <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
+        <AnimatePresence initial={false}>
+          {optimisticLists.map((list) => (
+            <motion.div
+              key={list.id}
+              initial={{ opacity: 0, scale: 0.96, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: -8 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="break-inside-avoid mb-6 border p-6 rounded-xl shadow-sm bg-white"
+            >
+              {/* Индикатор ожидания для оптимистичного списка */}
+              {list.id.startsWith("temp-") && (
+                <div className="mb-3 text-xs text-blue-600 font-medium">
+                  {t("creating")}
+                </div>
+              )}
 
-            {/* Заголовок и кнопки управления */}
-            <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                {editingListId === list.id ? (
-                  <input
-                    autoFocus
-                    className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
-                    value={editTitle}
-                    maxLength={50}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
+              {/* Заголовок и кнопки управления */}
+              <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  {editingListId === list.id ? (
+                    <input
+                      autoFocus
+                      className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
+                      value={editTitle}
+                      maxLength={50}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleConfirmRename(list);
+                        }
+                        if (e.key === "Escape") {
+                          skipBlurRef.current = true;
+                          setEditingListId(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (skipBlurRef.current) {
+                          skipBlurRef.current = false;
+                          return;
+                        }
                         void handleConfirmRename(list);
-                      }
-                      if (e.key === "Escape") {
-                        skipBlurRef.current = true;
-                        setEditingListId(null);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (skipBlurRef.current) {
-                        skipBlurRef.current = false;
-                        return;
-                      }
-                      void handleConfirmRename(list);
-                    }}
-                  />
-                ) : (
-                  <h2 className="text-xl font-bold truncate">{list.title}</h2>
-                )}
-              </div>
+                      }}
+                    />
+                  ) : (
+                    <h2 className="text-xl font-bold truncate">{list.title}</h2>
+                  )}
+                </div>
 
-              {/* Кнопки переименования и удаления: только для владельца и только для реальных списков */}
-              {list.ownerId === currentUserId &&
-                !list.id.startsWith("temp-") && (
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {editingListId !== list.id && (
+                {/* Кнопки переименования и удаления: только для владельца и только для реальных списков */}
+                {list.ownerId === currentUserId &&
+                  !list.id.startsWith("temp-") && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {editingListId !== list.id && (
+                        <button
+                          type="button"
+                          aria-label={t("ariaRename", { title: list.title })}
+                          onClick={() => {
+                            setEditingListId(list.id);
+                            setEditTitle(list.title);
+                          }}
+                          className="text-gray-400 hover:text-blue-500 text-base px-2 py-1 leading-none"
+                        >
+                          ✎
+                        </button>
+                      )}
                       <button
                         type="button"
-                        aria-label={t("ariaRename", { title: list.title })}
-                        onClick={() => {
-                          setEditingListId(list.id);
-                          setEditTitle(list.title);
-                        }}
-                        className="text-gray-400 hover:text-blue-500 text-base px-2 py-1 leading-none"
+                        aria-label={t("ariaDelete", { title: list.title })}
+                        disabled={isDeleting}
+                        onClick={() => setListToDelete(list)}
+                        className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
                       >
-                        ✎
+                        ✕
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      aria-label={t("ariaDelete", { title: list.title })}
-                      disabled={isDeleting}
-                      onClick={() => setListToDelete(list)}
-                      className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
-            </div>
-
-            {/* Список записей: рендерится только для реальных (не temp) списков */}
-            {!list.id.startsWith("temp-") && (
-              <SmartList
-                items={list.items}
-                listId={list.id}
-                currentUserId={currentUserId}
-                currentUserName={currentUserName}
-                currentUserEmail={currentUserEmail}
-                showAuthors={showAuthors}
-              />
-            )}
-
-            {/* Форма совместного доступа: только для владельца и только для реальных списков */}
-            {list.ownerId === currentUserId && !list.id.startsWith("temp-") && (
-              <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
-            )}
-
-            {/* Подпись владельца + кнопка Отписаться от списка: только для гостевого доступа */}
-            {list.ownerId !== currentUserId && (
-              <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-xs text-gray-400">
-                  {t("owner", { name: list.owner.name || list.owner.email })}
-                </span>
-                <button
-                  type="button"
-                  disabled={isLeaving}
-                  onClick={() => setListToLeave(list)}
-                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M13 4h3a2 2 0 0 1 2 2v14" />
-                    <path d="M2 20h3" />
-                    <path d="M13 20h9" />
-                    <path d="M10 12v.01" />
-                    <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" />
-                  </svg>
-                  {t("unsubscribe")}
-                </button>
+                    </div>
+                  )}
               </div>
-            )}
-          </div>
-        ))}
+
+              {/* Список записей: рендерится только для реальных (не temp) списков */}
+              {!list.id.startsWith("temp-") && (
+                <SmartList
+                  items={list.items}
+                  listId={list.id}
+                  currentUserId={currentUserId}
+                  currentUserName={currentUserName}
+                  currentUserEmail={currentUserEmail}
+                  showAuthors={showAuthors}
+                />
+              )}
+
+              {/* Форма совместного доступа: только для владельца и только для реальных списков */}
+              {list.ownerId === currentUserId &&
+                !list.id.startsWith("temp-") && (
+                  <ShareListForm
+                    listId={list.id}
+                    sharedWith={list.sharedWith}
+                  />
+                )}
+
+              {/* Подпись владельца + кнопка Отписаться от списка: только для гостевого доступа */}
+              {list.ownerId !== currentUserId && (
+                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-xs text-gray-400">
+                    {t("owner", { name: list.owner.name || list.owner.email })}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={isLeaving}
+                    onClick={() => setListToLeave(list)}
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M13 4h3a2 2 0 0 1 2 2v14" />
+                      <path d="M2 20h3" />
+                      <path d="M13 20h9" />
+                      <path d="M10 12v.01" />
+                      <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" />
+                    </svg>
+                    {t("unsubscribe")}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
 
         {/* Сообщение о пустом состоянии */}
         {optimisticLists.length === 0 && (
