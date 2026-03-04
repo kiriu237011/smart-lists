@@ -537,9 +537,10 @@ export default function ListsContainer({
                   {editingListId === list.id ? (
                     <input
                       autoFocus
-                      className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition"
+                      className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
                       value={editTitle}
                       maxLength={50}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => setEditTitle(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
@@ -559,6 +560,17 @@ export default function ListsContainer({
                         void handleConfirmRename(list);
                       }}
                     />
+                  ) : list.ownerId === currentUserId && !list.id.startsWith("temp-") ? (
+                    <div
+                      className="group flex items-center gap-1 flex-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 hover:ring-1 hover:ring-gray-300 transition-colors"
+                      onClick={() => {
+                        setEditingListId(list.id);
+                        setEditTitle(list.title);
+                      }}
+                    >
+                      <h2 className="text-xl font-bold truncate flex-1">{list.title}</h2>
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">✎</span>
+                    </div>
                   ) : (
                     <h2 className="text-xl font-bold truncate">{list.title}</h2>
                   )}
@@ -568,28 +580,40 @@ export default function ListsContainer({
                 {list.ownerId === currentUserId &&
                   !list.id.startsWith("temp-") && (
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      {editingListId !== list.id && (
-                        <button
-                          type="button"
-                          aria-label={t("ariaRename", { title: list.title })}
-                          onClick={() => {
-                            setEditingListId(list.id);
-                            setEditTitle(list.title);
-                          }}
-                          className="text-gray-400 hover:text-blue-500 text-base px-2 py-1 leading-none"
-                        >
-                          ✎
-                        </button>
+                      {editingListId === list.id ? (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Сохранить"
+                            onMouseDown={() => { skipBlurRef.current = true; }}
+                            onClick={() => void handleConfirmRename(list)}
+                            className="text-green-600 hover:text-white hover:bg-green-600 text-base px-2 py-1 leading-none rounded transition"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Отменить"
+                            onMouseDown={() => { skipBlurRef.current = true; }}
+                            onClick={() => setEditingListId(null)}
+                            className="text-gray-400 hover:text-white hover:bg-gray-500 text-base px-2 py-1 leading-none rounded transition"
+                          >
+                            ✗
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            aria-label={t("ariaDelete", { title: list.title })}
+                            disabled={isDeleting}
+                            onClick={() => setListToDelete(list)}
+                            className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
+                          >
+                            ✕
+                          </button>
+                        </>
                       )}
-                      <button
-                        type="button"
-                        aria-label={t("ariaDelete", { title: list.title })}
-                        disabled={isDeleting}
-                        onClick={() => setListToDelete(list)}
-                        className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
-                      >
-                        ✕
-                      </button>
                     </div>
                   )}
               </div>
