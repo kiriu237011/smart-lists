@@ -587,7 +587,7 @@ export default function ListsContainer({
                             aria-label="Сохранить"
                             onMouseDown={() => { skipBlurRef.current = true; }}
                             onClick={() => void handleConfirmRename(list)}
-                            className="text-green-600 hover:text-white hover:bg-green-600 text-base px-2 py-1 leading-none rounded transition"
+                            className="hidden sm:inline-flex text-green-600 hover:text-white hover:bg-green-600 text-base px-2 py-1 leading-none rounded transition"
                           >
                             ✓
                           </button>

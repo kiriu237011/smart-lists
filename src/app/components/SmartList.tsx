@@ -435,7 +435,7 @@ export default function SmartList({
                           aria-label="Сохранить"
                           onMouseDown={() => { skipItemBlurRef.current = true; }}
                           onClick={() => void handleConfirmItemRename(item)}
-                          className="text-green-600 hover:text-white hover:bg-green-600 text-sm px-1 py-1 leading-none rounded transition"
+                          className="hidden sm:inline-flex text-green-600 hover:text-white hover:bg-green-600 text-sm px-1 py-1 leading-none rounded transition"
                         >
                           ✓
                         </button>
