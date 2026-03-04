@@ -282,7 +282,7 @@ export default function SmartList({
               return (
                 <li
                   key={item.id}
-                  className={`flex items-center justify-between p-2 rounded transition-all duration-200 ${
+                  className={`flex items-center justify-between gap-2 p-2 rounded transition-all duration-200 ${
                     isPending
                       ? "bg-gray-100 opacity-60"
                       : item.isCompleted
@@ -290,9 +290,9 @@ export default function SmartList({
                         : "bg-gray-50"
                   }`}
                 >
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    {/* Кнопка переключения статуса (чекбокс) */}
-                    <form
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {/* Кнопка переключения статуса (чекбокс): скрыта при редактировании */}
+                    {editingItemId !== item.id && <form
                       action={async () => {
                         // 1. Мгновенно меняем UI
                         setOptimisticItems({
@@ -345,15 +345,26 @@ export default function SmartList({
                           )
                         )}
                       </button>
-                    </form>
+                    </form>}
 
                     {/* Название записи (или поле редактирования) + "Сохраняется..." */}
                     <div className="flex-1 min-w-0 flex items-center gap-1">
                       {!isPending && editingItemId === item.id ? (
-                        <input
+                        <textarea
                           autoFocus
                           value={editItemName}
                           maxLength={100}
+                          rows={1}
+                          onFocus={(e) => {
+                            e.target.select();
+                            e.target.style.height = "auto";
+                            e.target.style.height = e.target.scrollHeight + "px";
+                          }}
+                          onInput={(e) => {
+                            const el = e.currentTarget;
+                            el.style.height = "auto";
+                            el.style.height = el.scrollHeight + "px";
+                          }}
                           onChange={(e) => setEditItemName(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -372,16 +383,25 @@ export default function SmartList({
                             }
                             void handleConfirmItemRename(item);
                           }}
-                          className="text-sm border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-blue-500 outline-none transition w-full min-w-0"
+                          className="text-sm border py-2 px-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition w-full min-w-0 resize-none overflow-hidden"
                         />
+                      ) : !isPending && !item.isCompleted ? (
+                        <span
+                          className="group inline-flex items-center gap-1 rounded-lg px-1 -mx-1 hover:bg-gray-200 hover:ring-1 hover:ring-gray-300 transition-colors"
+                          onClick={() => {
+                            setEditingItemId(item.id);
+                            setEditItemName(item.name);
+                          }}
+                        >
+                          {item.name}
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex-shrink-0">✎</span>
+                        </span>
                       ) : (
                         <span
                           className={`transition-all duration-200 ${
                             isPending
                               ? "text-gray-400 italic text-sm"
-                              : item.isCompleted
-                                ? "line-through text-gray-400 opacity-60"
-                                : ""
+                              : "line-through text-gray-400 opacity-60 cursor-default"
                           }`}
                         >
                           {item.name}
@@ -407,36 +427,48 @@ export default function SmartList({
                   </div>
 
                   <div className="flex items-center gap-1">
-                    {/* Кнопка переименования записи */}
-                    {!isPending && editingItemId !== item.id && (
-                      <button
-                        type="button"
-                        aria-label={t("ariaRename", { name: item.name })}
-                        onClick={() => {
-                          setEditingItemId(item.id);
-                          setEditItemName(item.name);
-                        }}
-                        className="text-gray-400 hover:text-blue-500 text-sm px-1 py-1 leading-none transition-colors"
-                      >
-                        ✎
-                      </button>
+                    {!isPending && editingItemId === item.id ? (
+                      <>
+                        {/* Кнопка сохранения при редактировании */}
+                        <button
+                          type="button"
+                          aria-label="Сохранить"
+                          onMouseDown={() => { skipItemBlurRef.current = true; }}
+                          onClick={() => void handleConfirmItemRename(item)}
+                          className="text-green-600 hover:text-white hover:bg-green-600 text-sm px-1 py-1 leading-none rounded transition"
+                        >
+                          ✓
+                        </button>
+                        {/* Кнопка отмены при редактировании */}
+                        <button
+                          type="button"
+                          aria-label="Отменить"
+                          onMouseDown={() => { skipItemBlurRef.current = true; }}
+                          onClick={() => setEditingItemId(null)}
+                          className="text-gray-400 hover:text-white hover:bg-gray-500 text-sm px-1 py-1 leading-none rounded transition"
+                        >
+                          ✗
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {/* Кнопка удаления записи */}
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          title={isPending ? t("saving") : undefined}
+                          onClick={() => setItemToDelete(item)}
+                          aria-label={t("ariaDelete", { name: item.name })}
+                          className={`text-xs font-bold px-2 py-1 transition-colors ${
+                            isPending
+                              ? "text-gray-300 cursor-not-allowed"
+                              : "text-red-500 hover:text-red-700"
+                          }`}
+                        >
+                          ✕
+                        </button>
+                      </>
                     )}
-
-                    {/* Кнопка удаления записи */}
-                    <button
-                      type="button"
-                      disabled={isPending}
-                      title={isPending ? t("saving") : undefined}
-                      onClick={() => setItemToDelete(item)}
-                      aria-label={t("ariaDelete", { name: item.name })}
-                      className={`text-xs font-bold px-2 py-1 transition-colors ${
-                        isPending
-                          ? "text-gray-300 cursor-not-allowed"
-                          : "text-red-500 hover:text-red-700"
-                      }`}
-                    >
-                      ✕
-                    </button>
                   </div>
                 </li>
               );
@@ -501,7 +533,7 @@ export default function SmartList({
           <input
             name="itemName"
             placeholder={t("placeholder")}
-            className="border p-2 rounded w-full text-sm"
+            className="border p-2 rounded-lg w-full text-sm bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
             value={newItemName}
             onChange={(e) => setNewItemName(e.target.value)}
             required

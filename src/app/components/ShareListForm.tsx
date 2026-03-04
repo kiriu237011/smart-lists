@@ -309,7 +309,7 @@ export default function ShareListForm({
               name="email"
               type="email"
               placeholder={t("placeholder")}
-              className="border p-1 rounded text-xs flex-1"
+              className="border p-1 rounded text-xs flex-1 bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               required
