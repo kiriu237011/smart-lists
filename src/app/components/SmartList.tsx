@@ -291,8 +291,9 @@ export default function SmartList({
                   }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {/* Кнопка переключения статуса (чекбокс): скрыта при редактировании */}
-                    {editingItemId !== item.id && <form
+                    {/* Кнопка переключения статуса (чекбокс): invisible при редактировании */}
+                    <form
+                      className={editingItemId === item.id ? "invisible" : ""}
                       action={async () => {
                         // 1. Мгновенно меняем UI
                         setOptimisticItems({
@@ -345,10 +346,24 @@ export default function SmartList({
                           )
                         )}
                       </button>
-                    </form>}
+                    </form>
 
                     {/* Название записи (или поле редактирования) + "Сохраняется..." */}
-                    <div className="flex-1 min-w-0 flex items-center gap-1">
+                    <div
+                      className={`flex-1 min-w-0 flex items-center gap-1 rounded-lg px-1 -mx-1 transition-colors ${
+                        !isPending && !item.isCompleted && editingItemId !== item.id
+                          ? "group cursor-pointer hover:bg-gray-100 hover:ring-1 hover:ring-gray-300"
+                          : ""
+                      }`}
+                      onClick={
+                        !isPending && !item.isCompleted && editingItemId !== item.id
+                          ? () => {
+                              setEditingItemId(item.id);
+                              setEditItemName(item.name);
+                            }
+                          : undefined
+                      }
+                    >
                       {!isPending && editingItemId === item.id ? (
                         <textarea
                           autoFocus
@@ -386,16 +401,10 @@ export default function SmartList({
                           className="text-sm border py-2 px-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition w-full min-w-0 resize-none overflow-hidden"
                         />
                       ) : !isPending && !item.isCompleted ? (
-                        <span
-                          className="group inline-flex items-center gap-1 rounded-lg px-1 -mx-1 hover:bg-gray-200 hover:ring-1 hover:ring-gray-300 transition-colors"
-                          onClick={() => {
-                            setEditingItemId(item.id);
-                            setEditItemName(item.name);
-                          }}
-                        >
-                          {item.name}
+                        <>
+                          <span className="flex-1">{item.name}</span>
                           <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex-shrink-0">✎</span>
-                        </span>
+                        </>
                       ) : (
                         <span
                           className={`transition-all duration-200 ${
