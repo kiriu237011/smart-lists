@@ -160,6 +160,13 @@ export default function ListsContainer({
   const skipBlurRef = useRef(false);
 
   /**
+   * Карта стабильных ключей для рендера карточек списков.
+   * Сопоставляет listId → renderKey, чтобы при замене temp-списка реальным
+   * React видел тот же ключ и не запускал exit/enter анимацию.
+   */
+  const stableKeys = useRef(new Map<string, string>());
+
+  /**
    * Оптимистичный список всех списков покупок.
    *
    * Reducer обрабатывает 5 действий:
@@ -262,6 +269,9 @@ export default function ListsContainer({
         sharedWith: [],
       };
 
+      // Регистрируем стабильный ключ для рендера: tempId → tempId
+      stableKeys.current.set(tempListId, tempListId);
+
       startTransition(() => {
         setOptimisticLists({ action: "add", list: optimisticList });
       });
@@ -285,6 +295,9 @@ export default function ListsContainer({
         toast.error(t("errors.createLoadFailed"));
         return { success: false };
       }
+
+      // Переносим стабильный ключ: теперь realId тоже рендерится под tempId
+      stableKeys.current.set(result.list.id, tempListId);
 
       // Заменяем временный список реальным объектом из БД
       startTransition(() => {
@@ -517,19 +530,13 @@ export default function ListsContainer({
         <AnimatePresence initial={false}>
           {optimisticLists.map((list) => (
             <motion.div
-              key={list.id}
-              initial={{ opacity: 0, scale: 0.96, y: -8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: -8 }}
+              key={stableKeys.current.get(list.id) ?? list.id}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="break-inside-avoid mb-6 border p-6 rounded-xl shadow-sm bg-white"
             >
-              {/* Индикатор ожидания для оптимистичного списка */}
-              {list.id.startsWith("temp-") && (
-                <div className="mb-3 text-xs text-blue-600 font-medium">
-                  {t("creating")}
-                </div>
-              )}
 
               {/* Заголовок и кнопки управления */}
               <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
@@ -562,13 +569,13 @@ export default function ListsContainer({
                     />
                   ) : list.ownerId === currentUserId && !list.id.startsWith("temp-") ? (
                     <div
-                      className="group flex items-center gap-1 flex-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 hover:ring-1 hover:ring-gray-300 transition-colors"
+                      className="group inline-flex items-center gap-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 hover:ring-1 hover:ring-gray-300 transition-colors cursor-pointer"
                       onClick={() => {
                         setEditingListId(list.id);
                         setEditTitle(list.title);
                       }}
                     >
-                      <h2 className="text-xl font-bold truncate flex-1">{list.title}</h2>
+                      <h2 className="text-xl font-bold truncate">{list.title}</h2>
                       <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">✎</span>
                     </div>
                   ) : (
@@ -617,6 +624,15 @@ export default function ListsContainer({
                     </div>
                   )}
               </div>
+
+              {/* Skeleton-заглушка для temp-списка (пока сервер создаёт запись) */}
+              {list.id.startsWith("temp-") && (
+                <div className="space-y-2 animate-pulse" aria-hidden>
+                  <div className="h-4 bg-gray-100 rounded w-3/4" />
+                  <div className="h-4 bg-gray-100 rounded w-1/2" />
+                  <div className="h-4 bg-gray-100 rounded w-2/3" />
+                </div>
+              )}
 
               {/* Список записей: рендерится только для реальных (не temp) списков */}
               {!list.id.startsWith("temp-") && (
