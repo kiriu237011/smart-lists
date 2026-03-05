@@ -284,7 +284,7 @@ export default function SmartList({
                   key={item.id}
                   className={`flex items-center justify-between gap-2 p-2 rounded transition-all duration-200 ${
                     isPending
-                      ? "bg-gray-100 opacity-60"
+                      ? "bg-gray-50"
                       : item.isCompleted
                         ? "bg-gray-100"
                         : "bg-gray-50"
@@ -400,29 +400,17 @@ export default function SmartList({
                           }}
                           className="text-sm border py-2 px-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition w-full min-w-0 resize-none overflow-hidden"
                         />
-                      ) : !isPending && !item.isCompleted ? (
+                      ) : isPending || (!item.isCompleted) ? (
                         <>
                           <span className="flex-1">{item.name}</span>
-                          <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex-shrink-0">✎</span>
+                          {!isPending && <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex-shrink-0">✎</span>}
                         </>
                       ) : (
-                        <span
-                          className={`transition-all duration-200 ${
-                            isPending
-                              ? "text-gray-400 italic text-sm"
-                              : "line-through text-gray-400 opacity-60 cursor-default"
-                          }`}
-                        >
+                        <span className="transition-all duration-200 line-through text-gray-400 opacity-60 cursor-default">
                           {item.name}
                         </span>
                       )}
 
-                      {/* Надпись "Сохраняется..." для ожидающей записи */}
-                      {isPending && (
-                        <span className="text-gray-400 text-xs">
-                          {t("saving")}
-                        </span>
-                      )}
                     </div>
 
                     {/* Автор записи: показывается только если включён переключатель */}
