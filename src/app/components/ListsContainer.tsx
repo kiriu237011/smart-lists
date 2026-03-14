@@ -46,6 +46,8 @@ import SmartList from "@/app/components/SmartList";
 import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
 import { useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
+import { getPusherClient } from "@/lib/pusher-client";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 type SharedUser = {
@@ -105,6 +107,7 @@ export default function ListsContainer({
   currentUserEmail,
 }: ListsContainerProps) {
   const t = useTranslations("ListsContainer");
+  const router = useRouter();
 
   /**
    * Список, ожидающий подтверждения удаления.
@@ -132,6 +135,31 @@ export default function ListsContainer({
   useEffect(() => {
     setShowAuthors(localStorage.getItem("showAuthors") === "true");
   }, []);
+
+  /**
+   * Эффект: подписка на личный private-канал Pusher текущего пользователя.
+   *
+   * Используется private-user-* канал (не публичный), что требует прохождения
+   * auth endpoint (/api/pusher/auth) — сервер проверяет, что пользователь
+   * подписывается только на свой канал. Это предотвращает слежку за чужой активностью.
+   *
+   * При получении события `refresh` вызывает `router.refresh()` —
+   * Next.js перезапрашивает Server Component с актуальными данными из БД.
+   * Это обеспечивает real-time обновление у всех участников списка.
+   */
+  useEffect(() => {
+    const client = getPusherClient();
+    const channel = client.subscribe(`private-user-${currentUserId}`);
+
+    channel.bind("refresh", () => {
+      router.refresh();
+    });
+
+    return () => {
+      channel.unbind_all();
+      client.unsubscribe(`private-user-${currentUserId}`);
+    };
+  }, [currentUserId, router]);
 
   const toggleShowAuthors = () => {
     setShowAuthors((prev) => {
