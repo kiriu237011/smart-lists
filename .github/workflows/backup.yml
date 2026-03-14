@@ -1,0 +1,30 @@
+name: Database Backup
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # каждый понедельник в 3:00 ночи (UTC)
+  workflow_dispatch:       # эта строка позволяет запустить вручную
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Run pg_dump
+        run: |
+          pg_dump \
+            --no-privileges \
+            --no-owner \
+            -Fc \
+            -d "${{ secrets.DATABASE_URL }}" \
+            -f backup.dump
+
+      - name: Upload backup as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ github.run_id }}
+          path: backup.dump
+          retention-days: 90
