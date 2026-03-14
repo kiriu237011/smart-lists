@@ -16,7 +16,7 @@
  *   2. Сборка сырых данных из `FormData`.
  *   3. Валидация через Zod (`schema.safeParse`).
  *   4. Операция с БД через Prisma.
- *   5. Инвалидация кеша Next.js (`revalidatePath("/")`).
+ *   5. Инвалидация кеша Next.js (`revalidatePath("/", "layout")` — весь layout-дерево, включая /ru, /vi).
  *   6. Возврат результата `{ success: true }` или `{ success: false, error: string }`.
  */
 
@@ -36,6 +36,7 @@ import {
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
+import { pusherServer } from "@/lib/pusher-server";
 
 // ===========================================================================
 // SERVER ACTIONS ДЛЯ ЗАПИСЕЙ (Item)
@@ -82,8 +83,9 @@ export async function addItem(formData: FormData) {
       } as any,
     });
 
-    // Сообщаем Next.js, что данные на "/" изменились → перефетч Server Component
-    revalidatePath("/");
+    // Инвалидируем весь layout-дерево (/, /ru, /vi) → перефетч Server Component
+    revalidatePath("/", "layout");
+    await notifyListMembers(result.data.listId);
     return { success: true };
   } catch (error) {
     console.error("Ошибка при добавлении записи:", error);
@@ -111,11 +113,18 @@ export async function deleteItem(formData: FormData) {
     return;
   }
 
+  // Получаем listId до удаления, чтобы уведомить участников после
+  const item = await prisma.item.findUnique({
+    where: { id: result.data.itemId },
+    select: { listId: true },
+  });
+
   await prisma.item.delete({
     where: { id: result.data.itemId },
   });
 
-  revalidatePath("/");
+  revalidatePath("/", "layout");
+  if (item) await notifyListMembers(item.listId);
 }
 
 /**
@@ -146,14 +155,16 @@ export async function toggleItem(formData: FormData) {
     return;
   }
 
-  await prisma.item.update({
+  const updatedItem = await prisma.item.update({
     where: { id: result.data.itemId },
     data: {
       isCompleted: !result.data.isCompleted, // Инвертируем текущее значение
     },
+    select: { listId: true },
   });
 
-  revalidatePath("/");
+  revalidatePath("/", "layout");
+  await notifyListMembers(updatedItem.listId);
 }
 
 /**
@@ -189,12 +200,14 @@ export async function renameItem(formData: FormData) {
       };
     }
 
-    await prisma.item.update({
+    const renamedItem = await prisma.item.update({
       where: { id: result.data.itemId },
       data: { name: result.data.itemName },
+      select: { listId: true },
     });
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
+    await notifyListMembers(renamedItem.listId);
     return { success: true };
   } catch (error) {
     console.error("Ошибка при переименовании записи:", error);
@@ -274,7 +287,8 @@ export async function createList(formData: FormData) {
       sharedWith: { id: string; name: string | null; email: string | null }[];
     };
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
+    await notifyListMembers(newList.id);
 
     // Возвращаем только нужные поля (не весь объект Prisma)
     return {
@@ -335,6 +349,12 @@ export async function deleteList(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
+    // Собираем участников до удаления: после удаления запрос вернёт null
+    const listToNotify = await prisma.list.findFirst({
+      where: { id: result.data.listId, ownerId: session.user.id },
+      select: { ownerId: true, sharedWith: { select: { id: true } } },
+    });
+
     // deleteMany с двойным условием — атомарная проверка прав
     const deleted = await prisma.list.deleteMany({
       where: {
@@ -350,7 +370,15 @@ export async function deleteList(formData: FormData) {
       };
     }
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
+    // Уведомляем всех участников после удаления (используем заранее собранные ID)
+    if (listToNotify) {
+      const userIds = [
+        listToNotify.ownerId,
+        ...listToNotify.sharedWith.map((u) => u.id),
+      ];
+      await notifyUsers(userIds);
+    }
     return { success: true };
   } catch (error) {
     console.error("Ошибка при удалении списка:", error);
@@ -429,7 +457,8 @@ export async function shareList(formData: FormData) {
       },
     });
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
+    await notifyListMembers(result.data.listId);
 
     return {
       success: true,
@@ -489,7 +518,11 @@ export async function removeSharedUser(formData: FormData) {
       },
     });
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
+    // Уведомляем удалённого пользователя отдельно — после disconnect он уже не в sharedWith,
+    // но refresh должен прийти уже после revalidatePath, чтобы сервер вернул актуальные данные
+    await notifyUsers([result.data.userId]);
+    await notifyListMembers(result.data.listId);
     return { success: true };
   } catch (error) {
     console.error("Ошибка при удалении доступа:", error);
@@ -535,7 +568,11 @@ export async function leaveSharedList(formData: FormData) {
       },
     });
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
+    // Уведомляем самого пользователя отдельно — после disconnect его нет в sharedWith,
+    // поэтому notifyListMembers его не затронет (нужно для других вкладок/устройств)
+    await notifyUsers([session.user.id]);
+    await notifyListMembers(listId);
     return { success: true };
   } catch (error) {
     console.error("Ошибка при выходе из списка:", error);
@@ -592,10 +629,52 @@ export async function renameList(formData: FormData) {
       };
     }
 
-    revalidatePath("/");
+    revalidatePath("/", "layout");
+    await notifyListMembers(result.data.listId);
     return { success: true };
   } catch (error) {
     console.error("Ошибка при переименовании списка:", error);
     return { success: false, error: "Не удалось переименовать список" };
   }
+}
+
+/**
+ * Находит всех пользователей у которых есть доступ к списку
+ * (владелец + все с кем поделились) и отправляет им событие refresh.
+ * Ошибка логируется, но не пробрасывается — сбой уведомления не отменяет уже успешную мутацию.
+ */
+async function notifyListMembers(listId: string) {
+  try {
+    const list = await prisma.list.findUnique({
+      where: { id: listId },
+      select: {
+        ownerId: true,
+        sharedWith: { select: { id: true } },
+      },
+    });
+
+    if (!list) return;
+
+    const userIds = [list.ownerId, ...list.sharedWith.map((u) => u.id)];
+
+    await notifyUsers(userIds);
+  } catch (err) {
+    console.error("notifyListMembers failed:", err);
+  }
+}
+
+/**
+ * Отправляет refresh в личные private-каналы пользователей.
+ * Ошибка Pusher логируется, но не ломает уже завершённую мутацию.
+ */
+async function notifyUsers(userIds: string[]) {
+  // Каждому пользователю — свой private-канал.
+  // private-* каналы требуют прохождения auth endpoint (/api/pusher/auth),
+  // который проверяет, что клиент подписывается только на свой канал.
+  // .catch не пробрасывает ошибку наружу — сбой Pusher не откатывает мутацию в БД.
+  await Promise.all(
+    userIds.map((userId) =>
+      pusherServer.trigger(`private-user-${userId}`, "refresh", {}),
+    ),
+  ).catch((err) => console.error("Pusher notify failed:", err));
 }
