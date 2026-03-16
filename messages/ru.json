@@ -16,6 +16,8 @@
     "owner": "Владелец: {name}",
     "unsubscribe": "Отписаться от списка",
     "noLists": "У вас пока нет списков.",
+    "searchPlaceholder": "Поиск по спискам и записям...",
+    "noSearchResults": "Ничего не найдено.",
     "ariaRename": "Переименовать список {title}",
     "ariaDelete": "Удалить список {title}",
     "leaveModal": {
