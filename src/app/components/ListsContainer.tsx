@@ -30,6 +30,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useMemo,
   useOptimistic,
   useRef,
   useState,
@@ -129,6 +130,8 @@ export default function ListsContainer({
 
   /** Глобальный флаг отображения авторов записей. Сохраняется в localStorage. */
   const [showAuthors, setShowAuthors] = useState<boolean>(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Читаем сохранённое значение из localStorage только после гидрации,
   // чтобы не было расхождения между серверным и клиентским HTML.
@@ -265,6 +268,35 @@ export default function ListsContainer({
       }
     },
   );
+
+  /**
+   * Отфильтрованные списки по поисковому запросу.
+   * Если запрос пустой — возвращает все списки.
+   * Если совпадает название — показывает список со всеми записями.
+   * Иначе — ищет совпадения внутри записей и показывает только их.
+   */
+  const filteredLists = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return optimisticLists;
+
+    return optimisticLists.reduce<typeof optimisticLists>((acc, list) => {
+      const titleMatches = list.title.toLowerCase().includes(q);
+
+      if (titleMatches) {
+        // Название совпало — показываем список со всеми записями
+        acc.push(list);
+      } else {
+        // Ищем совпадения внутри записей
+        const matchedItems = list.items.filter((item) =>
+          item.name.toLowerCase().includes(q),
+        );
+        if (matchedItems.length > 0) {
+          acc.push({ ...list, items: matchedItems });
+        }
+      }
+      return acc;
+    }, []);
+  }, [optimisticLists, searchQuery]);
 
   /**
    * Обработчик создания нового списка.
@@ -529,34 +561,43 @@ export default function ListsContainer({
   return (
     <>
       {/* Блок создания нового списка */}
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-8 border border-blue-100">
+      <div className="bg-white p-6 rounded-xl shadow-sm mb-4 border border-blue-100">
         <h3 className="text-lg font-semibold mb-3">{t("createTitle")}</h3>
         <CreateListForm onCreateList={handleCreateList} />
       </div>
 
-      {/* Лента всех списков */}
-      <div className="mb-4 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => toggleShowAuthors()}
-          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-            showAuthors ? "bg-blue-500" : "bg-gray-200"
-          }`}
-          role="switch"
-          aria-checked={showAuthors}
-        >
-          <span
-            className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
-              showAuthors ? "translate-x-4" : "translate-x-0"
+      {/* Поиск + переключатель авторов в одной строке */}
+      <div className="bg-white p-6 rounded-xl shadow-sm mb-4 border border-blue-100 flex items-center gap-3">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={t("searchPlaceholder")}
+          className="flex-1 border rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
+        />
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => toggleShowAuthors()}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+              showAuthors ? "bg-blue-500" : "bg-gray-200"
             }`}
-          />
-        </button>
-        <span className="text-xs text-gray-400">{t("showAuthors")}</span>
+            role="switch"
+            aria-checked={showAuthors}
+          >
+            <span
+              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
+                showAuthors ? "translate-x-4" : "translate-x-0"
+              }`}
+            />
+          </button>
+          <span className="text-xs text-gray-400">{t("showAuthors")}</span>
+        </div>
       </div>
 
       <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
         <AnimatePresence initial={false}>
-          {optimisticLists.map((list) => (
+          {filteredLists.map((list) => (
             <motion.div
               key={stableKeys.current.get(list.id) ?? list.id}
               initial={{ opacity: 0, scale: 0.96 }}
@@ -565,7 +606,6 @@ export default function ListsContainer({
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="break-inside-avoid mb-6 border p-6 rounded-xl shadow-sm bg-white"
             >
-
               {/* Заголовок и кнопки управления */}
               <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -595,7 +635,8 @@ export default function ListsContainer({
                         void handleConfirmRename(list);
                       }}
                     />
-                  ) : list.ownerId === currentUserId && !list.id.startsWith("temp-") ? (
+                  ) : list.ownerId === currentUserId &&
+                    !list.id.startsWith("temp-") ? (
                     <div
                       className="group inline-flex items-center gap-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 hover:ring-1 hover:ring-gray-300 transition-colors cursor-pointer"
                       onClick={() => {
@@ -603,8 +644,12 @@ export default function ListsContainer({
                         setEditTitle(list.title);
                       }}
                     >
-                      <h2 className="text-xl font-bold truncate">{list.title}</h2>
-                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">✎</span>
+                      <h2 className="text-xl font-bold truncate">
+                        {list.title}
+                      </h2>
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">
+                        ✎
+                      </span>
                     </div>
                   ) : (
                     <h2 className="text-xl font-bold truncate">{list.title}</h2>
@@ -620,7 +665,9 @@ export default function ListsContainer({
                           <button
                             type="button"
                             aria-label="Сохранить"
-                            onMouseDown={() => { skipBlurRef.current = true; }}
+                            onMouseDown={() => {
+                              skipBlurRef.current = true;
+                            }}
                             onClick={() => void handleConfirmRename(list)}
                             className="hidden sm:inline-flex text-green-600 hover:text-white hover:bg-green-600 text-base px-2 py-1 leading-none rounded transition"
                           >
@@ -629,7 +676,9 @@ export default function ListsContainer({
                           <button
                             type="button"
                             aria-label="Отменить"
-                            onMouseDown={() => { skipBlurRef.current = true; }}
+                            onMouseDown={() => {
+                              skipBlurRef.current = true;
+                            }}
                             onClick={() => setEditingListId(null)}
                             className="text-gray-400 hover:text-white hover:bg-gray-500 text-base px-2 py-1 leading-none rounded transition"
                           >
@@ -720,14 +769,16 @@ export default function ListsContainer({
           ))}
         </AnimatePresence>
 
-        {/* Сообщение о пустом состоянии */}
-        {optimisticLists.length === 0 && (
-          <div className="text-center py-10 border-2 border-dashed rounded-xl">
-            <p className="text-gray-500">{t("noLists")}</p>
-            <p className="text-sm text-gray-400" />
-          </div>
-        )}
       </div>
+
+      {/* Сообщение о пустом состоянии — вне columns-контейнера */}
+      {filteredLists.length === 0 && (
+        <div className="text-center py-10 border-2 border-dashed rounded-xl">
+          <p className="text-gray-500">
+            {searchQuery.trim() ? t("noSearchResults") : t("noLists")}
+          </p>
+        </div>
+      )}
 
       {/* -----------------------------------------------------------------------
           Модальное окно подтверждения удаления.
