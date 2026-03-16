@@ -27,6 +27,7 @@
 "use client";
 
 import {
+  memo,
   startTransition,
   useCallback,
   useEffect,
@@ -81,6 +82,202 @@ type ListData = {
   sharedWith: SharedUser[];
 };
 
+/** Пропсы компонента `ListCard`. */
+type ListCardProps = {
+  list: ListData;
+  currentUserId: string;
+  currentUserName: string | null;
+  currentUserEmail: string;
+  showAuthors: boolean;
+  isDeleting: boolean;
+  isLeaving: boolean;
+  onRename: (listId: string, newTitle: string, originalList: ListData) => Promise<void>;
+  onDelete: (list: ListData) => void;
+  onLeave: (list: ListData) => void;
+};
+
+/**
+ * Мемоизированная карточка одного списка.
+ *
+ * Изолирует состояние редактирования (editingListId, editTitle) внутри себя,
+ * чтобы ре-рендер при поиске или изменении другой карточки не затрагивал её.
+ */
+const ListCard = memo(function ListCard({
+  list,
+  currentUserId,
+  currentUserName,
+  currentUserEmail,
+  showAuthors,
+  isDeleting,
+  isLeaving,
+  onRename,
+  onDelete,
+  onLeave,
+}: ListCardProps) {
+  const t = useTranslations("ListsContainer");
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const processingRenameRef = useRef(false);
+  const skipBlurRef = useRef(false);
+
+  const handleConfirmRename = useCallback(async () => {
+    if (processingRenameRef.current) return;
+    processingRenameRef.current = true;
+    try {
+      const trimmed = editTitle.trim();
+      setIsEditing(false);
+      if (!trimmed || trimmed === list.title) return;
+      await onRename(list.id, trimmed, list);
+    } finally {
+      processingRenameRef.current = false;
+    }
+  }, [editTitle, list, onRename]);
+
+  const isOwner = list.ownerId === currentUserId;
+  const isTemp = list.id.startsWith("temp-");
+
+  return (
+    <div className="break-inside-avoid mb-6 border p-6 rounded-xl shadow-sm bg-white">
+      {/* Заголовок и кнопки управления */}
+      <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {isEditing ? (
+            <input
+              autoFocus
+              className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
+              value={editTitle}
+              maxLength={50}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleConfirmRename();
+                }
+                if (e.key === "Escape") {
+                  skipBlurRef.current = true;
+                  setIsEditing(false);
+                }
+              }}
+              onBlur={() => {
+                if (skipBlurRef.current) {
+                  skipBlurRef.current = false;
+                  return;
+                }
+                void handleConfirmRename();
+              }}
+            />
+          ) : isOwner && !isTemp ? (
+            <div
+              className="group inline-flex items-center gap-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 hover:ring-1 hover:ring-gray-300 transition-colors cursor-pointer"
+              onClick={() => {
+                setIsEditing(true);
+                setEditTitle(list.title);
+              }}
+            >
+              <h2 className="text-xl font-bold truncate">{list.title}</h2>
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">
+                ✎
+              </span>
+            </div>
+          ) : (
+            <h2 className="text-xl font-bold truncate">{list.title}</h2>
+          )}
+        </div>
+
+        {/* Кнопки переименования и удаления: только для владельца и только для реальных списков */}
+        {isOwner && !isTemp && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {isEditing ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Сохранить"
+                  onMouseDown={() => { skipBlurRef.current = true; }}
+                  onClick={() => void handleConfirmRename()}
+                  className="hidden sm:inline-flex text-green-600 hover:text-white hover:bg-green-600 text-base px-2 py-1 leading-none rounded transition"
+                >
+                  ✓
+                </button>
+                <button
+                  type="button"
+                  aria-label="Отменить"
+                  onMouseDown={() => { skipBlurRef.current = true; }}
+                  onClick={() => setIsEditing(false)}
+                  className="text-gray-400 hover:text-white hover:bg-gray-500 text-base px-2 py-1 leading-none rounded transition"
+                >
+                  ✗
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                aria-label={t("ariaDelete", { title: list.title })}
+                disabled={isDeleting}
+                onClick={() => onDelete(list)}
+                className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Skeleton-заглушка для temp-списка */}
+      {isTemp && (
+        <div className="space-y-2 animate-pulse" aria-hidden>
+          <div className="h-4 bg-gray-100 rounded w-3/4" />
+          <div className="h-4 bg-gray-100 rounded w-1/2" />
+          <div className="h-4 bg-gray-100 rounded w-2/3" />
+        </div>
+      )}
+
+      {/* Список записей */}
+      {!isTemp && (
+        <SmartList
+          items={list.items}
+          listId={list.id}
+          currentUserId={currentUserId}
+          currentUserName={currentUserName}
+          currentUserEmail={currentUserEmail}
+          showAuthors={showAuthors}
+        />
+      )}
+
+      {/* Форма совместного доступа */}
+      {isOwner && !isTemp && (
+        <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+      )}
+
+      {/* Подпись владельца + кнопка Отписаться */}
+      {!isOwner && (
+        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+          <span className="text-xs text-gray-400">
+            {t("owner", { name: list.owner.name || list.owner.email })}
+          </span>
+          <button
+            type="button"
+            disabled={isLeaving}
+            onClick={() => onLeave(list)}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M13 4h3a2 2 0 0 1 2 2v14" />
+              <path d="M2 20h3" />
+              <path d="M13 20h9" />
+              <path d="M10 12v.01" />
+              <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" />
+            </svg>
+            {t("unsubscribe")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+
 /** Пропсы компонента `ListsContainer`. */
 type ListsContainerProps = {
   /** Все списки, доступные пользователю (свои + расшаренные). Загружаются на сервере. */
@@ -131,7 +328,15 @@ export default function ListsContainer({
   /** Глобальный флаг отображения авторов записей. Сохраняется в localStorage. */
   const [showAuthors, setShowAuthors] = useState<boolean>(false);
 
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Debounce: применяем поисковый запрос с задержкой 200мс,
+  // чтобы не пересчитывать filteredLists при каждом нажатии клавиши.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(searchInput), 200);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   // Читаем сохранённое значение из localStorage только после гидрации,
   // чтобы не было расхождения между серверным и клиентским HTML.
@@ -171,24 +376,6 @@ export default function ListsContainer({
       return next;
     });
   };
-
-  /** ID списка, чьё название сейчас редактируется. `null` — нет активного редактирования. */
-  const [editingListId, setEditingListId] = useState<string | null>(null);
-
-  /** Текущее значение поля ввода при редактировании названия. */
-  const [editTitle, setEditTitle] = useState("");
-
-  /**
-   * Ref-флаг: предотвращает двойной вызов `handleConfirmRename`.
-   * Нужен потому, что нажатие Enter → blur → оба обработчика вызывают rename одновременно.
-   */
-  const processingRenameRef = useRef(false);
-
-  /**
-   * Ref-флаг: сигнализирует, что blur должен быть проигнорирован.
-   * Устанавливается при нажатии Escape, чтобы blur не инициировал сохранение.
-   */
-  const skipBlurRef = useRef(false);
 
   /**
    * Карта стабильных ключей для рендера карточек списков.
@@ -374,57 +561,34 @@ export default function ListsContainer({
   );
 
   /**
-   * Обработчик подтверждения переименования списка.
-   *
-   * Вызывается при нажатии Enter или потере фокуса (blur) полем ввода.
-   * Использует `processingRenameRef` для защиты от двойного вызова
-   * (Enter → blur оба срабатывают одновременно).
-   *
-   * @param list - Список, название которого редактировалось.
+   * Колбэк переименования для `ListCard`.
+   * Вызывается уже с обрезанным новым названием.
    */
-  const handleConfirmRename = useCallback(
-    async (list: ListData) => {
-      // Защита от двойного вызова (Enter + blur)
-      if (processingRenameRef.current) return;
-      processingRenameRef.current = true;
-
-      try {
-        const trimmedTitle = editTitle.trim();
-        setEditingListId(null);
-
-        // Если название не изменилось или пустое — ничего не делаем
-        if (!trimmedTitle || trimmedTitle === list.title) return;
-
-        // Оптимистично обновляем название в UI
-        startTransition(() => {
-          setOptimisticLists({
-            action: "rename",
-            listId: list.id,
-            list: { ...list, title: trimmedTitle },
-          });
+  const handleRename = useCallback(
+    async (listId: string, newTitle: string, originalList: ListData) => {
+      // Оптимистично обновляем название в UI
+      startTransition(() => {
+        setOptimisticLists({
+          action: "rename",
+          listId,
+          list: { ...originalList, title: newTitle },
         });
+      });
 
-        const formData = new FormData();
-        formData.append("listId", list.id);
-        formData.append("title", trimmedTitle);
-        const result = await renameList(formData);
+      const formData = new FormData();
+      formData.append("listId", listId);
+      formData.append("title", newTitle);
+      const result = await renameList(formData);
 
-        if (result && !result.success) {
-          // Откат: восстанавливаем исходное название
-          startTransition(() => {
-            setOptimisticLists({
-              action: "rename",
-              listId: list.id,
-              list,
-            });
-          });
-          toast.error(t("errors.renameFailed"));
-        }
-      } finally {
-        processingRenameRef.current = false;
+      if (result && !result.success) {
+        // Откат: восстанавливаем исходное название
+        startTransition(() => {
+          setOptimisticLists({ action: "rename", listId, list: originalList });
+        });
+        toast.error(t("errors.renameFailed"));
       }
     },
-    [editTitle, setOptimisticLists],
+    [setOptimisticLists, t],
   );
 
   /**
@@ -570,8 +734,8 @@ export default function ListsContainer({
       <div className="bg-white p-6 rounded-xl shadow-sm mb-4 border border-blue-100 flex items-center gap-3">
         <input
           type="search"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder={t("searchPlaceholder")}
           className="flex-1 border rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
         />
@@ -596,178 +760,51 @@ export default function ListsContainer({
       </div>
 
       <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
-        <AnimatePresence initial={false}>
-          {filteredLists.map((list) => (
-            <motion.div
-              key={stableKeys.current.get(list.id) ?? list.id}
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="break-inside-avoid mb-6 border p-6 rounded-xl shadow-sm bg-white"
-            >
-              {/* Заголовок и кнопки управления */}
-              <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  {editingListId === list.id ? (
-                    <input
-                      autoFocus
-                      className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
-                      value={editTitle}
-                      maxLength={50}
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void handleConfirmRename(list);
-                        }
-                        if (e.key === "Escape") {
-                          skipBlurRef.current = true;
-                          setEditingListId(null);
-                        }
-                      }}
-                      onBlur={() => {
-                        if (skipBlurRef.current) {
-                          skipBlurRef.current = false;
-                          return;
-                        }
-                        void handleConfirmRename(list);
-                      }}
-                    />
-                  ) : list.ownerId === currentUserId &&
-                    !list.id.startsWith("temp-") ? (
-                    <div
-                      className="group inline-flex items-center gap-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 hover:ring-1 hover:ring-gray-300 transition-colors cursor-pointer"
-                      onClick={() => {
-                        setEditingListId(list.id);
-                        setEditTitle(list.title);
-                      }}
-                    >
-                      <h2 className="text-xl font-bold truncate">
-                        {list.title}
-                      </h2>
-                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">
-                        ✎
-                      </span>
-                    </div>
-                  ) : (
-                    <h2 className="text-xl font-bold truncate">{list.title}</h2>
-                  )}
-                </div>
-
-                {/* Кнопки переименования и удаления: только для владельца и только для реальных списков */}
-                {list.ownerId === currentUserId &&
-                  !list.id.startsWith("temp-") && (
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {editingListId === list.id ? (
-                        <>
-                          <button
-                            type="button"
-                            aria-label="Сохранить"
-                            onMouseDown={() => {
-                              skipBlurRef.current = true;
-                            }}
-                            onClick={() => void handleConfirmRename(list)}
-                            className="hidden sm:inline-flex text-green-600 hover:text-white hover:bg-green-600 text-base px-2 py-1 leading-none rounded transition"
-                          >
-                            ✓
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Отменить"
-                            onMouseDown={() => {
-                              skipBlurRef.current = true;
-                            }}
-                            onClick={() => setEditingListId(null)}
-                            className="text-gray-400 hover:text-white hover:bg-gray-500 text-base px-2 py-1 leading-none rounded transition"
-                          >
-                            ✗
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            aria-label={t("ariaDelete", { title: list.title })}
-                            disabled={isDeleting}
-                            onClick={() => setListToDelete(list)}
-                            className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
-                          >
-                            ✕
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-              </div>
-
-              {/* Skeleton-заглушка для temp-списка (пока сервер создаёт запись) */}
-              {list.id.startsWith("temp-") && (
-                <div className="space-y-2 animate-pulse" aria-hidden>
-                  <div className="h-4 bg-gray-100 rounded w-3/4" />
-                  <div className="h-4 bg-gray-100 rounded w-1/2" />
-                  <div className="h-4 bg-gray-100 rounded w-2/3" />
-                </div>
-              )}
-
-              {/* Список записей: рендерится только для реальных (не temp) списков */}
-              {!list.id.startsWith("temp-") && (
-                <SmartList
-                  items={list.items}
-                  listId={list.id}
+        {searchQuery ? (
+          // При активном поиске — без анимации, чтобы не тормозило
+          filteredLists.map((list) => (
+            <div key={stableKeys.current.get(list.id) ?? list.id} className="break-inside-avoid mb-6">
+              <ListCard
+                list={list}
+                currentUserId={currentUserId}
+                currentUserName={currentUserName}
+                currentUserEmail={currentUserEmail}
+                showAuthors={showAuthors}
+                isDeleting={isDeleting}
+                isLeaving={isLeaving}
+                onRename={handleRename}
+                onDelete={setListToDelete}
+                onLeave={setListToLeave}
+              />
+            </div>
+          ))
+        ) : (
+          <AnimatePresence initial={false}>
+            {filteredLists.map((list) => (
+              <motion.div
+                key={stableKeys.current.get(list.id) ?? list.id}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="break-inside-avoid mb-6"
+              >
+                <ListCard
+                  list={list}
                   currentUserId={currentUserId}
                   currentUserName={currentUserName}
                   currentUserEmail={currentUserEmail}
                   showAuthors={showAuthors}
+                  isDeleting={isDeleting}
+                  isLeaving={isLeaving}
+                  onRename={handleRename}
+                  onDelete={setListToDelete}
+                  onLeave={setListToLeave}
                 />
-              )}
-
-              {/* Форма совместного доступа: только для владельца и только для реальных списков */}
-              {list.ownerId === currentUserId &&
-                !list.id.startsWith("temp-") && (
-                  <ShareListForm
-                    listId={list.id}
-                    sharedWith={list.sharedWith}
-                  />
-                )}
-
-              {/* Подпись владельца + кнопка Отписаться от списка: только для гостевого доступа */}
-              {list.ownerId !== currentUserId && (
-                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-                  <span className="text-xs text-gray-400">
-                    {t("owner", { name: list.owner.name || list.owner.email })}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={isLeaving}
-                    onClick={() => setListToLeave(list)}
-                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M13 4h3a2 2 0 0 1 2 2v14" />
-                      <path d="M2 20h3" />
-                      <path d="M13 20h9" />
-                      <path d="M10 12v.01" />
-                      <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" />
-                    </svg>
-                    {t("unsubscribe")}
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        )}
 
       </div>
 
