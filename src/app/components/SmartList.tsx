@@ -35,6 +35,7 @@ import {
 import { addItem, deleteItem, toggleItem, renameItem } from "@/app/actions";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
+import Highlight from "@/app/components/Highlight";
 
 // ---------------------------------------------------------------------------
 // Типы данных
@@ -63,6 +64,8 @@ type SmartListProps = {
   currentUserEmail: string;
   /** Глобальный флаг отображения авторов (управляется из ListsContainer). */
   showAuthors: boolean;
+  /** Активный поисковый запрос для подсветки совпадений (пустая строка = нет поиска). */
+  searchQuery?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -82,6 +85,7 @@ export default function SmartList({
   currentUserName,
   currentUserEmail,
   showAuthors,
+  searchQuery = "",
 }: SmartListProps) {
   const t = useTranslations("SmartList");
 
@@ -402,12 +406,12 @@ export default function SmartList({
                         />
                       ) : isPending || (!item.isCompleted) ? (
                         <>
-                          <span className="flex-1">{item.name}</span>
+                          <span className="flex-1"><Highlight text={item.name} query={searchQuery} /></span>
                           {!isPending && <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex-shrink-0">✎</span>}
                         </>
                       ) : (
                         <span className="transition-all duration-200 line-through text-gray-400 opacity-60 cursor-default">
-                          {item.name}
+                          <Highlight text={item.name} query={searchQuery} />
                         </span>
                       )}
 

@@ -46,6 +46,7 @@ import {
 } from "@/app/actions";
 import toast from "react-hot-toast";
 import SmartList from "@/app/components/SmartList";
+import Highlight from "@/app/components/Highlight";
 import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
 import { useTranslations } from "next-intl";
@@ -95,7 +96,10 @@ type ListCardProps = {
   onRename: (listId: string, newTitle: string, originalList: ListData) => Promise<void>;
   onDelete: (list: ListData) => void;
   onLeave: (list: ListData) => void;
+  /** Активный поисковый запрос для подсветки совпадений (пустая строка = нет поиска). */
+  searchQuery: string;
 };
+
 
 /**
  * Мемоизированная карточка одного списка.
@@ -114,6 +118,7 @@ const ListCard = memo(function ListCard({
   onRename,
   onDelete,
   onLeave,
+  searchQuery,
 }: ListCardProps) {
   const t = useTranslations("ListsContainer");
 
@@ -177,13 +182,13 @@ const ListCard = memo(function ListCard({
                 setEditTitle(list.title);
               }}
             >
-              <h2 className="text-xl font-bold truncate">{list.title}</h2>
+              <h2 className="text-xl font-bold truncate"><Highlight text={list.title} query={searchQuery} /></h2>
               <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">
                 ✎
               </span>
             </div>
           ) : (
-            <h2 className="text-xl font-bold truncate">{list.title}</h2>
+            <h2 className="text-xl font-bold truncate"><Highlight text={list.title} query={searchQuery} /></h2>
           )}
         </div>
 
@@ -244,6 +249,7 @@ const ListCard = memo(function ListCard({
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail}
           showAuthors={showAuthors}
+          searchQuery={searchQuery}
         />
       )}
 
@@ -798,6 +804,7 @@ export default function ListsContainer({
                 onRename={handleRename}
                 onDelete={setListToDelete}
                 onLeave={setListToLeave}
+                searchQuery={searchQuery}
               />
             </div>
           ))
@@ -823,6 +830,7 @@ export default function ListsContainer({
                   onRename={handleRename}
                   onDelete={setListToDelete}
                   onLeave={setListToLeave}
+                  searchQuery={searchQuery}
                 />
               </motion.div>
             ))}
