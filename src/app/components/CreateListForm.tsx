@@ -95,7 +95,7 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
       <button
         type="submit"
         disabled={isCreating}
-        className="w-full shrink-0 bg-gray-800 text-white px-3 py-1 rounded-xl font-medium transition sm:w-auto disabled:cursor-not-allowed disabled:bg-gray-700 hover:bg-gray-900"
+        className="w-full shrink-0 bg-gray-800 text-white px-3 py-3 rounded-xl font-medium transition sm:w-auto disabled:cursor-not-allowed disabled:bg-gray-700 hover:bg-gray-900"
       >
         {isCreating ? (
           <span className="inline-flex items-center gap-2">
