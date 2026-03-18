@@ -815,7 +815,7 @@ export default function ListsContainer({
               </svg>
               <input
                 ref={searchInputRef}
-                type="search"
+                type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -836,6 +836,22 @@ export default function ListsContainer({
           )}
         </div>
       </div>
+
+      {/* Плашка с результатами поиска */}
+      {searchQuery && (
+        <div className="flex items-center justify-between mb-4 px-1">
+          <span className="text-sm text-gray-500">
+            {t("searchResults", { found: filteredLists.length, total: optimisticLists.length })}
+          </span>
+          <button
+            type="button"
+            onClick={() => { setIsSearchOpen(false); setSearchInput(""); }}
+            className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
+          >
+            {t("closeSearch")} ✕
+          </button>
+        </div>
+      )}
 
       <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
         {searchQuery ? (

@@ -18,8 +18,10 @@
     "noLists": "У вас пока нет списков.",
     "searchPlaceholder": "Поиск по спискам и записям...",
     "noSearchResults": "Ничего не найдено.",
+    "searchResults": "Результаты поиска: {found} из {total}",
     "tabCreate": "Создать",
     "tabSearch": "Поиск",
+    "closeSearch": "Сбросить поиск",
     "ariaRename": "Переименовать список {title}",
     "ariaDelete": "Удалить список {title}",
     "leaveModal": {

@@ -18,8 +18,10 @@
     "noLists": "Bạn chưa có danh sách nào.",
     "searchPlaceholder": "Tìm kiếm danh sách và ghi chú...",
     "noSearchResults": "Không tìm thấy kết quả.",
+    "searchResults": "Kết quả tìm kiếm: {found} trong {total}",
     "tabCreate": "Tạo mới",
     "tabSearch": "Tìm kiếm",
+    "closeSearch": "Xóa tìm kiếm",
     "ariaRename": "Đổi tên danh sách {title}",
     "ariaDelete": "Xóa danh sách {title}",
     "leaveModal": {
