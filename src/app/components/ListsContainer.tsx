@@ -35,6 +35,7 @@ import {
   useOptimistic,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -145,7 +146,7 @@ const ListCard = memo(function ListCard({
           {isEditing ? (
             <input
               autoFocus
-              className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
+              className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
               value={editTitle}
               maxLength={50}
               onFocus={(e) => e.target.select()}
@@ -333,15 +334,21 @@ export default function ListsContainer({
   // isSearching: true в промежутке между вводом и применением дебаунса —
   // используется для показа лоадера в поле поиска.
   const [isSearching, setIsSearching] = useState(false);
+  // isPending: true пока React рендерит результаты поиска (низкоприоритетный переход)
+  const [isPending, startTransition] = useTransition();
 
-  // Debounce: применяем поисковый запрос с задержкой 200мс,
+  // Debounce: применяем поисковый запрос с задержкой 350мс,
   // чтобы не пересчитывать filteredLists при каждом нажатии клавиши.
+  // startTransition помечает обновление searchQuery как низкоприоритетное —
+  // React не блокирует UI пока пересчитывает filteredLists.
   useEffect(() => {
     if (searchInput !== searchQuery) setIsSearching(true);
     const timer = setTimeout(() => {
-      setSearchQuery(searchInput);
+      startTransition(() => {
+        setSearchQuery(searchInput);
+      });
       setIsSearching(false);
-    }, 200);
+    }, 350);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
@@ -737,8 +744,8 @@ export default function ListsContainer({
         <CreateListForm onCreateList={handleCreateList} />
       </div>
 
-      {/* Поиск + переключатель авторов в одной строке */}
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-4 border border-blue-100 flex items-center gap-3">
+      {/* Поиск + переключатель авторов: на мобильном в колонку, на десктопе в строку */}
+      <div className="bg-white p-6 rounded-xl shadow-sm mb-4 border border-blue-100 flex flex-col sm:flex-row sm:items-center gap-3">
         {/* Обёртка с позиционированием для спиннера */}
         <div className="relative flex-1">
           <input
@@ -746,10 +753,10 @@ export default function ListsContainer({
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder={t("searchPlaceholder")}
-            className="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition pr-8"
+            className="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition pr-8"
           />
           {/* Спиннер появляется пока searchQuery ещё не обновился */}
-          {isSearching && (
+          {(isSearching || isPending) && (
             <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
               <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
             </div>
