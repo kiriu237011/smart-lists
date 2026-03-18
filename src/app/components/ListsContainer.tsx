@@ -750,7 +750,7 @@ export default function ListsContainer({
       {/* Карточка с вкладками: Создать / Поиск */}
       <div className="bg-white rounded-xl shadow-sm mb-4 border border-blue-100">
         {/* Вкладки + переключатель авторов */}
-        <div className="flex items-center border-b border-gray-100">
+        <div className="flex items-center gap-1 p-2 border-b border-gray-100">
           {/* Вкладка "Создать" */}
           <button
             type="button"
@@ -758,10 +758,10 @@ export default function ListsContainer({
               setIsSearchOpen(false);
               setSearchInput("");
             }}
-            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
               !isSearchOpen
-                ? "border-gray-800 text-gray-800"
-                : "border-transparent text-gray-400 hover:text-gray-600"
+                ? "bg-gray-800 text-white"
+                : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
             }`}
           >
             {t("tabCreate")}
@@ -774,17 +774,17 @@ export default function ListsContainer({
               setIsSearchOpen(true);
               requestAnimationFrame(() => searchInputRef.current?.focus());
             }}
-            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
               isSearchOpen
-                ? "border-gray-800 text-gray-800"
-                : "border-transparent text-gray-400 hover:text-gray-600"
+                ? "bg-gray-800 text-white"
+                : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
             }`}
           >
             {t("tabSearch")}
           </button>
 
           {/* Переключатель авторов — прижат вправо */}
-          <div className="flex items-center gap-2 ml-auto px-5">
+          <div className="flex items-center gap-2 ml-auto px-2">
             <button
               type="button"
               onClick={() => toggleShowAuthors()}
