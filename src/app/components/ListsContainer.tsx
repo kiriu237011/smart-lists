@@ -330,11 +330,18 @@ export default function ListsContainer({
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  // isSearching: true в промежутке между вводом и применением дебаунса —
+  // используется для показа лоадера в поле поиска.
+  const [isSearching, setIsSearching] = useState(false);
 
   // Debounce: применяем поисковый запрос с задержкой 200мс,
   // чтобы не пересчитывать filteredLists при каждом нажатии клавиши.
   useEffect(() => {
-    const timer = setTimeout(() => setSearchQuery(searchInput), 200);
+    if (searchInput !== searchQuery) setIsSearching(true);
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setIsSearching(false);
+    }, 200);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
@@ -732,13 +739,22 @@ export default function ListsContainer({
 
       {/* Поиск + переключатель авторов в одной строке */}
       <div className="bg-white p-6 rounded-xl shadow-sm mb-4 border border-blue-100 flex items-center gap-3">
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder={t("searchPlaceholder")}
-          className="flex-1 border rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
-        />
+        {/* Обёртка с позиционированием для спиннера */}
+        <div className="relative flex-1">
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder={t("searchPlaceholder")}
+            className="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition pr-8"
+          />
+          {/* Спиннер появляется пока searchQuery ещё не обновился */}
+          {isSearching && (
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+              <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
