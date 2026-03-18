@@ -334,6 +334,9 @@ export default function ListsContainer({
 
   /** Глобальный флаг отображения авторов записей. Сохраняется в localStorage. */
   const [showAuthors, setShowAuthors] = useState<boolean>(false);
+  // isSearchOpen: управляет видимостью поля поиска
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -744,47 +747,93 @@ export default function ListsContainer({
 
   return (
     <>
-      {/* Блок создания нового списка */}
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-4 border border-blue-100">
-        <h3 className="text-lg font-semibold mb-3">{t("createTitle")}</h3>
-        <CreateListForm onCreateList={handleCreateList} />
-      </div>
-
-      {/* Поиск + переключатель авторов: на мобильном в колонку, на десктопе в строку */}
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-4 border border-blue-100 flex flex-col sm:flex-row sm:items-center gap-3">
-        {/* Обёртка с позиционированием для спиннера */}
-        <div className="relative flex-1">
-          <input
-            type="search"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder={t("searchPlaceholder")}
-            className="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition pr-8"
-          />
-          {/* Спиннер появляется пока searchQuery ещё не обновился */}
-          {(isSearching || isPending) && (
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-              <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+      {/* Карточка с вкладками: Создать / Поиск */}
+      <div className="bg-white rounded-xl shadow-sm mb-4 border border-blue-100">
+        {/* Вкладки + переключатель авторов */}
+        <div className="flex items-center border-b border-gray-100">
+          {/* Вкладка "Создать" */}
           <button
             type="button"
-            onClick={() => toggleShowAuthors()}
-            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-              showAuthors ? "bg-blue-500" : "bg-gray-200"
+            onClick={() => {
+              setIsSearchOpen(false);
+              setSearchInput("");
+            }}
+            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              !isSearchOpen
+                ? "border-gray-800 text-gray-800"
+                : "border-transparent text-gray-400 hover:text-gray-600"
             }`}
-            role="switch"
-            aria-checked={showAuthors}
           >
-            <span
-              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
-                showAuthors ? "translate-x-4" : "translate-x-0"
-              }`}
-            />
+            {t("tabCreate")}
           </button>
-          <span className="text-xs text-gray-400">{t("showAuthors")}</span>
+
+          {/* Вкладка "Поиск" */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsSearchOpen(true);
+              requestAnimationFrame(() => searchInputRef.current?.focus());
+            }}
+            className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              isSearchOpen
+                ? "border-gray-800 text-gray-800"
+                : "border-transparent text-gray-400 hover:text-gray-600"
+            }`}
+          >
+            {t("tabSearch")}
+          </button>
+
+          {/* Переключатель авторов — прижат вправо */}
+          <div className="flex items-center gap-2 ml-auto px-5">
+            <button
+              type="button"
+              onClick={() => toggleShowAuthors()}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                showAuthors ? "bg-blue-500" : "bg-gray-200"
+              }`}
+              role="switch"
+              aria-checked={showAuthors}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
+                  showAuthors ? "translate-x-4" : "translate-x-0"
+                }`}
+              />
+            </button>
+            <span className="text-xs text-gray-400">{t("showAuthors")}</span>
+          </div>
+        </div>
+
+        {/* Контент вкладки */}
+        <div className="p-6">
+          {!isSearchOpen ? (
+            <CreateListForm onCreateList={handleCreateList} />
+          ) : (
+            <div className="relative">
+              <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+              </svg>
+              <input
+                ref={searchInputRef}
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setIsSearchOpen(false);
+                    setSearchInput("");
+                  }
+                }}
+                placeholder={t("searchPlaceholder")}
+                className="w-full border rounded-lg pl-8 pr-8 p-3 bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
+              />
+              {(isSearching || isPending) && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
