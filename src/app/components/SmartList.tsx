@@ -398,7 +398,7 @@ export default function SmartList({
                             }
                             void handleConfirmItemRename(item);
                           }}
-                          className="text-sm border py-2 px-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition w-full min-w-0 resize-none overflow-hidden"
+                          className="text-sm border py-2 px-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition w-full min-w-0 resize-none overflow-hidden"
                         />
                       ) : isPending || (!item.isCompleted) ? (
                         <>
@@ -530,7 +530,7 @@ export default function SmartList({
           <input
             name="itemName"
             placeholder={t("placeholder")}
-            className="border p-2 rounded-lg w-full text-sm bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition"
+            className="border p-2 rounded-lg w-full text-sm bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
             value={newItemName}
             onChange={(e) => setNewItemName(e.target.value)}
             required

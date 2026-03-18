@@ -84,7 +84,7 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
       <input
         name="title"
         placeholder={t("placeholder")}
-        className="w-full min-w-0 flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition text-left"
+        className="w-full min-w-0 flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition text-left"
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         disabled={isCreating}
