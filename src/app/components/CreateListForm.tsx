@@ -84,7 +84,7 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
       <input
         name="title"
         placeholder={t("placeholder")}
-        className="w-full min-w-0 flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 ring-gray-800 outline-none transition text-left"
+        className="w-full min-w-0 flex-1 border p-3 rounded-lg bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition text-left"
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         disabled={isCreating}
@@ -95,7 +95,7 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
       <button
         type="submit"
         disabled={isCreating}
-        className="w-full shrink-0 bg-gray-800 text-white px-3 py-1 rounded-xl font-medium transition sm:w-auto disabled:cursor-not-allowed disabled:bg-gray-700 hover:bg-gray-900"
+        className="w-full shrink-0 bg-gray-800 text-white px-3 py-3 rounded-xl font-medium transition sm:w-auto disabled:cursor-not-allowed disabled:bg-gray-700 hover:bg-gray-900"
       >
         {isCreating ? (
           <span className="inline-flex items-center gap-2">
