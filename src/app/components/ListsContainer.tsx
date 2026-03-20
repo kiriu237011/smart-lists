@@ -1,14 +1,14 @@
 /**
  * @file ListsContainer.tsx
- * @description Контейнер всех списков пользователя.
+ * @description Главный контейнер списков пользователя.
  *
  * Client Component (`"use client"`).
  *
- * Это главный клиентский компонент приложения. Он:
- *   - Отображает все списки (свои и расшаренные).
- *   - Содержит форму создания нового списка (`CreateListForm`).
- *   - Управляет оптимистичным состоянием списков через `useOptimistic`.
- *   - Реализует модальное окно подтверждения удаления.
+ * Компонент отвечает исключительно за управление состоянием и координацию
+ * дочерних компонентов. Весь UI вынесен в отдельные компоненты:
+ *   - `ListCard`      — карточка отдельного списка.
+ *   - `ListsTopPanel` — панель с вкладками Создать/Поиск и переключателем авторов.
+ *   - `ConfirmModal`  — переиспользуемый модал подтверждения действия.
  *
  * Оптимистичные обновления (`useOptimistic`):
  *   Список обновляется МГНОВЕННО на клиенте, не дожидаясь ответа сервера.
@@ -19,6 +19,7 @@
  *   - `delete`  — удалить список по id.
  *   - `restore` — восстановить список на исходную позицию (откат удаления).
  *   - `replace` — заменить оптимистичный список реальным (после ответа сервера).
+ *   - `rename`  — обновить название списка (оптимистично или откат).
  *
  * Удаление через модальное окно:
  *   Клик на ✕ → модал → подтверждение/отмена (или Esc/Enter с клавиатуры).
@@ -27,7 +28,6 @@
 "use client";
 
 import {
-  memo,
   startTransition,
   useCallback,
   useEffect,
@@ -45,245 +45,13 @@ import {
   leaveSharedList,
 } from "@/app/actions";
 import toast from "react-hot-toast";
-import SmartList from "@/app/components/SmartList";
-import Highlight from "@/app/components/Highlight";
-import ShareListForm from "@/app/components/ShareListForm";
 import CreateListForm from "@/app/components/CreateListForm";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { getPusherClient } from "@/lib/pusher-client";
-
-/** Пользователь, которому предоставлен доступ к списку. */
-type SharedUser = {
-  id: string;
-  name: string | null;
-  email: string | null;
-};
-
-/** Данные о владельце списка. */
-type ListOwner = {
-  name: string | null;
-  email: string;
-};
-
-/** Запись внутри списка. */
-type Item = {
-  id: string;
-  name: string;
-  isCompleted: boolean;
-  addedBy: { id: string; name: string | null; email: string } | null;
-};
-
-/** Полные данные списка (включая связанные сущности). */
-type ListData = {
-  id: string;
-  title: string;
-  ownerId: string;
-  owner: ListOwner;
-  items: Item[];
-  sharedWith: SharedUser[];
-};
-
-/** Пропсы компонента `ListCard`. */
-type ListCardProps = {
-  list: ListData;
-  currentUserId: string;
-  currentUserName: string | null;
-  currentUserEmail: string;
-  showAuthors: boolean;
-  isDeleting: boolean;
-  isLeaving: boolean;
-  onRename: (listId: string, newTitle: string, originalList: ListData) => Promise<void>;
-  onDelete: (list: ListData) => void;
-  onLeave: (list: ListData) => void;
-  /** Активный поисковый запрос для подсветки совпадений (пустая строка = нет поиска). */
-  searchQuery: string;
-};
-
-
-/**
- * Мемоизированная карточка одного списка.
- *
- * Изолирует состояние редактирования (editingListId, editTitle) внутри себя,
- * чтобы ре-рендер при поиске или изменении другой карточки не затрагивал её.
- */
-const ListCard = memo(function ListCard({
-  list,
-  currentUserId,
-  currentUserName,
-  currentUserEmail,
-  showAuthors,
-  isDeleting,
-  isLeaving,
-  onRename,
-  onDelete,
-  onLeave,
-  searchQuery,
-}: ListCardProps) {
-  const t = useTranslations("ListsContainer");
-
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const processingRenameRef = useRef(false);
-  const skipBlurRef = useRef(false);
-
-  const handleConfirmRename = useCallback(async () => {
-    if (processingRenameRef.current) return;
-    processingRenameRef.current = true;
-    try {
-      const trimmed = editTitle.trim();
-      setIsEditing(false);
-      if (!trimmed || trimmed === list.title) return;
-      await onRename(list.id, trimmed, list);
-    } finally {
-      processingRenameRef.current = false;
-    }
-  }, [editTitle, list, onRename]);
-
-  const isOwner = list.ownerId === currentUserId;
-  const isTemp = list.id.startsWith("temp-");
-
-  return (
-    <div className="break-inside-avoid mb-6 border p-6 rounded-xl shadow-sm bg-white">
-      {/* Заголовок и кнопки управления */}
-      <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          {isEditing ? (
-            <input
-              autoFocus
-              className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
-              value={editTitle}
-              maxLength={50}
-              onFocus={(e) => e.target.select()}
-              onChange={(e) => setEditTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void handleConfirmRename();
-                }
-                if (e.key === "Escape") {
-                  skipBlurRef.current = true;
-                  setIsEditing(false);
-                }
-              }}
-              onBlur={() => {
-                if (skipBlurRef.current) {
-                  skipBlurRef.current = false;
-                  return;
-                }
-                void handleConfirmRename();
-              }}
-            />
-          ) : isOwner && !isTemp ? (
-            <div
-              className="group inline-flex items-center gap-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 hover:ring-1 hover:ring-gray-300 transition-colors cursor-pointer"
-              onClick={() => {
-                setIsEditing(true);
-                setEditTitle(list.title);
-              }}
-            >
-              <h2 className="text-xl font-bold truncate"><Highlight text={list.title} query={searchQuery} /></h2>
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">
-                ✎
-              </span>
-            </div>
-          ) : (
-            <h2 className="text-xl font-bold truncate"><Highlight text={list.title} query={searchQuery} /></h2>
-          )}
-        </div>
-
-        {/* Кнопки переименования и удаления: только для владельца и только для реальных списков */}
-        {isOwner && !isTemp && (
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {isEditing ? (
-              <>
-                <button
-                  type="button"
-                  aria-label="Сохранить"
-                  onMouseDown={() => { skipBlurRef.current = true; }}
-                  onClick={() => void handleConfirmRename()}
-                  className="hidden sm:inline-flex text-green-600 hover:text-white hover:bg-green-600 text-base px-2 py-1 leading-none rounded transition"
-                >
-                  ✓
-                </button>
-                <button
-                  type="button"
-                  aria-label="Отменить"
-                  onMouseDown={() => { skipBlurRef.current = true; }}
-                  onClick={() => setIsEditing(false)}
-                  className="text-gray-400 hover:text-white hover:bg-gray-500 text-base px-2 py-1 leading-none rounded transition"
-                >
-                  ✗
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                aria-label={t("ariaDelete", { title: list.title })}
-                disabled={isDeleting}
-                onClick={() => onDelete(list)}
-                className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Skeleton-заглушка для temp-списка */}
-      {isTemp && (
-        <div className="space-y-2 animate-pulse" aria-hidden>
-          <div className="h-4 bg-gray-100 rounded w-3/4" />
-          <div className="h-4 bg-gray-100 rounded w-1/2" />
-          <div className="h-4 bg-gray-100 rounded w-2/3" />
-        </div>
-      )}
-
-      {/* Список записей */}
-      {!isTemp && (
-        <SmartList
-          items={list.items}
-          listId={list.id}
-          currentUserId={currentUserId}
-          currentUserName={currentUserName}
-          currentUserEmail={currentUserEmail}
-          showAuthors={showAuthors}
-          searchQuery={searchQuery}
-        />
-      )}
-
-      {/* Форма совместного доступа */}
-      {isOwner && !isTemp && (
-        <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
-      )}
-
-      {/* Подпись владельца + кнопка Отписаться */}
-      {!isOwner && (
-        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-          <span className="text-xs text-gray-400">
-            {t("owner", { name: list.owner.name || list.owner.email })}
-          </span>
-          <button
-            type="button"
-            disabled={isLeaving}
-            onClick={() => onLeave(list)}
-            className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13 4h3a2 2 0 0 1 2 2v14" />
-              <path d="M2 20h3" />
-              <path d="M13 20h9" />
-              <path d="M10 12v.01" />
-              <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" />
-            </svg>
-            {t("unsubscribe")}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-});
+import ListCard, { type ListData } from "@/app/components/ListCard";
+import ListsTopPanel from "@/app/components/ListsTopPanel";
+import ConfirmModal from "@/app/components/ConfirmModal";
 
 /** Пропсы компонента `ListsContainer`. */
 type ListsContainerProps = {
@@ -299,6 +67,9 @@ type ListsContainerProps = {
 
 /**
  * Главный контейнер списков.
+ *
+ * Управляет состоянием и координирует дочерние компоненты:
+ * `ListCard`, `ListsTopPanel`, `ConfirmModal`.
  *
  * @param allLists - Начальные данные со всеми доступными списками.
  * @param currentUserId - ID авторизованного пользователя.
@@ -344,16 +115,16 @@ export default function ListsContainer({
   // используется для показа лоадера в поле поиска.
   const [isSearching, setIsSearching] = useState(false);
   // isPending: true пока React рендерит результаты поиска (низкоприоритетный переход)
-  const [isPending, startTransition] = useTransition();
+  const [isPending, startSearchTransition] = useTransition();
 
   // Debounce: применяем поисковый запрос с задержкой 350мс,
   // чтобы не пересчитывать filteredLists при каждом нажатии клавиши.
-  // startTransition помечает обновление searchQuery как низкоприоритетное —
+  // startSearchTransition помечает обновление searchQuery как низкоприоритетное —
   // React не блокирует UI пока пересчитывает filteredLists.
   useEffect(() => {
     if (searchInput !== searchQuery) setIsSearching(true);
     const timer = setTimeout(() => {
-      startTransition(() => {
+      startSearchTransition(() => {
         setSearchQuery(searchInput);
       });
       setIsSearching(false);
@@ -713,7 +484,7 @@ export default function ListsContainer({
   }, [handleConfirmLeave, isLeaving, listToLeave]);
 
   /**
-   * Эффект: подписка на клавиатурные события при открытом модале.
+   * Эффект: подписка на клавиатурные события при открытом модале удаления.
    *
    * - `Escape` — закрывает модал без удаления.
    * - `Enter`  — подтверждает удаление (если не идёт другое удаление).
@@ -748,98 +519,33 @@ export default function ListsContainer({
 
   return (
     <>
-      {/* Карточка с вкладками: Создать / Поиск */}
-      <div className="bg-white rounded-xl shadow-sm mb-4 border border-blue-100">
-        {/* Вкладки + переключатель авторов */}
-        <div className="flex items-center gap-1 p-2 border-b border-gray-100">
-          {/* Вкладка "Создать" */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsSearchOpen(false);
-              setSearchInput("");
-              localStorage.setItem("activeTab", "create");
-            }}
-            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-              !isSearchOpen
-                ? "bg-gray-800 text-white"
-                : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            {t("tabCreate")}
-          </button>
-
-          {/* Вкладка "Поиск" */}
-          <button
-            type="button"
-            onClick={() => {
-              setIsSearchOpen(true);
-              localStorage.setItem("activeTab", "search");
-              requestAnimationFrame(() => searchInputRef.current?.focus());
-            }}
-            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-              isSearchOpen
-                ? "bg-gray-800 text-white"
-                : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            {t("tabSearch")}
-          </button>
-
-          {/* Переключатель авторов — прижат вправо */}
-          <div className="flex items-center gap-2 ml-auto px-2">
-            <button
-              type="button"
-              onClick={() => toggleShowAuthors()}
-              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-                showAuthors ? "bg-blue-500" : "bg-gray-200"
-              }`}
-              role="switch"
-              aria-checked={showAuthors}
-            >
-              <span
-                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
-                  showAuthors ? "translate-x-4" : "translate-x-0"
-                }`}
-              />
-            </button>
-            <span className="text-xs text-gray-400">{t("showAuthors")}</span>
-          </div>
-        </div>
-
-        {/* Контент вкладки */}
-        <div className="p-6">
-          {!isSearchOpen ? (
-            <CreateListForm onCreateList={handleCreateList} />
-          ) : (
-            <div className="relative">
-              <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-              </svg>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setIsSearchOpen(false);
-                    setSearchInput("");
-                    localStorage.setItem("activeTab", "create");
-                  }
-                }}
-                placeholder={t("searchPlaceholder")}
-                className="w-full border rounded-lg pl-8 pr-8 p-3 bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
-              />
-              {(isSearching || isPending) && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Панель с вкладками Создать/Поиск и переключателем авторов */}
+      <ListsTopPanel
+        isSearchOpen={isSearchOpen}
+        searchInput={searchInput}
+        isSearching={isSearching}
+        isPending={isPending}
+        showAuthors={showAuthors}
+        searchInputRef={searchInputRef}
+        onTabCreate={() => {
+          setIsSearchOpen(false);
+          setSearchInput("");
+          localStorage.setItem("activeTab", "create");
+        }}
+        onTabSearch={() => {
+          setIsSearchOpen(true);
+          localStorage.setItem("activeTab", "search");
+          requestAnimationFrame(() => searchInputRef.current?.focus());
+        }}
+        onSearchChange={(value) => setSearchInput(value)}
+        onSearchEscape={() => {
+          setIsSearchOpen(false);
+          setSearchInput("");
+          localStorage.setItem("activeTab", "create");
+        }}
+        onToggleAuthors={toggleShowAuthors}
+        createListContent={<CreateListForm onCreateList={handleCreateList} />}
+      />
 
       {/* Плашка с результатами поиска */}
       {searchQuery && (
@@ -884,7 +590,6 @@ export default function ListsContainer({
             </motion.div>
           ))}
         </AnimatePresence>
-
       </div>
 
       {/* Сообщение о пустом состоянии — вне columns-контейнера */}
@@ -896,83 +601,30 @@ export default function ListsContainer({
         </div>
       )}
 
-      {/* -----------------------------------------------------------------------
-          Модальное окно подтверждения удаления.
-          Отображается только если listToDelete !== null.
-          Клик на фон (overlay) — закрыть без удаления.
-          Клик внутри модала — не закрывает (stopPropagation).
-      ----------------------------------------------------------------------- */}
-      {/* -----------------------------------------------------------------------
-          Модальное окно подтверждения выхода из расшаренного списка.
-      ----------------------------------------------------------------------- */}
+      {/* Модал подтверждения выхода из расшаренного списка */}
       {listToLeave && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setListToLeave(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("leaveModal.title")}
-            </h3>
-            <p className="text-sm text-gray-600 mb-5">
-              {t("leaveModal.body", { title: listToLeave.title })}
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setListToLeave(null)}
-                className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
-              >
-                {t("leaveModal.cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmLeave}
-                className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
-              >
-                {t("leaveModal.confirm")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title={t("leaveModal.title")}
+          body={t("leaveModal.body", { title: listToLeave.title })}
+          confirmLabel={t("leaveModal.confirm")}
+          cancelLabel={t("leaveModal.cancel")}
+          isConfirming={isLeaving}
+          onConfirm={() => void handleConfirmLeave()}
+          onCancel={() => setListToLeave(null)}
+        />
       )}
 
+      {/* Модал подтверждения удаления списка */}
       {listToDelete && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setListToDelete(null)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("deleteModal.title")}
-            </h3>
-            <p className="text-sm text-gray-600 mb-5">
-              {t("deleteModal.body", { title: listToDelete.title })}
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setListToDelete(null)}
-                className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
-              >
-                {t("deleteModal.cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
-              >
-                {t("deleteModal.confirm")}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title={t("deleteModal.title")}
+          body={t("deleteModal.body", { title: listToDelete.title })}
+          confirmLabel={t("deleteModal.confirm")}
+          cancelLabel={t("deleteModal.cancel")}
+          isConfirming={isDeleting}
+          onConfirm={() => void handleConfirmDelete()}
+          onCancel={() => setListToDelete(null)}
+        />
       )}
     </>
   );
