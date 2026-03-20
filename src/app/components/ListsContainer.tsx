@@ -858,10 +858,16 @@ export default function ListsContainer({
       )}
 
       <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
-        {searchQuery ? (
-          // При активном поиске — без анимации, чтобы не тормозило
-          filteredLists.map((list) => (
-            <div key={stableKeys.current.get(list.id) ?? list.id} className="break-inside-avoid mb-6">
+        <AnimatePresence initial={false}>
+          {filteredLists.map((list) => (
+            <motion.div
+              key={stableKeys.current.get(list.id) ?? list.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="break-inside-avoid mb-6"
+            >
               <ListCard
                 list={list}
                 currentUserId={currentUserId}
@@ -875,36 +881,9 @@ export default function ListsContainer({
                 onLeave={setListToLeave}
                 searchQuery={searchQuery}
               />
-            </div>
-          ))
-        ) : (
-          <AnimatePresence initial={false}>
-            {filteredLists.map((list) => (
-              <motion.div
-                key={stableKeys.current.get(list.id) ?? list.id}
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="break-inside-avoid mb-6"
-              >
-                <ListCard
-                  list={list}
-                  currentUserId={currentUserId}
-                  currentUserName={currentUserName}
-                  currentUserEmail={currentUserEmail}
-                  showAuthors={showAuthors}
-                  isDeleting={isDeleting}
-                  isLeaving={isLeaving}
-                  onRename={handleRename}
-                  onDelete={setListToDelete}
-                  onLeave={setListToLeave}
-                  searchQuery={searchQuery}
-                />
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
 
       </div>
 
