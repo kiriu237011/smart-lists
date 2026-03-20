@@ -334,7 +334,7 @@ export default function ListsContainer({
 
   /** Глобальный флаг отображения авторов записей. Сохраняется в localStorage. */
   const [showAuthors, setShowAuthors] = useState<boolean>(false);
-  // isSearchOpen: управляет видимостью поля поиска
+  // isSearchOpen: управляет видимостью поля поиска. Сохраняется в localStorage.
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -361,10 +361,11 @@ export default function ListsContainer({
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Читаем сохранённое значение из localStorage только после гидрации,
+  // Читаем сохранённые значения из localStorage только после гидрации,
   // чтобы не было расхождения между серверным и клиентским HTML.
   useEffect(() => {
     setShowAuthors(localStorage.getItem("showAuthors") === "true");
+    setIsSearchOpen(localStorage.getItem("activeTab") === "search");
   }, []);
 
   /**
@@ -757,6 +758,7 @@ export default function ListsContainer({
             onClick={() => {
               setIsSearchOpen(false);
               setSearchInput("");
+              localStorage.setItem("activeTab", "create");
             }}
             className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
               !isSearchOpen
@@ -772,6 +774,7 @@ export default function ListsContainer({
             type="button"
             onClick={() => {
               setIsSearchOpen(true);
+              localStorage.setItem("activeTab", "search");
               requestAnimationFrame(() => searchInputRef.current?.focus());
             }}
             className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
@@ -822,6 +825,7 @@ export default function ListsContainer({
                   if (e.key === "Escape") {
                     setIsSearchOpen(false);
                     setSearchInput("");
+                    localStorage.setItem("activeTab", "create");
                   }
                 }}
                 placeholder={t("searchPlaceholder")}
@@ -845,7 +849,7 @@ export default function ListsContainer({
           </span>
           <button
             type="button"
-            onClick={() => { setIsSearchOpen(false); setSearchInput(""); }}
+            onClick={() => { setIsSearchOpen(false); setSearchInput(""); localStorage.setItem("activeTab", "create"); }}
             className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
           >
             {t("closeSearch")} ✕
