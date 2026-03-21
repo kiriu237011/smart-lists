@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth";
 import { getTranslations } from "next-intl/server";
-import ListsContainer from "@/app/components/ListsContainer";
 import LanguageSwitcher from "@/app/components/LanguageSwitcher";
 import AvatarButton from "@/app/components/AvatarButton";
+import ListsDataFetcher from "@/app/components/ListsDataFetcher";
+import ListsSkeleton from "@/app/components/ListsSkeleton";
 
 /**
  * Главная страница приложения (Server Component).
@@ -63,25 +65,12 @@ export default async function Home() {
   // -----------------------------------------------------------------------
   // СЦЕНАРИЙ 2: АВТОРИЗОВАННЫЙ ПОЛЬЗОВАТЕЛЬ
   // -----------------------------------------------------------------------
-  const allLists = await prisma.list.findMany({
+  const listsCount = await prisma.list.count({
     where: {
       OR: [
         { ownerId: session.user.id },
         { sharedWith: { some: { id: session.user.id } } },
       ],
-    },
-    orderBy: { createdAt: "desc" },
-    include: {
-      items: {
-        orderBy: { createdAt: "asc" },
-        include: {
-          addedBy: {
-            select: { id: true, name: true, email: true },
-          },
-        },
-      },
-      owner: true,
-      sharedWith: true,
     },
   });
 
@@ -111,10 +100,10 @@ export default async function Home() {
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="flex flex-col items-center flex-shrink-0">
             <span className="text-base sm:text-xl font-bold text-gray-800 leading-none">
-              {allLists.length}
+              {listsCount}
             </span>
             <span className="text-[10px] sm:text-xs text-gray-400 mt-0.5">
-              {t("Home.listsLabel", { count: allLists.length })}
+              {t("Home.listsLabel", { count: listsCount })}
             </span>
           </div>
 
@@ -152,12 +141,13 @@ export default async function Home() {
         </div>
       </div>
 
-      <ListsContainer
-        allLists={allLists}
-        currentUserId={session.user.id}
-        currentUserName={session.user.name ?? null}
-        currentUserEmail={session.user.email ?? ""}
-      />
+      <Suspense fallback={<ListsSkeleton />}>
+        <ListsDataFetcher
+          userId={session.user.id}
+          userName={session.user.name ?? null}
+          userEmail={session.user.email ?? ""}
+        />
+      </Suspense>
     </main>
   );
 }
