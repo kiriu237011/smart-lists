@@ -1,7 +1,7 @@
 "use client";
 
-import { useLocale } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
+import { useParams } from "next/navigation";
 import { useTransition, useState } from "react";
 import { routing, type Locale } from "@/i18n/routing";
 
@@ -39,7 +39,7 @@ function Flag({ code, size = 20 }: { code: string; size?: number }) {
  * При переключении показывает полноэкранный оверлей с флагом и спиннером.
  */
 export default function LanguageSwitcher() {
-  const locale = useLocale() as Locale;
+  const { locale } = useParams<{ locale: Locale }>();
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
