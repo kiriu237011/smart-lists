@@ -35,7 +35,7 @@ import {
 import { addItem, deleteItem, toggleItem, renameItem } from "@/app/actions";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
-import Highlight from "@/app/components/Highlight";
+import Highlight from "@/components/ui/Highlight";
 
 // ---------------------------------------------------------------------------
 // Типы данных

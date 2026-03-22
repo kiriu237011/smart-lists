@@ -1,5 +1,5 @@
 import prisma from "@/lib/db";
-import ListsContainer from "@/app/components/ListsContainer";
+import ListsContainer from "@/components/lists/ListsContainer";
 
 export default async function ListsDataFetcher({
   userId,
