@@ -7,6 +7,7 @@ import AvatarButton from "@/components/ui/AvatarButton";
 import ListsDataFetcher from "@/components/lists/ListsDataFetcher";
 import ListsSkeleton from "@/components/lists/ListsSkeleton";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import HeaderSettings from "@/components/layout/HeaderSettings";
 /**
  * Главная страница приложения (Server Component).
  * Рендерится для каждой локали: /ru и /vi.
@@ -77,71 +78,107 @@ export default async function Home() {
   return (
     <main className="p-4 sm:p-10 max-w-7xl mx-auto">
       {/* Шапка */}
-      <div className="flex items-center justify-between gap-4 mb-8 p-3 sm:p-5 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-2xl shadow-sm">
+      <div className="flex items-center justify-between gap-3 sm:gap-4 mb-8 p-3 sm:p-5 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-2xl shadow-sm">
         {/* Аватар + имя + email */}
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
           <AvatarButton
             initial={(session.user.name ?? session.user.email ?? "?").charAt(0)}
             email={session.user.email ?? ""}
           />
-          <div className="min-w-0">
-            <p className="text-sm sm:text-base font-semibold text-gray-800 dark:text-zinc-100 truncate">
+          <div className="min-w-0 flex-1">
+            <p className="text-base font-semibold text-gray-800 dark:text-zinc-100 truncate">
               {t("Home.greeting", {
                 name: session.user.name ?? session.user.email ?? "",
               })}
             </p>
-            <p className="hidden [@media(min-width:480px)]:block text-xs sm:text-sm text-gray-400 dark:text-zinc-400 truncate">
+            <p className="text-sm text-gray-400 dark:text-zinc-400 truncate">
               {session.user.email}
             </p>
           </div>
         </div>
 
-        {/* Правая часть: счётчик + язык + логаут */}
-        <div className="flex items-center gap-3 flex-shrink-0">
+        {/* Правая часть: элементы управления */}
+        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <div className="flex flex-col items-center flex-shrink-0">
-            <span className="text-base sm:text-xl font-bold text-gray-800 dark:text-zinc-100 leading-none">
+            <span className="text-xl font-bold text-gray-800 dark:text-zinc-100 leading-none">
               {listsCount}
             </span>
-            <span className="text-[10px] sm:text-xs text-gray-400 mt-0.5">
+            <span className="text-xs text-gray-400 mt-0.5">
               {t("Home.listsLabel", { count: listsCount })}
             </span>
           </div>
 
-          <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
+          {/* Десктопная версия (растянутые кнопки) */}
+          <div className="hidden sm:flex items-center gap-4">
+            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
+            <ThemeToggle />
+            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
+            <LanguageSwitcher />
+            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
+            <form
+              action={async () => {
+                "use server";
+                await signOut();
+              }}
+            >
+              <button className="flex items-center gap-2 text-base text-gray-400 hover:text-red-500 transition-colors cursor-pointer">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                <span>{t("Home.signOut")}</span>
+              </button>
+            </form>
+          </div>
 
-          <ThemeToggle />
-
-          <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
-
-          <LanguageSwitcher />
-
-          <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
-
-          <form
-            action={async () => {
-              "use server";
-              await signOut();
-            }}
-          >
-            <button className="flex items-center gap-1 sm:gap-1.5 text-sm sm:text-base text-gray-400 hover:text-red-500 transition-colors cursor-pointer">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+          {/* Мобильная версия меню (под шестерёнкой) */}
+          <div className="sm:hidden flex items-center">
+            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800 mr-2" />
+            <HeaderSettings>
+              <div className="flex justify-center items-center gap-6 mb-5">
+                <ThemeToggle />
+                <div className="w-px h-6 bg-gray-200 dark:bg-zinc-800" />
+                <LanguageSwitcher />
+              </div>
+              <div className="h-px bg-gray-100 dark:bg-zinc-800 mb-4" />
+              <form
+                action={async () => {
+                  "use server";
+                  await signOut();
+                }}
               >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-              <span className="hidden sm:inline">{t("Home.signOut")}</span>
-            </button>
-          </form>
+                <button className="flex items-center gap-3 text-base text-red-500 hover:text-red-600 transition font-medium w-full">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                  {t("Home.signOut")}
+                </button>
+              </form>
+            </HeaderSettings>
+          </div>
         </div>
       </div>
 
