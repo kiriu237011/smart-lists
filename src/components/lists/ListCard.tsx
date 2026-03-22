@@ -19,9 +19,9 @@
 
 import { memo, useCallback, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import SmartList from "@/app/components/SmartList";
-import Highlight from "@/app/components/Highlight";
-import ShareListForm from "@/app/components/ShareListForm";
+import SmartList from "@/components/lists/SmartList";
+import Highlight from "@/components/ui/Highlight";
+import ShareListForm from "@/components/lists/ShareListForm";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {

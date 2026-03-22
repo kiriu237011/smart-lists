@@ -45,13 +45,13 @@ import {
   leaveSharedList,
 } from "@/app/actions";
 import toast from "react-hot-toast";
-import CreateListForm from "@/app/components/CreateListForm";
+import CreateListForm from "@/components/lists/CreateListForm";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { getPusherClient } from "@/lib/pusher-client";
-import ListCard, { type ListData } from "@/app/components/ListCard";
-import ListsTopPanel from "@/app/components/ListsTopPanel";
-import ConfirmModal from "@/app/components/ConfirmModal";
+import ListCard, { type ListData } from "@/components/lists/ListCard";
+import ListsTopPanel from "@/components/lists/ListsTopPanel";
+import ConfirmModal from "@/components/ui/ConfirmModal";
 
 /** Пропсы компонента `ListsContainer`. */
 type ListsContainerProps = {

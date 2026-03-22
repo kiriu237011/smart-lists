@@ -2,10 +2,10 @@ import { Suspense } from "react";
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth";
 import { getTranslations } from "next-intl/server";
-import LanguageSwitcher from "@/app/components/LanguageSwitcher";
-import AvatarButton from "@/app/components/AvatarButton";
-import ListsDataFetcher from "@/app/components/ListsDataFetcher";
-import ListsSkeleton from "@/app/components/ListsSkeleton";
+import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
+import AvatarButton from "@/components/ui/AvatarButton";
+import ListsDataFetcher from "@/components/lists/ListsDataFetcher";
+import ListsSkeleton from "@/components/lists/ListsSkeleton";
 
 /**
  * Главная страница приложения (Server Component).
