@@ -140,9 +140,6 @@ model List {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  /// Сохраняем имя таблицы в БД без изменений (миграция не требуется).
-  @@map("ShoppingList")
 }
 
 /// Запись внутри списка.
