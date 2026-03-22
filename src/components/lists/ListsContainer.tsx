@@ -556,7 +556,7 @@ export default function ListsContainer({
           <button
             type="button"
             onClick={() => { setIsSearchOpen(false); setSearchInput(""); localStorage.setItem("activeTab", "create"); }}
-            className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
+            className="text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
           >
             {t("closeSearch")} ✕
           </button>
@@ -594,8 +594,8 @@ export default function ListsContainer({
 
       {/* Сообщение о пустом состоянии — вне columns-контейнера */}
       {filteredLists.length === 0 && (
-        <div className="text-center py-10 border-2 border-dashed rounded-xl">
-          <p className="text-gray-500">
+        <div className="text-center py-10 border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-xl">
+          <p className="text-gray-500 dark:text-zinc-400">
             {searchQuery.trim() ? t("noSearchResults") : t("noLists")}
           </p>
         </div>

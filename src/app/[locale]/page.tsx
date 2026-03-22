@@ -6,7 +6,7 @@ import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 import AvatarButton from "@/components/ui/AvatarButton";
 import ListsDataFetcher from "@/components/lists/ListsDataFetcher";
 import ListsSkeleton from "@/components/lists/ListsSkeleton";
-
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 /**
  * Главная страница приложения (Server Component).
  * Рендерится для каждой локали: /ru и /vi.
@@ -25,10 +25,10 @@ export default async function Home() {
           <LanguageSwitcher />
         </div>
 
-        <h1 className="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8">
+        <h1 className="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 dark:text-white">
           {t("Auth.title")}
         </h1>
-        <p className="text-gray-500 mb-8">{t("Auth.subtitle")}</p>
+        <p className="text-gray-500 dark:text-gray-400 mb-8">{t("Auth.subtitle")}</p>
 
         <form
           action={async () => {
@@ -77,7 +77,7 @@ export default async function Home() {
   return (
     <main className="p-4 sm:p-10 max-w-7xl mx-auto">
       {/* Шапка */}
-      <div className="flex items-center justify-between gap-4 mb-8 p-3 sm:p-5 bg-white border border-gray-100 rounded-2xl shadow-sm">
+      <div className="flex items-center justify-between gap-4 mb-8 p-3 sm:p-5 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-2xl shadow-sm">
         {/* Аватар + имя + email */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <AvatarButton
@@ -85,12 +85,12 @@ export default async function Home() {
             email={session.user.email ?? ""}
           />
           <div className="min-w-0">
-            <p className="text-sm sm:text-base font-semibold text-gray-800 truncate">
+            <p className="text-sm sm:text-base font-semibold text-gray-800 dark:text-zinc-100 truncate">
               {t("Home.greeting", {
                 name: session.user.name ?? session.user.email ?? "",
               })}
             </p>
-            <p className="hidden [@media(min-width:480px)]:block text-xs sm:text-sm text-gray-400 truncate">
+            <p className="hidden [@media(min-width:480px)]:block text-xs sm:text-sm text-gray-400 dark:text-zinc-400 truncate">
               {session.user.email}
             </p>
           </div>
@@ -99,7 +99,7 @@ export default async function Home() {
         {/* Правая часть: счётчик + язык + логаут */}
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="flex flex-col items-center flex-shrink-0">
-            <span className="text-base sm:text-xl font-bold text-gray-800 leading-none">
+            <span className="text-base sm:text-xl font-bold text-gray-800 dark:text-zinc-100 leading-none">
               {listsCount}
             </span>
             <span className="text-[10px] sm:text-xs text-gray-400 mt-0.5">
@@ -107,11 +107,15 @@ export default async function Home() {
             </span>
           </div>
 
-          <div className="w-px h-5 bg-gray-200" />
+          <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
+
+          <ThemeToggle />
+
+          <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
 
           <LanguageSwitcher />
 
-          <div className="w-px h-5 bg-gray-200" />
+          <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
 
           <form
             action={async () => {

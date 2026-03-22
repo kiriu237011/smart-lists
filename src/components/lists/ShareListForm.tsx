@@ -217,14 +217,14 @@ export default function ShareListForm({
   };
 
   return (
-    <div className="mt-4 pt-4 border-t border-gray-100">
+    <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all duration-200 mb-2 ${
           isOpen
-            ? "bg-blue-50 border-blue-300 text-blue-700"
-            : "bg-white border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50"
+            ? "bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-400"
+            : "bg-white border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-blue-700/50 dark:hover:text-blue-400 dark:hover:bg-blue-900/30"
         }`}
       >
         {/* Иконка «поделиться» */}
@@ -275,7 +275,7 @@ export default function ShareListForm({
               {optimisticSharedWith.map((user) => (
                 <span
                   key={user.id}
-                  className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full"
+                  className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 px-2 py-1 rounded-full"
                 >
                   {/* Показываем имя, если есть; иначе email */}
                   {user.name || user.email}
@@ -291,7 +291,7 @@ export default function ShareListForm({
                             name: user.name ?? user.email ?? "",
                           })
                     }
-                    className="ml-1 text-blue-500 hover:text-red-600 font-bold leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="ml-1 text-blue-500 hover:text-red-600 dark:text-blue-400 dark:hover:text-red-400 font-bold leading-none disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => setUserToRemove(user)}
                   >
                     ✕
@@ -309,14 +309,14 @@ export default function ShareListForm({
               name="email"
               type="email"
               placeholder={t("placeholder")}
-              className="border p-1 rounded text-xs flex-1 bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
+              className="border dark:border-zinc-700 p-1 rounded text-xs flex-1 bg-gray-50 dark:bg-zinc-800 focus:bg-white dark:focus:bg-zinc-900 focus:ring-1 ring-gray-800 dark:ring-zinc-400 outline-none transition"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               required
             />
             <button
               type="submit"
-              className="bg-gray-800 text-white px-3 py-1 rounded text-xs font-medium hover:bg-gray-900 transition"
+              className="bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900 px-3 py-1 rounded text-xs font-medium hover:bg-gray-900 dark:hover:bg-zinc-200 transition"
             >
               {t("invite")}
             </button>
@@ -333,13 +333,13 @@ export default function ShareListForm({
           onClick={() => setUserToRemove(null)}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
+            className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-5 shadow-lg"
             onClick={(event) => event.stopPropagation()}
           >
             <h3 className="text-lg font-semibold mb-2">
               {t("removeModal.title")}
             </h3>
-            <p className="text-sm text-gray-600 mb-5">
+            <p className="text-sm text-gray-600 dark:text-zinc-400 mb-5">
               {t("removeModal.body", {
                 name: userToRemove.name ?? userToRemove.email ?? "",
               })}
@@ -348,7 +348,7 @@ export default function ShareListForm({
               <button
                 type="button"
                 onClick={() => setUserToRemove(null)}
-                className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
+                className="px-3 py-2 rounded-md text-sm border border-gray-300 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-800"
               >
                 {t("removeModal.cancel")}
               </button>
