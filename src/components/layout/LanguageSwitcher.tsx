@@ -88,7 +88,7 @@ export default function LanguageSwitcher() {
 
       {/* Сама таблетка */}
       <div
-        className={`flex items-center gap-1 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-full px-1.5 py-0.5 transition-opacity ${
+        className={`flex items-center gap-1 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-full px-1.5 py-1 transition-opacity ${
           isPending ? "opacity-60 pointer-events-none" : ""
         }`}
       >
@@ -116,13 +116,13 @@ export default function LanguageSwitcher() {
                 key={loc}
                 onClick={() => handleSwitch(loc)}
                 title={title}
-                className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full transition-all duration-200 text-xs font-semibold ${
+                className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full transition-all duration-200 text-sm sm:text-base font-semibold ${
                   isActive
                     ? "bg-white dark:bg-zinc-700 shadow-sm text-indigo-600 dark:text-indigo-400"
                     : "text-gray-400 dark:text-zinc-400 hover:text-gray-500 dark:hover:text-zinc-300 hover:bg-white/60 dark:hover:bg-zinc-700/60"
                 }`}
               >
-                <Flag code={flagCode} size={14} />
+                <Flag code={flagCode} size={18} />
                 <span className="hidden sm:inline">{loc.toUpperCase()}</span>
               </button>
             );
