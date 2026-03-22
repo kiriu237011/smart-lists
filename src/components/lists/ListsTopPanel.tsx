@@ -82,17 +82,17 @@ export default function ListsTopPanel({
   const t = useTranslations("ListsContainer");
 
   return (
-    <div className="bg-white rounded-xl shadow-sm mb-4 border border-blue-100">
+    <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-sm mb-4 border border-blue-100 dark:border-zinc-800">
       {/* Вкладки + переключатель авторов */}
-      <div className="flex items-center gap-1 p-2 border-b border-gray-100">
+      <div className="flex items-center gap-1 p-2 border-b border-gray-100 dark:border-zinc-800">
         {/* Вкладка "Создать" */}
         <button
           type="button"
           onClick={onTabCreate}
           className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
             !isSearchOpen
-              ? "bg-gray-800 text-white"
-              : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              ? "bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900"
+              : "text-gray-400 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200 hover:bg-gray-100 dark:hover:bg-zinc-800"
           }`}
         >
           {t("tabCreate")}
@@ -104,8 +104,8 @@ export default function ListsTopPanel({
           onClick={onTabSearch}
           className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
             isSearchOpen
-              ? "bg-gray-800 text-white"
-              : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+              ? "bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900"
+              : "text-gray-400 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200 hover:bg-gray-100 dark:hover:bg-zinc-800"
           }`}
         >
           {t("tabSearch")}
@@ -117,7 +117,7 @@ export default function ListsTopPanel({
             type="button"
             onClick={onToggleAuthors}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-              showAuthors ? "bg-blue-500" : "bg-gray-200"
+              showAuthors ? "bg-blue-500" : "bg-gray-200 dark:bg-zinc-700"
             }`}
             role="switch"
             aria-checked={showAuthors}
@@ -160,7 +160,7 @@ export default function ListsTopPanel({
                 }
               }}
               placeholder={t("searchPlaceholder")}
-              className="w-full border rounded-lg pl-8 pr-8 p-3 bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
+              className="w-full border dark:border-zinc-700 rounded-lg pl-8 pr-8 p-3 bg-gray-50 dark:bg-zinc-800 focus:bg-white dark:focus:bg-zinc-900 focus:ring-1 ring-gray-800 dark:ring-zinc-400 outline-none transition"
             />
             {/* Спиннер дебаунса / React-перехода */}
             {(isSearching || isPending) && (

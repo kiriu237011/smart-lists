@@ -125,14 +125,14 @@ const ListCard = memo(function ListCard({
   const isTemp = list.id.startsWith("temp-");
 
   return (
-    <div className="break-inside-avoid mb-6 border p-6 rounded-xl shadow-sm bg-white">
+    <div className="break-inside-avoid mb-6 border dark:border-zinc-800 p-6 rounded-xl shadow-sm bg-white dark:bg-zinc-900">
       {/* Заголовок и кнопки управления */}
-      <div className="mb-4 border-b pb-2 flex items-center justify-between gap-3">
+      <div className="mb-4 border-b dark:border-zinc-800 pb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {isEditing ? (
             <input
               autoFocus
-              className="text-xl font-bold w-full border p-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
+              className="text-xl font-bold w-full border dark:border-zinc-700 p-1 rounded-lg bg-gray-50 dark:bg-zinc-800 focus:bg-white dark:focus:bg-zinc-900 focus:ring-1 ring-gray-800 dark:ring-zinc-400 outline-none transition"
               value={editTitle}
               maxLength={50}
               onFocus={(e) => e.target.select()}
@@ -157,14 +157,14 @@ const ListCard = memo(function ListCard({
             />
           ) : isOwner && !isTemp ? (
             <div
-              className="group inline-flex items-center gap-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 hover:ring-1 hover:ring-gray-300 transition-colors cursor-pointer"
+              className="group inline-flex items-center gap-1 min-w-0 rounded-lg px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:ring-1 hover:ring-gray-300 dark:hover:ring-zinc-700 transition-colors cursor-pointer"
               onClick={() => {
                 setIsEditing(true);
                 setEditTitle(list.title);
               }}
             >
               <h2 className="text-xl font-bold truncate"><Highlight text={list.title} query={searchQuery} /></h2>
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-base flex-shrink-0">
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 dark:text-zinc-500 text-base flex-shrink-0">
                 ✎
               </span>
             </div>
@@ -192,7 +192,7 @@ const ListCard = memo(function ListCard({
                   aria-label="Отменить"
                   onMouseDown={() => { skipBlurRef.current = true; }}
                   onClick={() => setIsEditing(false)}
-                  className="text-gray-400 hover:text-white hover:bg-gray-500 text-base px-2 py-1 leading-none rounded transition"
+                  className="text-gray-400 hover:text-white hover:bg-gray-500 dark:hover:bg-zinc-600 text-base px-2 py-1 leading-none rounded transition"
                 >
                   ✗
                 </button>
@@ -215,9 +215,9 @@ const ListCard = memo(function ListCard({
       {/* Skeleton-заглушка для temp-списка */}
       {isTemp && (
         <div className="space-y-2 animate-pulse" aria-hidden>
-          <div className="h-4 bg-gray-100 rounded w-3/4" />
-          <div className="h-4 bg-gray-100 rounded w-1/2" />
-          <div className="h-4 bg-gray-100 rounded w-2/3" />
+          <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-3/4" />
+          <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-1/2" />
+          <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-2/3" />
         </div>
       )}
 
@@ -241,7 +241,7 @@ const ListCard = memo(function ListCard({
 
       {/* Подпись владельца + кнопка Отписаться */}
       {!isOwner && (
-        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800 flex items-center justify-between">
           <span className="text-xs text-gray-400">
             {t("owner", { name: list.owner.name || list.owner.email })}
           </span>

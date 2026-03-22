@@ -64,18 +64,18 @@ export default function ConfirmModal({
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
+        className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-5 shadow-lg"
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 mb-5">{body}</p>
+        <p className="text-sm text-gray-600 dark:text-zinc-400 mb-5">{body}</p>
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
+            className="px-3 py-2 rounded-md text-sm border border-gray-300 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-800"
           >
             {cancelLabel}
           </button>

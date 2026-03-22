@@ -42,17 +42,17 @@ export default function AvatarButton({ initial, email }: AvatarButtonProps) {
         type="button"
         aria-label={`Показать email: ${email}`}
         onClick={() => setOpen((prev) => !prev)}
-        className="[@media(min-width:480px)]:cursor-default w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-indigo-100 text-indigo-600 font-semibold text-xs sm:text-base flex items-center justify-center uppercase focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+        className="[@media(min-width:480px)]:cursor-default w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 font-semibold text-xs sm:text-base flex items-center justify-center uppercase focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
       >
         {initial}
       </button>
 
       {/* Всплывающий тултип — только на экранах < 480px */}
       {open && (
-        <div className="[@media(min-width:480px)]:hidden absolute left-0 top-full mt-2 z-50 rounded-xl bg-white border border-gray-200 shadow-lg px-3 py-2 text-xs text-gray-700 whitespace-nowrap">
+        <div className="[@media(min-width:480px)]:hidden absolute left-0 top-full mt-2 z-50 rounded-xl bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 shadow-lg px-3 py-2 text-xs text-gray-700 dark:text-zinc-300 whitespace-nowrap">
           {email}
           {/* Маленький треугольничек сверху */}
-          <span className="absolute -top-1.5 left-4 w-3 h-3 rotate-45 bg-white border-l border-t border-gray-200" />
+          <span className="absolute -top-1.5 left-4 w-3 h-3 rotate-45 bg-white dark:bg-zinc-800 border-l border-t border-gray-200 dark:border-zinc-700" />
         </div>
       )}
     </div>
