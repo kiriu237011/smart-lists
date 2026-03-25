@@ -17,7 +17,7 @@ export default function Highlight({ text, query }: { text: string; query: string
   return (
     <>
       {text.slice(0, index)}
-      <mark className="bg-yellow-200 text-inherit rounded-sm px-0">
+      <mark className="bg-yellow-200 dark:bg-yellow-600 dark:text-white text-inherit rounded-sm px-0">
         {text.slice(index, index + query.length)}
       </mark>
       {text.slice(index + query.length)}
