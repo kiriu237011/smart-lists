@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import "../globals.css";
 
 const geistSans = Geist({
@@ -56,14 +57,17 @@ export default async function LocaleLayout({
   // Загружаем переводы для текущей локали (server-side)
   const messages = await getMessages();
 
+  // suppressHydrationWarning необходим, так как next-themes обновляет атрибуты HTML-тегов.
   return (
-    <html lang={locale}>
+    <html lang={locale} suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
-          {children}
-          <Toaster position="bottom-center" />
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            {children}
+            <Toaster position="bottom-center" />
+          </ThemeProvider>
         </NextIntlClientProvider>
       </body>
     </html>

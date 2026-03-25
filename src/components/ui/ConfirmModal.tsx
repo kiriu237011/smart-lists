@@ -60,22 +60,22 @@ export default function ConfirmModal({
 }: ConfirmModalProps) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/60 p-4"
       onClick={onCancel}
     >
       <div
-        className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
+        className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-800 dark:border dark:border-zinc-700 p-5 shadow-lg dark:shadow-2xl dark:shadow-black/70"
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 mb-5">{body}</p>
+        <p className="text-sm text-gray-600 dark:text-zinc-400 mb-5">{body}</p>
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
+            className="px-3 py-2 rounded-md text-sm border border-gray-300 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-800"
           >
             {cancelLabel}
           </button>

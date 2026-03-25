@@ -273,7 +273,7 @@ export default function SmartList({
         {/* -----------------------------------------------------------------------
           Список записей
       ----------------------------------------------------------------------- */}
-        <ul className="mb-4 space-y-2">
+        <ul className="mb-4 divide-y divide-gray-100 dark:divide-zinc-800">
           {[...optimisticItems]
             .sort((a, b) => Number(a.isCompleted) - Number(b.isCompleted))
             .map((item) => {
@@ -286,12 +286,10 @@ export default function SmartList({
               return (
                 <li
                   key={item.id}
-                  className={`flex items-center justify-between gap-2 p-2 rounded transition-all duration-200 ${
-                    isPending
-                      ? "bg-gray-50"
-                      : item.isCompleted
-                        ? "bg-gray-100"
-                        : "bg-gray-50"
+                  className={`flex items-center justify-between gap-2 py-2 px-1 transition-all duration-200 ${
+                    item.isCompleted
+                      ? "bg-gray-100 dark:bg-transparent"
+                      : "bg-gray-50 dark:bg-transparent"
                   }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -322,15 +320,15 @@ export default function SmartList({
                         title={isPending ? t("saving") : undefined}
                         className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
                           isPending
-                            ? "border-gray-300 cursor-not-allowed"
+                            ? "border-gray-300 dark:border-zinc-700 cursor-not-allowed"
                             : item.isCompleted
-                              ? "bg-gray-600 border-gray-600 scale-105 shadow-sm shadow-gray-200"
-                              : "bg-white border-gray-300 hover:border-gray-500 hover:shadow-sm"
+                              ? "bg-gray-600 border-gray-600 dark:bg-zinc-500 dark:border-zinc-500 scale-105 shadow-sm shadow-gray-200 dark:shadow-none"
+                              : "bg-white dark:bg-zinc-900 border-gray-300 dark:border-zinc-600 hover:border-gray-500 dark:hover:border-zinc-400 hover:shadow-sm"
                         }`}
                       >
                         {isPending ? (
                           // Спиннер для ожидающей записи
-                          <span className="block w-2.5 h-2.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                          <span className="block w-2.5 h-2.5 border-2 border-gray-400 dark:border-zinc-500 !border-t-transparent rounded-full animate-spin" />
                         ) : (
                           // Галочка для выполненной записи
                           item.isCompleted && (
@@ -356,7 +354,7 @@ export default function SmartList({
                     <div
                       className={`flex-1 min-w-0 flex items-center gap-1 rounded-lg px-1 -mx-1 transition-colors ${
                         !isPending && !item.isCompleted && editingItemId !== item.id
-                          ? "group cursor-pointer hover:bg-gray-100 hover:ring-1 hover:ring-gray-300"
+                          ? "group cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-700 hover:ring-1 hover:ring-gray-300 dark:hover:ring-zinc-600"
                           : ""
                       }`}
                       onClick={
@@ -402,7 +400,7 @@ export default function SmartList({
                             }
                             void handleConfirmItemRename(item);
                           }}
-                          className="text-sm border py-2 px-1 rounded-lg bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition w-full min-w-0 resize-none overflow-hidden"
+                          className="text-sm border dark:border-zinc-600 py-2 px-1 rounded-lg bg-gray-50 dark:bg-zinc-900 focus:bg-white dark:focus:bg-zinc-950 focus:ring-1 ring-gray-800 dark:ring-zinc-500 outline-none transition w-full min-w-0 resize-none overflow-hidden"
                         />
                       ) : isPending || (!item.isCompleted) ? (
                         <>
@@ -446,7 +444,7 @@ export default function SmartList({
                           aria-label="Отменить"
                           onMouseDown={() => { skipItemBlurRef.current = true; }}
                           onClick={() => setEditingItemId(null)}
-                          className="text-gray-400 hover:text-white hover:bg-gray-500 text-sm px-1 py-1 leading-none rounded transition"
+                          className="text-gray-400 hover:text-white hover:bg-gray-500 dark:hover:bg-zinc-600 text-sm px-1 py-1 leading-none rounded transition"
                         >
                           ✗
                         </button>
@@ -534,16 +532,20 @@ export default function SmartList({
           <input
             name="itemName"
             placeholder={t("placeholder")}
-            className="border p-2 rounded-lg w-full text-sm bg-gray-50 focus:bg-white focus:ring-1 ring-gray-800 outline-none transition"
+            className="border dark:border-zinc-700 p-2 rounded-lg w-full text-sm bg-gray-50 dark:bg-zinc-900 focus:bg-white dark:focus:bg-zinc-950 focus:ring-1 ring-gray-800 dark:ring-zinc-500 outline-none transition"
             value={newItemName}
             onChange={(e) => setNewItemName(e.target.value)}
             required
           />
           <button
             type="submit"
-            className="bg-gray-800 text-white px-4 py-2 rounded text-sm hover:bg-gray-900"
+            aria-label={t("placeholder")}
+            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:bg-gray-700 dark:hover:bg-white active:scale-95 transition-all duration-150 shadow-sm"
           >
-            +
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
           </button>
         </form>
       </div>
@@ -555,24 +557,24 @@ export default function SmartList({
       ----------------------------------------------------------------------- */}
       {itemToDelete && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/60 p-4"
           onClick={() => setItemToDelete(null)}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg"
+            className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-800 dark:border dark:border-zinc-700 p-5 shadow-lg dark:shadow-2xl dark:shadow-black/70"
             onClick={(event) => event.stopPropagation()}
           >
             <h3 className="text-lg font-semibold mb-2">
               {t("deleteModal.title")}
             </h3>
-            <p className="text-sm text-gray-600 mb-5">
+            <p className="text-sm text-gray-600 dark:text-zinc-400 mb-5">
               {t("deleteModal.body", { name: itemToDelete.name })}
             </p>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setItemToDelete(null)}
-                className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
+                className="px-3 py-2 rounded-md text-sm border border-gray-300 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-800"
               >
                 {t("deleteModal.cancel")}
               </button>
