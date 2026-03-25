@@ -82,9 +82,9 @@ export default function ListsTopPanel({
   const t = useTranslations("ListsContainer");
 
   return (
-    <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-sm mb-4 border border-blue-100 dark:border-zinc-800">
+    <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-sm dark:shadow-md dark:shadow-black/40 mb-4 border border-blue-100 dark:border-zinc-700">
       {/* Вкладки + переключатель авторов */}
-      <div className="flex items-center gap-1 p-2 border-b border-gray-100 dark:border-zinc-800">
+      <div className="flex items-center gap-1 p-2 border-b border-gray-100 dark:border-zinc-700">
         {/* Вкладка "Создать" */}
         <button
           type="button"

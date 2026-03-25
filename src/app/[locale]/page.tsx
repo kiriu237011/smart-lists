@@ -78,7 +78,7 @@ export default async function Home() {
   return (
     <main className="p-4 sm:p-10 max-w-7xl mx-auto">
       {/* Шапка */}
-      <div className="flex items-center justify-between gap-3 sm:gap-4 mb-8 p-3 sm:p-5 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-2xl shadow-sm">
+      <div className="flex items-center justify-between gap-3 sm:gap-4 mb-8 p-3 sm:p-5 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-700 rounded-2xl shadow-sm dark:shadow-md dark:shadow-black/40">
         {/* Аватар + имя + email */}
         <div className="flex items-center gap-3 min-w-0">
           <AvatarButton
@@ -110,11 +110,11 @@ export default async function Home() {
 
           {/* Десктопная версия (растянутые кнопки) */}
           <div className="hidden sm:flex items-center gap-4">
-            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
+            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <ThemeToggle />
-            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
+            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <LanguageSwitcher />
-            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800" />
+            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <form
               action={async () => {
                 "use server";
@@ -148,7 +148,7 @@ export default async function Home() {
             <HeaderSettings>
               <div className="flex justify-center items-center gap-6 mb-5">
                 <ThemeToggle />
-                <div className="w-px h-6 bg-gray-200 dark:bg-zinc-800" />
+                <div className="w-px h-6 bg-gray-200 dark:bg-zinc-700" />
                 <LanguageSwitcher />
               </div>
               <div className="h-px bg-gray-100 dark:bg-zinc-800 mb-4" />
