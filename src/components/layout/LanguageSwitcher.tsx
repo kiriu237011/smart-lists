@@ -57,10 +57,10 @@ export default function LanguageSwitcher() {
     <>
       {/* Полноэкранный оверлей при переключении */}
       {isPending && pendingLocale && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 backdrop-blur-[2px]">
-          <div className="flex flex-col items-center gap-3 bg-white/90 rounded-2xl px-8 py-6 shadow-lg">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/10 dark:bg-black/40 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-3 bg-white/90 dark:bg-zinc-900/90 rounded-2xl px-8 py-6 shadow-lg">
             <Flag code={LOCALE_LABELS[pendingLocale].flagCode} size={40} />
-            <p className="text-sm text-gray-500 font-medium">
+            <p className="text-sm text-gray-500 dark:text-zinc-400 font-medium">
               {LOCALE_LABELS[pendingLocale].switchingTo}
             </p>
             <svg
@@ -88,7 +88,7 @@ export default function LanguageSwitcher() {
 
       {/* Сама таблетка */}
       <div
-        className={`flex items-center gap-1 bg-gray-100 border border-gray-200 rounded-full px-1.5 py-0.5 transition-opacity ${
+        className={`flex items-center gap-1 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-full px-1.5 py-1 transition-opacity ${
           isPending ? "opacity-60 pointer-events-none" : ""
         }`}
       >
@@ -116,13 +116,13 @@ export default function LanguageSwitcher() {
                 key={loc}
                 onClick={() => handleSwitch(loc)}
                 title={title}
-                className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full transition-all duration-200 text-xs font-semibold ${
+                className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full transition-all duration-200 text-sm sm:text-base font-semibold ${
                   isActive
-                    ? "bg-white shadow-sm text-indigo-600"
-                    : "text-gray-400 hover:text-gray-500 hover:bg-white/60"
+                    ? "bg-white dark:bg-zinc-700 shadow-sm text-indigo-600 dark:text-indigo-400"
+                    : "text-gray-400 dark:text-zinc-400 hover:text-gray-500 dark:hover:text-zinc-300 hover:bg-white/60 dark:hover:bg-zinc-700/60"
                 }`}
               >
-                <Flag code={flagCode} size={14} />
+                <Flag code={flagCode} size={18} />
                 <span className="hidden sm:inline">{loc.toUpperCase()}</span>
               </button>
             );
