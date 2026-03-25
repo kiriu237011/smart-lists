@@ -125,9 +125,9 @@ const ListCard = memo(function ListCard({
   const isTemp = list.id.startsWith("temp-");
 
   return (
-    <div className="break-inside-avoid mb-6 border dark:border-zinc-800 p-6 rounded-xl shadow-sm bg-white dark:bg-zinc-900">
+    <div className="break-inside-avoid mb-6 border border-gray-100 dark:border-transparent p-6 rounded-xl shadow-sm dark:shadow-lg dark:shadow-black/50 bg-white dark:bg-zinc-900">
       {/* Заголовок и кнопки управления */}
-      <div className="mb-4 border-b dark:border-zinc-800 pb-2 flex items-center justify-between gap-3">
+      <div className="mb-4 border-b dark:border-zinc-700 pb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {isEditing ? (
             <input
@@ -241,7 +241,7 @@ const ListCard = memo(function ListCard({
 
       {/* Подпись владельца + кнопка Отписаться */}
       {!isOwner && (
-        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800 flex items-center justify-between">
+        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-700 flex items-center justify-between">
           <span className="text-xs text-gray-400">
             {t("owner", { name: list.owner.name || list.owner.email })}
           </span>

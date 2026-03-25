@@ -217,7 +217,7 @@ export default function ShareListForm({
   };
 
   return (
-    <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-800">
+    <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-700">
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
@@ -329,11 +329,11 @@ export default function ShareListForm({
           Клик внутри модала — не закрывает (stopPropagation). */}
       {userToRemove && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/60 p-4"
           onClick={() => setUserToRemove(null)}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-5 shadow-lg"
+            className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-800 dark:border dark:border-zinc-700 p-5 shadow-lg dark:shadow-2xl dark:shadow-black/70"
             onClick={(event) => event.stopPropagation()}
           >
             <h3 className="text-lg font-semibold mb-2">

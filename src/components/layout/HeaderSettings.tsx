@@ -33,7 +33,7 @@ export default function HeaderSettings({ children }: { children: React.ReactNode
       </button>
       
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-[220px] bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-2xl shadow-xl z-50 p-4">
+        <div className="absolute right-0 top-full mt-2 w-[220px] bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-700 rounded-2xl shadow-xl dark:shadow-2xl dark:shadow-black/50 z-50 p-4">
           {children}
         </div>
       )}
