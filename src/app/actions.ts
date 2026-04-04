@@ -246,6 +246,7 @@ export async function createList(formData: FormData) {
     // 2. Валидация данных
     const rawData = {
       title: formData.get("title"),
+      groupId: formData.get("groupId") ?? undefined,
     };
 
     const result = createListSchema.safeParse(rawData);
@@ -291,6 +292,22 @@ export async function createList(formData: FormData) {
       sharedWith: { id: string; name: string | null; email: string | null }[];
     };
 
+    // Если передан groupId — сразу подключаем список к группе (одна операция)
+    let listGroups: { id: string; name: string }[] = [];
+    if (result.data.groupId) {
+      const group = await prisma.listGroup.findFirst({
+        where: { id: result.data.groupId, userId: session.user.id },
+        select: { id: true, name: true },
+      });
+      if (group) {
+        await prisma.listGroup.update({
+          where: { id: group.id },
+          data: { lists: { connect: { id: newList.id } } },
+        });
+        listGroups = [{ id: group.id, name: group.name }];
+      }
+    }
+
     revalidatePath("/", "layout");
     await notifyListMembers(newList.id);
 
@@ -318,7 +335,7 @@ export async function createList(formData: FormData) {
             : null,
         })),
         sharedWith: newList.sharedWith,
-        groups: [],
+        groups: listGroups,
       },
     };
   } catch (error) {

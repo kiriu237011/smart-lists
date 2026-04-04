@@ -425,6 +425,11 @@ export default function ListsContainer({
     async (title: string) => {
       const tempListId = `temp-${crypto.randomUUID()}`;
 
+      // Если активна группа — оптимистично включаем список в неё сразу
+      const activeGroup = activeGroupId
+        ? (groups.find((g) => g.id === activeGroupId) ?? null)
+        : null;
+
       // Оптимистичный объект с временным ID и данными текущего пользователя
       const optimisticList: ListData = {
         id: tempListId,
@@ -436,7 +441,7 @@ export default function ListsContainer({
         },
         items: [],
         sharedWith: [],
-        groups: [],
+        groups: activeGroup ? [activeGroup] : [],
       };
 
       // Регистрируем стабильный ключ для рендера: tempId → tempId
@@ -448,6 +453,8 @@ export default function ListsContainer({
 
       const formData = new FormData();
       formData.append("title", title);
+      // Передаём активную группу — сервер подключит список к ней сразу
+      if (activeGroupId) formData.append("groupId", activeGroupId);
       const result = await createList(formData);
 
       if (!result || !result.success) {
@@ -480,7 +487,7 @@ export default function ListsContainer({
 
       return { success: true };
     },
-    [currentUserEmail, currentUserId, currentUserName, setOptimisticLists],
+    [currentUserEmail, currentUserId, currentUserName, setOptimisticLists, activeGroupId, groups],
   );
 
   /**
@@ -726,45 +733,60 @@ export default function ListsContainer({
         </div>
       )}
 
-      <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
-        <AnimatePresence initial={false}>
-          {filteredLists.map((list) => (
-            <motion.div
-              key={stableKeys.current.get(list.id) ?? list.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="break-inside-avoid mb-6"
-            >
-              <ListCard
-                list={list}
-                currentUserId={currentUserId}
-                currentUserName={currentUserName}
-                currentUserEmail={currentUserEmail}
-                showAuthors={showAuthors}
-                isDeleting={isDeleting}
-                isLeaving={isLeaving}
-                onRename={handleRename}
-                onDelete={setListToDelete}
-                onLeave={setListToLeave}
-                searchQuery={searchQuery}
-                userGroups={groups}
-                onToggleListGroup={handleToggleListGroup}
-              />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
+      {/* Внешний AnimatePresence реагирует на смену группы:
+          mode="wait" гарантирует, что старые карточки полностью исчезнут
+          до появления новых — устраняет прыжки columns-layout. */}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={activeGroupId ?? "all"}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.12 }}
+        >
+          <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
+            {/* Внутренний AnimatePresence обрабатывает добавление/удаление
+                отдельных списков внутри группы. */}
+            <AnimatePresence initial={false}>
+              {filteredLists.map((list) => (
+                <motion.div
+                  key={stableKeys.current.get(list.id) ?? list.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="break-inside-avoid mb-6"
+                >
+                  <ListCard
+                    list={list}
+                    currentUserId={currentUserId}
+                    currentUserName={currentUserName}
+                    currentUserEmail={currentUserEmail}
+                    showAuthors={showAuthors}
+                    isDeleting={isDeleting}
+                    isLeaving={isLeaving}
+                    onRename={handleRename}
+                    onDelete={setListToDelete}
+                    onLeave={setListToLeave}
+                    searchQuery={searchQuery}
+                    userGroups={groups}
+                    onToggleListGroup={handleToggleListGroup}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
 
-      {/* Сообщение о пустом состоянии — вне columns-контейнера */}
-      {filteredLists.length === 0 && (
-        <div className="text-center py-10 border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-xl">
-          <p className="text-gray-500 dark:text-zinc-400">
-            {searchQuery.trim() ? t("noSearchResults") : t("noLists")}
-          </p>
-        </div>
-      )}
+          {/* Сообщение о пустом состоянии */}
+          {filteredLists.length === 0 && (
+            <div className="text-center py-10 border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-xl">
+              <p className="text-gray-500 dark:text-zinc-400">
+                {searchQuery.trim() ? t("noSearchResults") : t("noLists")}
+              </p>
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
 
       {/* Модал подтверждения выхода из расшаренного списка */}
       {listToLeave && (
