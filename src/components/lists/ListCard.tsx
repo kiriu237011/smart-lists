@@ -213,7 +213,7 @@ const ListCard = memo(function ListCard({
                   aria-label="Сохранить"
                   onMouseDown={() => { skipBlurRef.current = true; }}
                   onClick={() => void handleConfirmRename()}
-                  className="hidden sm:inline-flex text-green-600 hover:text-white hover:bg-green-600 text-base px-2 py-1 leading-none rounded transition"
+                  className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition"
                 >
                   ✓
                 </button>
@@ -222,7 +222,7 @@ const ListCard = memo(function ListCard({
                   aria-label="Отменить"
                   onMouseDown={() => { skipBlurRef.current = true; }}
                   onClick={() => setIsEditing(false)}
-                  className="text-gray-400 hover:text-white hover:bg-gray-500 dark:hover:bg-zinc-600 text-base px-2 py-1 leading-none rounded transition"
+                  className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
                 >
                   ✗
                 </button>

@@ -34,5 +34,6 @@ Next.js shopping list app with real-time collaboration and internationalization.
 - Locale in URL path: `/ru`, `/vi` (default: ru)
 - Comments in Russian (project documentation)
 - Black-white style for app
+- Be consistant with the style and always re-check if the style you are adding is consistant with the rest of the app
 
 Please don't forget to add comments (project documentation) when needed

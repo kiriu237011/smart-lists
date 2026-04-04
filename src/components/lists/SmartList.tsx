@@ -434,7 +434,7 @@ export default function SmartList({
                           aria-label="Сохранить"
                           onMouseDown={() => { skipItemBlurRef.current = true; }}
                           onClick={() => void handleConfirmItemRename(item)}
-                          className="hidden sm:inline-flex text-green-600 hover:text-white hover:bg-green-600 text-sm px-1 py-1 leading-none rounded transition"
+                          className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition"
                         >
                           ✓
                         </button>
@@ -444,7 +444,7 @@ export default function SmartList({
                           aria-label="Отменить"
                           onMouseDown={() => { skipItemBlurRef.current = true; }}
                           onClick={() => setEditingItemId(null)}
-                          className="text-gray-400 hover:text-white hover:bg-gray-500 dark:hover:bg-zinc-600 text-sm px-1 py-1 leading-none rounded transition"
+                          className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
                         >
                           ✗
                         </button>
