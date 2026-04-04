@@ -32,6 +32,10 @@ import {
   removeSharedUserSchema,
   renameListSchema,
   renameItemSchema,
+  createGroupSchema,
+  deleteGroupSchema,
+  renameGroupSchema,
+  listGroupMembershipSchema,
 } from "@/lib/validations";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
@@ -314,6 +318,7 @@ export async function createList(formData: FormData) {
             : null,
         })),
         sharedWith: newList.sharedWith,
+        groups: [],
       },
     };
   } catch (error) {
@@ -635,6 +640,254 @@ export async function renameList(formData: FormData) {
   } catch (error) {
     console.error("Ошибка при переименовании списка:", error);
     return { success: false, error: "Не удалось переименовать список" };
+  }
+}
+
+// ===========================================================================
+// SERVER ACTIONS ДЛЯ ГРУПП СПИСКОВ (ListGroup)
+// ===========================================================================
+
+/**
+ * Создаёт новую группу списков для авторизованного пользователя.
+ *
+ * @param formData - FormData с полем:
+ *   - `name` {string} — название группы (1–50 символов).
+ * @returns `{ success: true, group: { id, name } }` или `{ success: false, error: string }`.
+ */
+export async function createGroup(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = { name: formData.get("name") };
+    const result = createGroupSchema.safeParse(rawData);
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error.issues[0]?.message || "Неверные данные",
+      };
+    }
+
+    const group = await prisma.listGroup.create({
+      data: {
+        name: result.data.name,
+        userId: session.user.id,
+      },
+      select: { id: true, name: true },
+    });
+
+    revalidatePath("/", "layout");
+    return { success: true, group };
+  } catch (error) {
+    console.error("Ошибка при создании группы:", error);
+    return { success: false, error: "Не удалось создать группу" };
+  }
+}
+
+/**
+ * Удаляет группу списков.
+ * Списки из группы не удаляются — только связь списков с группой.
+ *
+ * @param formData - FormData с полем:
+ *   - `groupId` {string} — ID удаляемой группы.
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function deleteGroup(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = { groupId: formData.get("groupId") };
+    const result = deleteGroupSchema.safeParse(rawData);
+    if (!result.success) {
+      return { success: false, error: "Неверные данные" };
+    }
+
+    // deleteMany с проверкой userId гарантирует что только владелец удаляет свою группу
+    const deleted = await prisma.listGroup.deleteMany({
+      where: {
+        id: result.data.groupId,
+        userId: session.user.id,
+      },
+    });
+
+    if (deleted.count === 0) {
+      return { success: false, error: "Только владелец может удалить группу" };
+    }
+
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при удалении группы:", error);
+    return { success: false, error: "Не удалось удалить группу" };
+  }
+}
+
+/**
+ * Переименовывает группу списков.
+ *
+ * @param formData - FormData с полями:
+ *   - `groupId` {string} — ID переименовываемой группы.
+ *   - `name`    {string} — новое название (1–50 символов).
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function renameGroup(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = {
+      groupId: formData.get("groupId"),
+      name: formData.get("name"),
+    };
+    const result = renameGroupSchema.safeParse(rawData);
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error.issues[0]?.message || "Неверные данные",
+      };
+    }
+
+    const updated = await prisma.listGroup.updateMany({
+      where: {
+        id: result.data.groupId,
+        userId: session.user.id,
+      },
+      data: { name: result.data.name },
+    });
+
+    if (updated.count === 0) {
+      return {
+        success: false,
+        error: "Только владелец может переименовать группу",
+      };
+    }
+
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при переименовании группы:", error);
+    return { success: false, error: "Не удалось переименовать группу" };
+  }
+}
+
+/**
+ * Добавляет список в группу.
+ *
+ * Проверяет, что:
+ *   1. Пользователь — владелец группы.
+ *   2. Пользователь имеет доступ к списку (владелец или в sharedWith).
+ *
+ * @param formData - FormData с полями:
+ *   - `groupId` {string} — ID группы.
+ *   - `listId`  {string} — ID списка.
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function addListToGroup(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = {
+      groupId: formData.get("groupId"),
+      listId: formData.get("listId"),
+    };
+    const result = listGroupMembershipSchema.safeParse(rawData);
+    if (!result.success) {
+      return { success: false, error: "Неверные данные" };
+    }
+
+    // Проверяем что группа принадлежит пользователю
+    const group = await prisma.listGroup.findFirst({
+      where: { id: result.data.groupId, userId: session.user.id },
+    });
+    if (!group) {
+      return { success: false, error: "Группа не найдена" };
+    }
+
+    // Проверяем что пользователь имеет доступ к списку
+    const list = await prisma.list.findFirst({
+      where: {
+        id: result.data.listId,
+        OR: [
+          { ownerId: session.user.id },
+          { sharedWith: { some: { id: session.user.id } } },
+        ],
+      },
+    });
+    if (!list) {
+      return { success: false, error: "Список не найден" };
+    }
+
+    await prisma.listGroup.update({
+      where: { id: result.data.groupId },
+      data: {
+        lists: { connect: { id: result.data.listId } },
+      },
+    });
+
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при добавлении списка в группу:", error);
+    return { success: false, error: "Не удалось добавить список в группу" };
+  }
+}
+
+/**
+ * Убирает список из группы.
+ *
+ * Проверяет что пользователь — владелец группы.
+ *
+ * @param formData - FormData с полями:
+ *   - `groupId` {string} — ID группы.
+ *   - `listId`  {string} — ID списка.
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function removeListFromGroup(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    const rawData = {
+      groupId: formData.get("groupId"),
+      listId: formData.get("listId"),
+    };
+    const result = listGroupMembershipSchema.safeParse(rawData);
+    if (!result.success) {
+      return { success: false, error: "Неверные данные" };
+    }
+
+    // Проверяем что группа принадлежит пользователю
+    const group = await prisma.listGroup.findFirst({
+      where: { id: result.data.groupId, userId: session.user.id },
+    });
+    if (!group) {
+      return { success: false, error: "Группа не найдена" };
+    }
+
+    await prisma.listGroup.update({
+      where: { id: result.data.groupId },
+      data: {
+        lists: { disconnect: { id: result.data.listId } },
+      },
+    });
+
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (error) {
+    console.error("Ошибка при удалении списка из группы:", error);
+    return { success: false, error: "Не удалось убрать список из группы" };
   }
 }
 

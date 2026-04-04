@@ -17,7 +17,7 @@
 
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import SmartList from "@/components/lists/SmartList";
 import Highlight from "@/components/ui/Highlight";
@@ -44,6 +44,12 @@ export type Item = {
   addedBy: { id: string; name: string | null; email: string } | null;
 };
 
+/** Группа списков (минимальные данные для отображения). */
+export type ListGroup = {
+  id: string;
+  name: string;
+};
+
 /** Полные данные списка (включая связанные сущности). */
 export type ListData = {
   id: string;
@@ -52,6 +58,8 @@ export type ListData = {
   owner: ListOwner;
   items: Item[];
   sharedWith: SharedUser[];
+  /** Группы текущего пользователя, в которых находится этот список. */
+  groups: ListGroup[];
 };
 
 /** Пропсы компонента `ListCard`. */
@@ -68,6 +76,10 @@ export type ListCardProps = {
   onLeave: (list: ListData) => void;
   /** Активный поисковый запрос для подсветки совпадений (пустая строка = нет поиска). */
   searchQuery: string;
+  /** Все группы пользователя (для меню назначения в группу). */
+  userGroups: ListGroup[];
+  /** Колбэк добавления/удаления списка из группы. */
+  onToggleListGroup: (listId: string, groupId: string, inGroup: boolean) => Promise<void>;
 };
 
 /**
@@ -100,6 +112,8 @@ const ListCard = memo(function ListCard({
   onDelete,
   onLeave,
   searchQuery,
+  userGroups,
+  onToggleListGroup,
 }: ListCardProps) {
   const t = useTranslations("ListsContainer");
 
@@ -107,6 +121,22 @@ const ListCard = memo(function ListCard({
   const [editTitle, setEditTitle] = useState("");
   const processingRenameRef = useRef(false);
   const skipBlurRef = useRef(false);
+
+  // Состояние дропдауна меню групп
+  const [isGroupMenuOpen, setIsGroupMenuOpen] = useState(false);
+  const groupMenuRef = useRef<HTMLDivElement>(null);
+
+  // Закрываем меню при клике вне его
+  useEffect(() => {
+    if (!isGroupMenuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (groupMenuRef.current && !groupMenuRef.current.contains(e.target as Node)) {
+        setIsGroupMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [isGroupMenuOpen]);
 
   const handleConfirmRename = useCallback(async () => {
     if (processingRenameRef.current) return;
@@ -237,6 +267,72 @@ const ListCard = memo(function ListCard({
       {/* Форма совместного доступа */}
       {isOwner && !isTemp && (
         <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+      )}
+
+      {/* Меню назначения в группу */}
+      {!isTemp && (
+        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-zinc-700 flex items-center justify-between">
+          <div className="relative" ref={groupMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsGroupMenuOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
+              aria-label={t("ariaGroupMenu")}
+            >
+              {list.groups.length > 0 ? (
+                /* Иконка заполненной папки — список состоит в группе */
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="0.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+              ) : (
+                /* Иконка папки с плюсом — группа не назначена */
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  <line x1="12" y1="11" x2="12" y2="17" />
+                  <line x1="9" y1="14" x2="15" y2="14" />
+                </svg>
+              )}
+              {list.groups.length > 0
+                ? list.groups.map((g) => g.name).join(", ")
+                : t("noGroup")}
+            </button>
+
+            {/* Дропдаун со списком групп */}
+            {isGroupMenuOpen && (
+              <div className="absolute bottom-full left-0 mb-1 z-20 min-w-44 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-lg py-1">
+                {userGroups.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-gray-400 dark:text-zinc-500">
+                    {t("noGroupsHint")}
+                  </p>
+                ) : (
+                  userGroups.map((group) => {
+                    const inGroup = list.groups.some((g) => g.id === group.id);
+                    return (
+                      <button
+                        key={group.id}
+                        type="button"
+                        onClick={() => {
+                          void onToggleListGroup(list.id, group.id, inGroup);
+                          setIsGroupMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700 transition-colors text-left"
+                      >
+                        <span className={`w-4 h-4 flex-shrink-0 flex items-center justify-center rounded text-xs ${
+                          inGroup
+                            ? "bg-gray-800 dark:bg-zinc-200 text-white dark:text-zinc-900"
+                            : "border border-gray-300 dark:border-zinc-600"
+                        }`}>
+                          {inGroup && "✓"}
+                        </span>
+                        <span className="truncate">{group.name}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Подпись владельца + кнопка Отписаться */}

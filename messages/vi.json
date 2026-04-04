@@ -36,13 +36,32 @@
       "cancel": "Hủy",
       "confirm": "Xóa"
     },
+    "deleteGroupModal": {
+      "title": "Xóa nhóm?",
+      "body": "Bạn có muốn xóa nhóm «{name}»? Các danh sách trong nhóm sẽ không bị xóa.",
+      "cancel": "Hủy",
+      "confirm": "Xóa"
+    },
+    "ariaGroupMenu": "Thêm vào nhóm",
+    "noGroup": "Không có nhóm",
+    "noGroupsHint": "Tạo nhóm trong bộ lọc phía trên",
     "errors": {
       "createFailed": "Không thể tạo danh sách",
       "createLoadFailed": "Danh sách đã được tạo nhưng có lỗi khi tải dữ liệu",
       "renameFailed": "Không thể đổi tên danh sách",
       "deleteFailed": "Không thể xóa danh sách",
-      "leaveFailed": "Không thể rời khỏi danh sách"
+      "leaveFailed": "Không thể rời khỏi danh sách",
+      "groupCreateFailed": "Không thể tạo nhóm",
+      "groupDeleteFailed": "Không thể xóa nhóm",
+      "groupRenameFailed": "Không thể đổi tên nhóm",
+      "groupAssignFailed": "Không thể thay đổi nhóm"
     }
+  },
+  "GroupFilter": {
+    "all": "Tất cả",
+    "newGroupPlaceholder": "Tên...",
+    "ariaCreateGroup": "Tạo nhóm",
+    "ariaDeleteGroup": "Xóa nhóm {name}"
   },
   "SmartList": {
     "saving": "Đang lưu...",
