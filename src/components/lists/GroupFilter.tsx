@@ -134,8 +134,8 @@ export default function GroupFilter({
               aria-label={t("ariaDeleteGroup", { name: group.name })}
               className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full text-xs transition-opacity ${
                 activeGroupId === group.id
-                  ? "text-white/70 hover:text-white dark:text-zinc-900/60 dark:hover:text-zinc-900 opacity-0 group-hover/pill:opacity-100"
-                  : "text-gray-400 hover:text-gray-700 dark:text-zinc-300 dark:hover:text-white opacity-0 group-hover/pill:opacity-100"
+                  ? "text-white/70 hover:text-white dark:text-zinc-900/60 dark:hover:text-zinc-900 opacity-100 sm:opacity-0 sm:group-hover/pill:opacity-100"
+                  : "text-gray-400 hover:text-gray-700 dark:text-zinc-300 dark:hover:text-white opacity-0 sm:group-hover/pill:opacity-100"
               }`}
             >
               ✕
