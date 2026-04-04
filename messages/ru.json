@@ -36,13 +36,32 @@
       "cancel": "Отмена",
       "confirm": "Удалить"
     },
+    "deleteGroupModal": {
+      "title": "Удалить группу?",
+      "body": "Вы хотите удалить группу «{name}»? Списки внутри группы удалены не будут.",
+      "cancel": "Отмена",
+      "confirm": "Удалить"
+    },
+    "ariaGroupMenu": "Добавить в группу",
+    "noGroup": "Без группы",
+    "noGroupsHint": "Создайте группу в фильтре выше",
     "errors": {
       "createFailed": "Не удалось создать список",
       "createLoadFailed": "Список создан, но возникла ошибка при загрузке данных",
       "renameFailed": "Не удалось переименовать список",
       "deleteFailed": "Не удалось удалить список",
-      "leaveFailed": "Не удалось отписаться от списка"
+      "leaveFailed": "Не удалось отписаться от списка",
+      "groupCreateFailed": "Не удалось создать группу",
+      "groupDeleteFailed": "Не удалось удалить группу",
+      "groupRenameFailed": "Не удалось переименовать группу",
+      "groupAssignFailed": "Не удалось изменить группу"
     }
+  },
+  "GroupFilter": {
+    "all": "Все",
+    "newGroupPlaceholder": "Название...",
+    "ariaCreateGroup": "Создать группу",
+    "ariaDeleteGroup": "Удалить группу {name}"
   },
   "SmartList": {
     "saving": "Сохраняется...",

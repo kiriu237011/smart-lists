@@ -10,6 +10,7 @@ export default async function ListsDataFetcher({
   userName: string | null;
   userEmail: string;
 }) {
+  // Запрос списков с группами текущего пользователя
   const allLists = await prisma.list.findMany({
     where: {
       OR: [
@@ -29,7 +30,19 @@ export default async function ListsDataFetcher({
       },
       owner: true,
       sharedWith: true,
+      // Подгружаем только группы, принадлежащие текущему пользователю
+      groups: {
+        where: { userId },
+        select: { id: true, name: true },
+      },
     },
+  });
+
+  // Группы пользователя для панели фильтрации
+  const userGroups = await prisma.listGroup.findMany({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true },
   });
 
   return (
@@ -38,6 +51,7 @@ export default async function ListsDataFetcher({
       currentUserId={userId}
       currentUserName={userName}
       currentUserEmail={userEmail}
+      userGroups={userGroups}
     />
   );
 }

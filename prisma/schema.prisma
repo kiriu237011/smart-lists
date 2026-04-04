@@ -56,6 +56,9 @@ model User {
   /// Записи, добавленные этим пользователем.
   addedItems    Item[]          @relation("AddedItems")
 
+  /// Группы списков, созданные этим пользователем.
+  listGroups    ListGroup[]
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -137,6 +140,32 @@ model List {
   /// Пользователи, которые имеют доступ к списку по приглашению (не владельцы).
   /// Prisma автоматически создаёт таблицу-связку для этого отношения.
   sharedWith User[] @relation("Shared")
+
+  /// Группы, в которые пользователи добавили этот список.
+  /// Каждый пользователь имеет свои группы — один список может быть в разных группах разных пользователей.
+  groups     ListGroup[] @relation("ListGroupMembers")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Группа списков, созданная пользователем для личной организации.
+/// Группы персональные: каждый пользователь видит только свои группы.
+/// Список может входить в несколько групп разных пользователей (M2M).
+model ListGroup {
+  id        String   @id @default(cuid())
+
+  /// Название группы (например: "Работа", "Дом", "Поход").
+  name      String
+
+  /// ID пользователя-владельца группы.
+  userId    String
+
+  /// Пользователь-владелец. Каскадное удаление: при удалении пользователя его группы тоже удаляются.
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Списки, входящие в эту группу (Many-to-Many).
+  lists     List[]   @relation("ListGroupMembers")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

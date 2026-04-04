@@ -43,15 +43,21 @@ import {
   deleteList,
   renameList,
   leaveSharedList,
+  createGroup,
+  deleteGroup,
+  renameGroup,
+  addListToGroup,
+  removeListFromGroup,
 } from "@/app/actions";
 import toast from "react-hot-toast";
 import CreateListForm from "@/components/lists/CreateListForm";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { getPusherClient } from "@/lib/pusher-client";
-import ListCard, { type ListData } from "@/components/lists/ListCard";
+import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
 import ListsTopPanel from "@/components/lists/ListsTopPanel";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import GroupFilter from "@/components/lists/GroupFilter";
 
 /** Пропсы компонента `ListsContainer`. */
 type ListsContainerProps = {
@@ -63,6 +69,8 @@ type ListsContainerProps = {
   currentUserName: string | null;
   /** Email текущего пользователя (аналогично). */
   currentUserEmail: string;
+  /** Группы списков текущего пользователя. */
+  userGroups: ListGroup[];
 };
 
 /**
@@ -81,6 +89,7 @@ export default function ListsContainer({
   currentUserId,
   currentUserName,
   currentUserEmail,
+  userGroups: initialGroups,
 }: ListsContainerProps) {
   const t = useTranslations("ListsContainer");
   const router = useRouter();
@@ -102,6 +111,18 @@ export default function ListsContainer({
 
   /** Флаг ожидания ответа сервера при выходе из расшаренного списка. */
   const [isLeaving, setIsLeaving] = useState(false);
+
+  /** Группы пользователя (оптимистично обновляемые). */
+  const [groups, setGroups] = useState<ListGroup[]>(initialGroups);
+
+  /** Группа, ожидающая подтверждения удаления. null — модал закрыт. */
+  const [groupToDelete, setGroupToDelete] = useState<ListGroup | null>(null);
+
+  /** Флаг ожидания ответа сервера при удалении группы. */
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+
+  /** Активный фильтр группы. null = показывать все списки. Сохраняется в localStorage. */
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
   /** Глобальный флаг отображения авторов записей. Сохраняется в localStorage. */
   const [showAuthors, setShowAuthors] = useState<boolean>(false);
@@ -137,6 +158,8 @@ export default function ListsContainer({
   useEffect(() => {
     setShowAuthors(localStorage.getItem("showAuthors") === "true");
     setIsSearchOpen(localStorage.getItem("activeTab") === "search");
+    const savedGroupId = localStorage.getItem("activeGroupId");
+    if (savedGroupId) setActiveGroupId(savedGroupId);
   }, []);
 
   /**
@@ -252,16 +275,21 @@ export default function ListsContainer({
   );
 
   /**
-   * Отфильтрованные списки по поисковому запросу.
-   * Если запрос пустой — возвращает все списки.
-   * Если совпадает название — показывает список со всеми записями.
-   * Иначе — ищет совпадения внутри записей и показывает только их.
+   * Отфильтрованные списки: сначала по группе, затем по поисковому запросу.
    */
   const filteredLists = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return optimisticLists;
+    // Шаг 1: фильтр по активной группе
+    const groupFiltered = activeGroupId
+      ? optimisticLists.filter((list) =>
+          list.groups.some((g) => g.id === activeGroupId),
+        )
+      : optimisticLists;
 
-    return optimisticLists.reduce<typeof optimisticLists>((acc, list) => {
+    // Шаг 2: фильтр по поисковому запросу
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return groupFiltered;
+
+    return groupFiltered.reduce<typeof groupFiltered>((acc, list) => {
       const titleMatches = list.title.toLowerCase().includes(q);
 
       if (titleMatches) {
@@ -278,7 +306,106 @@ export default function ListsContainer({
       }
       return acc;
     }, []);
-  }, [optimisticLists, searchQuery]);
+  }, [optimisticLists, searchQuery, activeGroupId]);
+
+  // -------------------------------------------------------------------------
+  // Обработчики для групп
+  // -------------------------------------------------------------------------
+
+  const handleSelectGroup = useCallback((groupId: string | null) => {
+    setActiveGroupId(groupId);
+    if (groupId) {
+      localStorage.setItem("activeGroupId", groupId);
+    } else {
+      localStorage.removeItem("activeGroupId");
+    }
+  }, []);
+
+  const handleCreateGroup = useCallback(async (name: string) => {
+    const formData = new FormData();
+    formData.append("name", name);
+    const result = await createGroup(formData);
+    if (result.success && result.group) {
+      setGroups((prev) => [...prev, result.group!]);
+    } else {
+      toast.error(t("errors.groupCreateFailed"));
+    }
+  }, [t]);
+
+  /** Открывает модал подтверждения удаления группы. */
+  const handleDeleteGroup = useCallback((groupId: string) => {
+    const group = groups.find((g) => g.id === groupId);
+    if (group) setGroupToDelete(group);
+  }, [groups]);
+
+  /** Подтверждение удаления группы из модала. */
+  const handleConfirmDeleteGroup = useCallback(async () => {
+    if (!groupToDelete) return;
+
+    const group = groupToDelete;
+    setIsDeletingGroup(true);
+    setGroupToDelete(null); // Закрываем модал немедленно
+
+    // Если удаляем активную группу — сбрасываем фильтр
+    if (activeGroupId === group.id) {
+      handleSelectGroup(null);
+    }
+    setGroups((prev) => prev.filter((g) => g.id !== group.id));
+
+    const formData = new FormData();
+    formData.append("groupId", group.id);
+    const result = await deleteGroup(formData);
+    if (!result.success) {
+      // Откат: восстанавливаем группу на исходную позицию
+      const restored = initialGroups.find((g) => g.id === group.id);
+      if (restored) setGroups((prev) =>
+        [...prev, restored].sort(
+          (a, b) =>
+            initialGroups.findIndex((g) => g.id === a.id) -
+            initialGroups.findIndex((g) => g.id === b.id),
+        ),
+      );
+      toast.error(t("errors.groupDeleteFailed"));
+    }
+
+    setIsDeletingGroup(false);
+  }, [groupToDelete, activeGroupId, handleSelectGroup, initialGroups, t]);
+
+  const handleRenameGroup = useCallback(async (groupId: string, newName: string) => {
+    setGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, name: newName } : g)),
+    );
+
+    const formData = new FormData();
+    formData.append("groupId", groupId);
+    formData.append("name", newName);
+    const result = await renameGroup(formData);
+    if (!result.success) {
+      // Откат: восстанавливаем старое имя
+      const original = initialGroups.find((g) => g.id === groupId);
+      if (original) {
+        setGroups((prev) =>
+          prev.map((g) => (g.id === groupId ? original : g)),
+        );
+      }
+      toast.error(t("errors.groupRenameFailed"));
+    }
+  }, [initialGroups, t]);
+
+  const handleToggleListGroup = useCallback(
+    async (listId: string, groupId: string, inGroup: boolean) => {
+      const formData = new FormData();
+      formData.append("groupId", groupId);
+      formData.append("listId", listId);
+      const action = inGroup ? removeListFromGroup : addListToGroup;
+      const result = await action(formData);
+      if (!result.success) {
+        toast.error(t("errors.groupAssignFailed"));
+      }
+      // router.refresh подхватит актуальные данные через Pusher/revalidatePath
+    },
+    [t],
+  );
 
   /**
    * Обработчик создания нового списка.
@@ -309,6 +436,7 @@ export default function ListsContainer({
         },
         items: [],
         sharedWith: [],
+        groups: [],
       };
 
       // Регистрируем стабильный ключ для рендера: tempId → tempId
@@ -517,8 +645,43 @@ export default function ListsContainer({
     };
   }, [handleConfirmDelete, isDeleting, listToDelete]);
 
+  /**
+   * Эффект: клавиатурные события при открытом модале удаления группы.
+   *
+   * - `Escape` — закрывает модал.
+   * - `Enter`  — подтверждает удаление.
+   */
+  useEffect(() => {
+    if (!groupToDelete) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setGroupToDelete(null);
+        return;
+      }
+      if (event.key === "Enter" && !isDeletingGroup) {
+        event.preventDefault();
+        void handleConfirmDeleteGroup();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleConfirmDeleteGroup, isDeletingGroup, groupToDelete]);
+
   return (
     <>
+      {/* Фильтр по группам */}
+      <GroupFilter
+        groups={groups}
+        activeGroupId={activeGroupId}
+        onSelectGroup={handleSelectGroup}
+        onCreateGroup={handleCreateGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onRenameGroup={handleRenameGroup}
+      />
+
       {/* Панель с вкладками Создать/Поиск и переключателем авторов */}
       <ListsTopPanel
         isSearchOpen={isSearchOpen}
@@ -586,6 +749,8 @@ export default function ListsContainer({
                 onDelete={setListToDelete}
                 onLeave={setListToLeave}
                 searchQuery={searchQuery}
+                userGroups={groups}
+                onToggleListGroup={handleToggleListGroup}
               />
             </motion.div>
           ))}
@@ -624,6 +789,19 @@ export default function ListsContainer({
           isConfirming={isDeleting}
           onConfirm={() => void handleConfirmDelete()}
           onCancel={() => setListToDelete(null)}
+        />
+      )}
+
+      {/* Модал подтверждения удаления группы */}
+      {groupToDelete && (
+        <ConfirmModal
+          title={t("deleteGroupModal.title")}
+          body={t("deleteGroupModal.body", { name: groupToDelete.name })}
+          confirmLabel={t("deleteGroupModal.confirm")}
+          cancelLabel={t("deleteGroupModal.cancel")}
+          isConfirming={isDeletingGroup}
+          onConfirm={() => void handleConfirmDeleteGroup()}
+          onCancel={() => setGroupToDelete(null)}
         />
       )}
     </>
