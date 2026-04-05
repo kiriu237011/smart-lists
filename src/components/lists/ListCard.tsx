@@ -280,21 +280,28 @@ const ListCard = memo(function ListCard({
               aria-label={t("ariaGroupMenu")}
             >
               {list.groups.length > 0 ? (
-                /* Иконка заполненной папки — список состоит в группе */
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="0.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
+                /* Бейджи групп — список состоит в группе */
+                <span className="flex items-center gap-1 flex-wrap">
+                  {list.groups.map((g) => (
+                    <span
+                      key={g.id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                    >
+                      {g.name}
+                    </span>
+                  ))}
+                </span>
               ) : (
                 /* Иконка папки с плюсом — группа не назначена */
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  <line x1="12" y1="11" x2="12" y2="17" />
-                  <line x1="9" y1="14" x2="15" y2="14" />
-                </svg>
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    <line x1="12" y1="11" x2="12" y2="17" />
+                    <line x1="9" y1="14" x2="15" y2="14" />
+                  </svg>
+                  {t("noGroup")}
+                </>
               )}
-              {list.groups.length > 0
-                ? list.groups.map((g) => g.name).join(", ")
-                : t("noGroup")}
             </button>
 
             {/* Дропдаун со списком групп */}
