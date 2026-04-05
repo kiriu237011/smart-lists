@@ -343,6 +343,8 @@ export default function ListsContainer({
     if (!groupToDelete) return;
 
     const group = groupToDelete;
+    // Снимок текущего состояния для отката (включает группы, созданные в этой сессии)
+    const groupsSnapshot = groups;
     setIsDeletingGroup(true);
     setGroupToDelete(null); // Закрываем модал немедленно
 
@@ -356,22 +358,17 @@ export default function ListsContainer({
     formData.append("groupId", group.id);
     const result = await deleteGroup(formData);
     if (!result.success) {
-      // Откат: восстанавливаем группу на исходную позицию
-      const restored = initialGroups.find((g) => g.id === group.id);
-      if (restored) setGroups((prev) =>
-        [...prev, restored].sort(
-          (a, b) =>
-            initialGroups.findIndex((g) => g.id === a.id) -
-            initialGroups.findIndex((g) => g.id === b.id),
-        ),
-      );
+      // Откат: восстанавливаем полный снимок до удаления
+      setGroups(groupsSnapshot);
       toast.error(t("errors.groupDeleteFailed"));
     }
 
     setIsDeletingGroup(false);
-  }, [groupToDelete, activeGroupId, handleSelectGroup, initialGroups, t]);
+  }, [groupToDelete, activeGroupId, handleSelectGroup, groups, t]);
 
   const handleRenameGroup = useCallback(async (groupId: string, newName: string) => {
+    // Захватываем текущее состояние группы до оптимистичного обновления
+    const originalGroup = groups.find((g) => g.id === groupId);
     setGroups((prev) =>
       prev.map((g) => (g.id === groupId ? { ...g, name: newName } : g)),
     );
@@ -381,16 +378,15 @@ export default function ListsContainer({
     formData.append("name", newName);
     const result = await renameGroup(formData);
     if (!result.success) {
-      // Откат: восстанавливаем старое имя
-      const original = initialGroups.find((g) => g.id === groupId);
-      if (original) {
+      // Откат: восстанавливаем старое имя из снимка текущего состояния
+      if (originalGroup) {
         setGroups((prev) =>
-          prev.map((g) => (g.id === groupId ? original : g)),
+          prev.map((g) => (g.id === groupId ? originalGroup : g)),
         );
       }
       toast.error(t("errors.groupRenameFailed"));
     }
-  }, [initialGroups, t]);
+  }, [groups, t]);
 
   const handleToggleListGroup = useCallback(
     async (listId: string, groupId: string, inGroup: boolean) => {
