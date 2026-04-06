@@ -233,7 +233,7 @@ const ListCard = memo(function ListCard({
                 aria-label={t("ariaDelete", { title: list.title })}
                 disabled={isDeleting}
                 onClick={() => onDelete(list)}
-                className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1"
+                className="text-red-500 dark:text-red-400/50 hover:text-red-700 dark:hover:text-red-400 text-xs font-bold px-2 py-1"
               >
                 ✕
               </button>
@@ -290,6 +290,10 @@ const ListCard = memo(function ListCard({
                       {g.name}
                     </span>
                   ))}
+                  {/* Кнопка добавления в ещё одну группу — тот же стиль что "+" в GroupFilter */}
+                  <span className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors text-sm leading-none">
+                    +
+                  </span>
                 </span>
               ) : (
                 /* Иконка папки с плюсом — группа не назначена */

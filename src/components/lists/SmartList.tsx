@@ -461,7 +461,7 @@ export default function SmartList({
                           className={`text-xs font-bold px-2 py-1 transition-colors ${
                             isPending
                               ? "text-gray-300 cursor-not-allowed"
-                              : "text-red-500 hover:text-red-700"
+                              : "text-red-500 dark:text-red-400/50 hover:text-red-700 dark:hover:text-red-400"
                           }`}
                         >
                           ✕
