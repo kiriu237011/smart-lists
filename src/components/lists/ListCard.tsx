@@ -22,6 +22,7 @@ import { useTranslations } from "next-intl";
 import SmartList from "@/components/lists/SmartList";
 import Highlight from "@/components/ui/Highlight";
 import ShareListForm from "@/components/lists/ShareListForm";
+import AiInsight from "@/components/lists/AiInsight";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -261,6 +262,14 @@ const ListCard = memo(function ListCard({
           currentUserEmail={currentUserEmail}
           showAuthors={showAuthors}
           searchQuery={searchQuery}
+        />
+      )}
+
+      {/* AI инсайт */}
+      {!isTemp && (
+        <AiInsight
+          title={list.title}
+          items={list.items.map((item) => item.name)}
         />
       )}
 

@@ -86,6 +86,13 @@
     "creating": "Đang tạo...",
     "submit": "Tạo"
   },
+  "AiInsight": {
+    "button": "Phân tích AI",
+    "placeholder": "Câu hỏi của bạn (không bắt buộc)...",
+    "analyze": "Phân tích",
+    "analyzing": "Đang phân tích...",
+    "error": "Không thể lấy phân tích"
+  },
   "ShareListForm": {
     "share": "Chia sẻ danh sách",
     "saving": "Đang lưu...",
