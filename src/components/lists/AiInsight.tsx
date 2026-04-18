@@ -14,10 +14,8 @@ import { useTranslations } from "next-intl";
 import { getListInsight } from "@/app/actions/insights";
 
 type AiInsightProps = {
-  /** Название списка — передаётся в промпт. */
-  title: string;
-  /** Имена записей списка. */
-  items: string[];
+  /** ID списка — используется для получения данных из БД на сервере. */
+  listId: string;
 };
 
 /**
@@ -26,7 +24,7 @@ type AiInsightProps = {
  * @param title - Название списка.
  * @param items - Массив имён записей.
  */
-export default function AiInsight({ title, items }: AiInsightProps) {
+export default function AiInsight({ listId }: AiInsightProps) {
   const t = useTranslations("AiInsight");
 
   const [isOpen, setIsOpen] = useState(false);
@@ -41,7 +39,7 @@ export default function AiInsight({ title, items }: AiInsightProps) {
     setError(null);
     setIsLoading(true);
 
-    const result = await getListInsight(title, items, userMessage.trim() || undefined);
+    const result = await getListInsight(listId, userMessage.trim() || undefined);
 
     setIsLoading(false);
 
