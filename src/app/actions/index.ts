@@ -60,6 +60,12 @@ import { pusherServer } from "@/lib/pusher-server";
  */
 export async function addItem(formData: FormData) {
   try {
+    // Проверяем сессию до обработки данных
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
     // Собираем объект из FormData: Zod лучше работает с обычными объектами
     const rawData = {
       itemName: formData.get("itemName"),
@@ -74,17 +80,29 @@ export async function addItem(formData: FormData) {
       return { success: false, error: "Некорректные данные" };
     }
 
-    // Получаем текущего пользователя, чтобы сохранить кто добавил запись
-    const session = await auth();
+    // Проверяем, что пользователь является владельцем или участником списка
+    const list = await prisma.list.findFirst({
+      where: {
+        id: result.data.listId,
+        OR: [
+          { ownerId: session.user.id },
+          { sharedWith: { some: { id: session.user.id } } },
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (!list) {
+      return { success: false, error: "Список не найден" };
+    }
 
     // После safeParse TypeScript точно знает, что result.data.itemName — string
     await prisma.item.create({
       data: {
         name: result.data.itemName,
         listId: result.data.listId,
-        addedById: session?.user?.id ?? null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
+        addedById: session.user.id,
+      },
     });
 
     // Инвалидируем весь layout-дерево (/, /ru, /vi) → перефетч Server Component
@@ -108,6 +126,9 @@ export async function addItem(formData: FormData) {
  * @returns `void` (ошибки логируются в консоль, но не передаются клиенту).
  */
 export async function deleteItem(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) return;
+
   const data = { itemId: formData.get("itemId") };
 
   const result = deleteItemSchema.safeParse(data);
@@ -117,18 +138,29 @@ export async function deleteItem(formData: FormData) {
     return;
   }
 
-  // Получаем listId до удаления, чтобы уведомить участников после
-  const item = await prisma.item.findUnique({
-    where: { id: result.data.itemId },
+  // Получаем listId до удаления и одновременно проверяем права доступа
+  const item = await prisma.item.findFirst({
+    where: {
+      id: result.data.itemId,
+      list: {
+        OR: [
+          { ownerId: session.user.id },
+          { sharedWith: { some: { id: session.user.id } } },
+        ],
+      },
+    },
     select: { listId: true },
   });
+
+  // Если item не найден или нет доступа — молча выходим
+  if (!item) return;
 
   await prisma.item.delete({
     where: { id: result.data.itemId },
   });
 
   revalidatePath("/", "layout");
-  if (item) await notifyListMembers(item.listId);
+  await notifyListMembers(item.listId);
 }
 
 /**
@@ -146,6 +178,9 @@ export async function deleteItem(formData: FormData) {
  * @returns `void`.
  */
 export async function toggleItem(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) return;
+
   const data = {
     itemId: formData.get("itemId"),
     // FormData возвращает строки → явно преобразуем в boolean
@@ -159,25 +194,37 @@ export async function toggleItem(formData: FormData) {
     return;
   }
 
-  const updatedItem = await prisma.item.update({
-    where: { id: result.data.itemId },
-    data: {
-      isCompleted: !result.data.isCompleted, // Инвертируем текущее значение
+  // Проверяем права доступа перед обновлением
+  const item = await prisma.item.findFirst({
+    where: {
+      id: result.data.itemId,
+      list: {
+        OR: [
+          { ownerId: session.user.id },
+          { sharedWith: { some: { id: session.user.id } } },
+        ],
+      },
     },
     select: { listId: true },
   });
 
+  if (!item) return;
+
+  await prisma.item.update({
+    where: { id: result.data.itemId },
+    data: {
+      isCompleted: !result.data.isCompleted, // Инвертируем текущее значение
+    },
+  });
+
   revalidatePath("/", "layout");
-  await notifyListMembers(updatedItem.listId);
+  await notifyListMembers(item.listId);
 }
 
 /**
  * Переименовывает запись в списке.
  *
- * Не требует проверки прав владельца: запись привязана к списку,
- * а доступ к самому списку уже проверен на уровне авторизации сессии.
- * Любой, кто имеет доступ к списку (владелец или расшаренный), может
- * редактировать записи.
+ * Доступно владельцу списка и пользователям, которым список расшарен.
  *
  * @param formData - FormData с полями:
  *   - `itemId`   {string} — ID переименовываемой записи.
@@ -204,14 +251,32 @@ export async function renameItem(formData: FormData) {
       };
     }
 
-    const renamedItem = await prisma.item.update({
-      where: { id: result.data.itemId },
+    // updateMany позволяет атомарно проверить права и обновить за один запрос
+    const renamedItem = await prisma.item.updateMany({
+      where: {
+        id: result.data.itemId,
+        list: {
+          OR: [
+            { ownerId: session.user.id },
+            { sharedWith: { some: { id: session.user.id } } },
+          ],
+        },
+      },
       data: { name: result.data.itemName },
+    });
+
+    if (renamedItem.count === 0) {
+      return { success: false, error: "Запись не найдена" };
+    }
+
+    // Получаем listId для уведомления участников
+    const item = await prisma.item.findUnique({
+      where: { id: result.data.itemId },
       select: { listId: true },
     });
 
     revalidatePath("/", "layout");
-    await notifyListMembers(renamedItem.listId);
+    if (item) await notifyListMembers(item.listId);
     return { success: true };
   } catch (error) {
     console.error("Ошибка при переименовании записи:", error);
