@@ -267,10 +267,7 @@ const ListCard = memo(function ListCard({
 
       {/* AI инсайт */}
       {!isTemp && (
-        <AiInsight
-          title={list.title}
-          items={list.items.map((item) => item.name)}
-        />
+        <AiInsight listId={list.id} />
       )}
 
       {/* Форма совместного доступа */}
