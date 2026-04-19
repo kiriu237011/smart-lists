@@ -21,8 +21,8 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import SmartList from "@/components/lists/SmartList";
 import Highlight from "@/components/ui/Highlight";
-import ShareListForm from "@/components/lists/ShareListForm";
-import AiInsight from "@/components/lists/AiInsight";
+import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
+import AiInsight, { AiInsightButton } from "@/components/lists/AiInsight";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -122,6 +122,12 @@ const ListCard = memo(function ListCard({
   const [editTitle, setEditTitle] = useState("");
   const processingRenameRef = useRef(false);
   const skipBlurRef = useRef(false);
+
+  // Активная панель: 'ai' | 'share' | null — только одна открыта одновременно
+  const [activePanel, setActivePanel] = useState<"ai" | "share" | null>(null);
+
+  const togglePanel = (panel: "ai" | "share") =>
+    setActivePanel((prev) => (prev === panel ? null : panel));
 
   // Состояние дропдауна меню групп
   const [isGroupMenuOpen, setIsGroupMenuOpen] = useState(false);
@@ -265,14 +271,53 @@ const ListCard = memo(function ListCard({
         />
       )}
 
-      {/* AI инсайт */}
+      {/* AI инсайт и форма совместного доступа */}
       {!isTemp && (
-        <AiInsight listId={list.id} />
-      )}
-
-      {/* Форма совместного доступа */}
-      {isOwner && !isTemp && (
-        <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-700">
+          {/* Если есть участники — кнопки вертикально (каждая над своей панелью).
+              Иначе — на одной строке, панель полной шириной под ними. */}
+          {isOwner && list.sharedWith.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <div>
+                <ShareListButton
+                  isOpen={activePanel === "share"}
+                  onToggle={() => togglePanel("share")}
+                  sharedCount={list.sharedWith.length}
+                />
+                {activePanel === "share" && (
+                  <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+                )}
+              </div>
+              <div>
+                <AiInsightButton
+                  isOpen={activePanel === "ai"}
+                  onToggle={() => togglePanel("ai")}
+                />
+                {activePanel === "ai" && <AiInsight listId={list.id} />}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex gap-2 flex-wrap">
+                {isOwner && (
+                  <ShareListButton
+                    isOpen={activePanel === "share"}
+                    onToggle={() => togglePanel("share")}
+                    sharedCount={0}
+                  />
+                )}
+                <AiInsightButton
+                  isOpen={activePanel === "ai"}
+                  onToggle={() => togglePanel("ai")}
+                />
+              </div>
+              {activePanel === "share" && isOwner && (
+                <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+              )}
+              {activePanel === "ai" && <AiInsight listId={list.id} />}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Меню назначения в группу */}
