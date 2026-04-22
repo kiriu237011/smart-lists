@@ -91,7 +91,8 @@
     "placeholder": "Câu hỏi của bạn (không bắt buộc)...",
     "analyze": "Phân tích",
     "analyzing": "Đang phân tích...",
-    "error": "Không thể lấy phân tích"
+    "error": "Không thể lấy phân tích",
+    "rateLimitError": "Đã đạt giới hạn hôm nay. Thử lại vào ngày mai."
   },
   "ShareListForm": {
     "share": "Chia sẻ danh sách",
