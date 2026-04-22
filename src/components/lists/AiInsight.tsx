@@ -90,7 +90,9 @@ export default function AiInsight({ listId }: AiInsightProps) {
 
     setIsLoading(false);
 
-    if (result.error) {
+    if (result.error === "rateLimitError") {
+      setError(t("rateLimitError"));
+    } else if (result.error) {
       setError(t("error"));
     } else if (result.insight) {
       setInsight(result.insight);
