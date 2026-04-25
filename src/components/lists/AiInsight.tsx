@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import ReactMarkdown from "react-markdown";
 import { getListInsight } from "@/app/actions/insights";
 
 /** Пропсы кнопки-триггера. */
@@ -143,9 +144,19 @@ export default function AiInsight({ listId }: AiInsightProps) {
 
       {/* Результат — инсайт */}
       {insight && (
-        <p className="text-xs text-gray-600 dark:text-zinc-300 leading-relaxed bg-gray-50 dark:bg-zinc-800 rounded-lg px-3 py-2.5 border border-gray-100 dark:border-zinc-700">
-          {insight}
-        </p>
+        <div className="text-xs text-gray-600 dark:text-zinc-300 leading-relaxed bg-gray-50 dark:bg-zinc-800 rounded-lg px-3 py-2.5 border border-gray-100 dark:border-zinc-700">
+          <ReactMarkdown
+            components={{
+              p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+              strong: ({ node, ...props }) => <strong className="font-semibold text-gray-900 dark:text-gray-100" {...props} />,
+              ul: ({ node, ...props }) => <ul className="list-disc pl-4 mb-2 last:mb-0 space-y-1" {...props} />,
+              ol: ({ node, ...props }) => <ol className="list-decimal pl-4 mb-2 last:mb-0 space-y-1" {...props} />,
+              li: ({ node, ...props }) => <li className="pl-1" {...props} />
+            }}
+          >
+            {insight}
+          </ReactMarkdown>
+        </div>
       )}
 
       {/* Ошибка */}
