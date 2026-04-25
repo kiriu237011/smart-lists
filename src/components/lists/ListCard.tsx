@@ -284,16 +284,18 @@ const ListCard = memo(function ListCard({
                   onToggle={() => togglePanel("share")}
                   sharedCount={list.sharedWith.length}
                 />
-                {activePanel === "share" && (
+                <div className={activePanel === "share" ? "block" : "hidden"}>
                   <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
-                )}
+                </div>
               </div>
               <div>
                 <AiInsightButton
                   isOpen={activePanel === "ai"}
                   onToggle={() => togglePanel("ai")}
                 />
-                {activePanel === "ai" && <AiInsight listId={list.id} />}
+                <div className={activePanel === "ai" ? "block" : "hidden"}>
+                  <AiInsight listId={list.id} />
+                </div>
               </div>
             </div>
           ) : (
@@ -311,10 +313,14 @@ const ListCard = memo(function ListCard({
                   onToggle={() => togglePanel("ai")}
                 />
               </div>
-              {activePanel === "share" && isOwner && (
-                <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+              {isOwner && (
+                <div className={activePanel === "share" ? "block" : "hidden"}>
+                  <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+                </div>
               )}
-              {activePanel === "ai" && <AiInsight listId={list.id} />}
+              <div className={activePanel === "ai" ? "block" : "hidden"}>
+                <AiInsight listId={list.id} />
+              </div>
             </div>
           )}
         </div>
