@@ -103,13 +103,25 @@ export default function AiInsight({ listId }: AiInsightProps) {
   return (
     <div className="mt-2 space-y-2">
       {/* Поле вопроса */}
-      <textarea
-        value={userMessage}
-        onChange={(e) => setUserMessage(e.target.value)}
-        placeholder={t("placeholder")}
-        rows={2}
-        className="w-full text-xs border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-2 bg-gray-50 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 ring-gray-400 dark:ring-zinc-500 resize-none transition"
-      />
+      <div className="relative">
+        <textarea
+          value={userMessage}
+          onChange={(e) => setUserMessage(e.target.value)}
+          placeholder={t("placeholder")}
+          rows={2}
+          maxLength={500}
+          className="w-full text-xs border border-gray-200 dark:border-zinc-700 rounded-lg px-2.5 py-2 pb-6 bg-gray-50 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 ring-gray-400 dark:ring-zinc-500 resize-none transition"
+        />
+        <div
+          className={`absolute bottom-2 right-2 text-[10px] ${
+            userMessage.length >= 500
+              ? "text-red-500 dark:text-red-400 font-medium"
+              : "text-gray-400 dark:text-zinc-500"
+          }`}
+        >
+          {userMessage.length}/500
+        </div>
+      </div>
 
       {/* Кнопка запроса — полная ширина */}
       <button
