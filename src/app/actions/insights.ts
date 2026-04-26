@@ -116,8 +116,8 @@ export async function getListInsight(
         Authorization: `Bearer ${secret}`,
       },
       body: JSON.stringify({
-        title: list.title,
-        items: list.items.map((item) => item.name),
+        title: list.title.slice(0, 200),
+        items: list.items.slice(0, 50).map((item) => item.name.slice(0, 200)),
         user_message: safeUserMessage ?? null,
       }),
     });
