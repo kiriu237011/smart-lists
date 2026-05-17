@@ -90,7 +90,7 @@ export async function getListInsight(
     },
     select: {
       title: true,
-      items: { select: { name: true } },
+      items: { select: { name: true, isCompleted: true } },
     },
   });
 
@@ -117,7 +117,10 @@ export async function getListInsight(
       },
       body: JSON.stringify({
         title: list.title.slice(0, 200),
-        items: list.items.slice(0, 50).map((item) => item.name.slice(0, 200)),
+        items: list.items.slice(0, 50).map((item) => ({
+          name: item.name.slice(0, 200),
+          is_completed: item.isCompleted,
+        })),
         user_message: safeUserMessage ?? null,
       }),
     });
