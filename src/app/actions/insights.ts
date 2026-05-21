@@ -53,33 +53,10 @@ export async function getListInsight(
     return { error: "Unauthorized" };
   }
 
-  // --- Rate limiting ---
-  // Нормализуем текущую дату до UTC-полуночи.
-  // Единственное место в коде где происходит эта нормализация —
-  // Postgres хранит любой timestamp, ограничение исключительно на уровне логики.
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-
-  // Сначала читаем — если лимит исчерпан, БД не трогаем.
-  const existing = await prisma.aiInsightUsage.findUnique({
-    where: { userId_date: { userId: session.user.id, date: today } },
-    select: { count: true },
-  });
-
-  if ((existing?.count ?? 0) >= DAILY_INSIGHT_LIMIT) {
-    return { error: "rateLimitError" };
-  }
-
-  // Лимит не исчерпан — инкрементируем.
-  await prisma.aiInsightUsage.upsert({
-    where: { userId_date: { userId: session.user.id, date: today } },
-    update: { count: { increment: 1 } },
-    create: { userId: session.user.id, date: today, count: 1 },
-  });
-  // --- /Rate limiting ---
-
   // Получаем данные из БД и одновременно проверяем права доступа.
   // Пользователь должен быть владельцем или участником списка.
+  // Эта проверка идёт ДО rate limiting: запрос на недоступный listId
+  // не должен списывать квоту легитимного пользователя.
   const list = await prisma.list.findFirst({
     where: {
       id: listId,
@@ -98,12 +75,50 @@ export async function getListInsight(
     return { error: "Список не найден" };
   }
 
+  // Конфиг сервиса проверяем тоже ДО rate limiting — иначе при отсутствии
+  // env-переменных квота списывалась бы впустую.
   const serviceUrl = process.env.INSIGHTS_SERVICE_URL;
   const secret = process.env.INSIGHTS_SERVICE_SECRET;
 
   if (!serviceUrl || !secret) {
     return { error: "Service not configured" };
   }
+
+  // --- Rate limiting ---
+  // Нормализуем текущую дату до UTC-полуночи.
+  // Единственное место в коде где происходит эта нормализация —
+  // Postgres хранит любой timestamp, ограничение исключительно на уровне логики.
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  // Атомарно инкрементируем счётчик: upsert + increment держит row lock
+  // на уникальном ключе (userId, date), и параллельные запросы получают
+  // строго возрастающие значения count: 1, 2, 3, ...
+  // Это закрывает TOCTOU-окно прежней схемы (отдельные findUnique и upsert),
+  // через которое Promise.all из N запросов мог проскочить проверку при count=0.
+  const usage = await prisma.aiInsightUsage.upsert({
+    where: { userId_date: { userId: session.user.id, date: today } },
+    update: { count: { increment: 1 } },
+    create: { userId: session.user.id, date: today, count: 1 },
+    select: { count: true },
+  });
+
+  // Если перебрали лимит — откатываем свой инкремент и возвращаем ошибку.
+  // Decrement обёрнут в .catch: если он упадёт, счётчик останется завышенным
+  // на 1, но на следующий день будет создана новая строка по новому ключу
+  // (userId, date) — старая с завышенным count просто перестаёт читаться.
+  if (usage.count > DAILY_INSIGHT_LIMIT) {
+    await prisma.aiInsightUsage
+      .update({
+        where: { userId_date: { userId: session.user.id, date: today } },
+        data: { count: { decrement: 1 } },
+      })
+      .catch((err) => {
+        console.error("AiInsightUsage decrement failed:", err);
+      });
+    return { error: "rateLimitError" };
+  }
+  // --- /Rate limiting ---
 
   // Hard cap на длину вопроса — защита от cost abuse
   const safeUserMessage = userMessage?.slice(0, MAX_USER_MESSAGE_LENGTH);
