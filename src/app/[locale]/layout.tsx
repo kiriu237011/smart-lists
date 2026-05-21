@@ -6,6 +6,7 @@ import { getMessages } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import ScrollToTop from "@/components/ui/ScrollToTop";
 import "../globals.css";
 
 const geistSans = Geist({
@@ -67,6 +68,7 @@ export default async function LocaleLayout({
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
             {children}
             <Toaster position="bottom-center" />
+            <ScrollToTop />
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>
