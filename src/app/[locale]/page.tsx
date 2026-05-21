@@ -8,6 +8,7 @@ import ListsDataFetcher from "@/components/lists/ListsDataFetcher";
 import ListsSkeleton from "@/components/lists/ListsSkeleton";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import HeaderSettings from "@/components/layout/HeaderSettings";
+import SettingsToggles from "@/components/ui/SettingsToggles";
 /**
  * Главная страница приложения (Server Component).
  * Рендерится для каждой локали: /ru и /vi.
@@ -115,6 +116,10 @@ export default async function Home() {
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <LanguageSwitcher />
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
+            <HeaderSettings>
+              <SettingsToggles />
+            </HeaderSettings>
+            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <form
               action={async () => {
                 "use server";
@@ -152,6 +157,8 @@ export default async function Home() {
                 <LanguageSwitcher />
               </div>
               <div className="h-px bg-gray-100 dark:bg-zinc-800 mb-4" />
+              <SettingsToggles />
+              <div className="h-px bg-gray-100 dark:bg-zinc-800 my-4" />
               <form
                 action={async () => {
                   "use server";

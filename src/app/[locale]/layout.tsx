@@ -6,6 +6,7 @@ import { getMessages } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { SettingsProvider } from "@/components/providers/SettingsProvider";
 import ScrollToTop from "@/components/ui/ScrollToTop";
 import "../globals.css";
 
@@ -66,9 +67,11 @@ export default async function LocaleLayout({
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-            {children}
-            <Toaster position="bottom-center" />
-            <ScrollToTop />
+            <SettingsProvider>
+              {children}
+              <Toaster position="bottom-center" />
+              <ScrollToTop />
+            </SettingsProvider>
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>

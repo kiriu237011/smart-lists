@@ -57,6 +57,10 @@
       "groupAssignFailed": "Не удалось изменить группу"
     }
   },
+  "Settings": {
+    "showAuthors": "Авторы записей",
+    "scrollToTop": "Кнопка «Наверх»"
+  },
   "GroupFilter": {
     "all": "Все",
     "newGroupPlaceholder": "Название...",

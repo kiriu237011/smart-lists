@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp } from "lucide-react";
+import { useSettings } from "@/components/providers/SettingsProvider";
 
 /**
  * Плавающая кнопка прокрутки наверх.
- * Появляется только после прокрутки более 300px.
+ * Появляется только после прокрутки более 300px и если включена в настройках.
  */
 export default function ScrollToTop() {
   const [visible, setVisible] = useState(false);
+  const { showScrollToTop } = useSettings();
 
   useEffect(() => {
     const onScroll = () => setVisible(window.scrollY > 300);
@@ -19,7 +21,7 @@ export default function ScrollToTop() {
 
   return (
     <AnimatePresence>
-      {visible && (
+      {visible && showScrollToTop && (
         <motion.button
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}

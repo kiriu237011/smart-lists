@@ -57,6 +57,10 @@
       "groupAssignFailed": "Không thể thay đổi nhóm"
     }
   },
+  "Settings": {
+    "showAuthors": "Hiển thị tác giả",
+    "scrollToTop": "Nút «Lên đầu»"
+  },
   "GroupFilter": {
     "all": "Tất cả",
     "newGroupPlaceholder": "Tên...",

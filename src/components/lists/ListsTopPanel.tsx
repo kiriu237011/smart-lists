@@ -25,8 +25,6 @@ type ListsTopPanelProps = {
   isSearching: boolean;
   /** Идёт ли низкоприоритетный React-переход пересчёта результатов. */
   isPending: boolean;
-  /** Включён ли переключатель отображения авторов. */
-  showAuthors: boolean;
   /** Ref на поле ввода поиска (для автофокуса при переключении на вкладку Поиск). */
   searchInputRef: React.RefObject<HTMLInputElement | null>;
   /** Колбэк переключения на вкладку "Создать". */
@@ -37,8 +35,6 @@ type ListsTopPanelProps = {
   onSearchChange: (value: string) => void;
   /** Колбэк нажатия Escape в поле поиска — закрывает поиск и сбрасывает запрос. */
   onSearchEscape: () => void;
-  /** Колбэк переключения видимости авторов. */
-  onToggleAuthors: () => void;
   /** Содержимое вкладки "Создать" (слот). */
   createListContent: React.ReactNode;
 };
@@ -70,13 +66,11 @@ export default function ListsTopPanel({
   searchInput,
   isSearching,
   isPending,
-  showAuthors,
   searchInputRef,
   onTabCreate,
   onTabSearch,
   onSearchChange,
   onSearchEscape,
-  onToggleAuthors,
   createListContent,
 }: ListsTopPanelProps) {
   const t = useTranslations("ListsContainer");
@@ -111,25 +105,6 @@ export default function ListsTopPanel({
           {t("tabSearch")}
         </button>
 
-        {/* Переключатель авторов — прижат вправо */}
-        <div className="flex items-center gap-2 ml-auto px-2">
-          <button
-            type="button"
-            onClick={onToggleAuthors}
-            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-              showAuthors ? "bg-blue-500" : "bg-gray-200 dark:bg-zinc-700"
-            }`}
-            role="switch"
-            aria-checked={showAuthors}
-          >
-            <span
-              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
-                showAuthors ? "translate-x-4" : "translate-x-0"
-              }`}
-            />
-          </button>
-          <span className="text-xs text-gray-400">{t("showAuthors")}</span>
-        </div>
       </div>
 
       {/* Контент вкладки */}

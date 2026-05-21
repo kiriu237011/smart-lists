@@ -52,6 +52,7 @@ import {
 import toast from "react-hot-toast";
 import CreateListForm from "@/components/lists/CreateListForm";
 import { useTranslations } from "next-intl";
+import { useSettings } from "@/components/providers/SettingsProvider";
 import { useRouter } from "next/navigation";
 import { getPusherClient } from "@/lib/pusher-client";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
@@ -93,6 +94,7 @@ export default function ListsContainer({
 }: ListsContainerProps) {
   const t = useTranslations("ListsContainer");
   const router = useRouter();
+  const { showAuthors } = useSettings();
 
   /**
    * Список, ожидающий подтверждения удаления.
@@ -124,8 +126,6 @@ export default function ListsContainer({
   /** Активный фильтр группы. null = показывать все списки. Сохраняется в localStorage. */
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
-  /** Глобальный флаг отображения авторов записей. Сохраняется в localStorage. */
-  const [showAuthors, setShowAuthors] = useState<boolean>(false);
   // isSearchOpen: управляет видимостью поля поиска. Сохраняется в localStorage.
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -156,7 +156,6 @@ export default function ListsContainer({
   // Читаем сохранённые значения из localStorage только после гидрации,
   // чтобы не было расхождения между серверным и клиентским HTML.
   useEffect(() => {
-    setShowAuthors(localStorage.getItem("showAuthors") === "true");
     setIsSearchOpen(localStorage.getItem("activeTab") === "search");
     const savedGroupId = localStorage.getItem("activeGroupId");
     if (savedGroupId) setActiveGroupId(savedGroupId);
@@ -186,14 +185,6 @@ export default function ListsContainer({
       client.unsubscribe(`private-user-${currentUserId}`);
     };
   }, [currentUserId, router]);
-
-  const toggleShowAuthors = () => {
-    setShowAuthors((prev) => {
-      const next = !prev;
-      localStorage.setItem("showAuthors", String(next));
-      return next;
-    });
-  };
 
   /**
    * Карта стабильных ключей для рендера карточек списков.
@@ -691,7 +682,6 @@ export default function ListsContainer({
         searchInput={searchInput}
         isSearching={isSearching}
         isPending={isPending}
-        showAuthors={showAuthors}
         searchInputRef={searchInputRef}
         onTabCreate={() => {
           setIsSearchOpen(false);
@@ -709,7 +699,6 @@ export default function ListsContainer({
           setSearchInput("");
           localStorage.setItem("activeTab", "create");
         }}
-        onToggleAuthors={toggleShowAuthors}
         createListContent={<CreateListForm onCreateList={handleCreateList} />}
       />
 
