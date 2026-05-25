@@ -41,6 +41,7 @@ import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { pusherServer } from "@/lib/pusher-server";
+import { logger } from "@/lib/logger";
 
 // ===========================================================================
 // SERVER ACTIONS ДЛЯ ЗАПИСЕЙ (Item)
@@ -76,7 +77,7 @@ export async function addItem(formData: FormData) {
     const result = createItemSchema.safeParse(rawData);
 
     if (!result.success) {
-      console.error("Ошибка валидации:", result.error);
+      logger.error({ error: result.error }, "Ошибка валидации:");
       return { success: false, error: "Некорректные данные" };
     }
 
@@ -110,7 +111,7 @@ export async function addItem(formData: FormData) {
     await notifyListMembers(result.data.listId);
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при добавлении записи:", error);
+    logger.error({ error: error }, "Ошибка при добавлении записи:");
     return { success: false, error: "Не удалось добавить запись" };
   }
 }
@@ -134,7 +135,7 @@ export async function deleteItem(formData: FormData) {
   const result = deleteItemSchema.safeParse(data);
 
   if (!result.success) {
-    console.error("Validation Error:", result.error);
+    logger.error({ error: result.error }, "Validation Error:");
     return;
   }
 
@@ -190,7 +191,7 @@ export async function toggleItem(formData: FormData) {
   const result = toggleItemSchema.safeParse(data);
 
   if (!result.success) {
-    console.error("Validation Error:", result.error);
+    logger.error({ error: result.error }, "Validation Error:");
     return;
   }
 
@@ -279,7 +280,7 @@ export async function renameItem(formData: FormData) {
     if (item) await notifyListMembers(item.listId);
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при переименовании записи:", error);
+    logger.error({ error: error }, "Ошибка при переименовании записи:");
     return { success: false, error: "Не удалось переименовать запись" };
   }
 }
@@ -404,7 +405,7 @@ export async function createList(formData: FormData) {
       },
     };
   } catch (error) {
-    console.error("Ошибка при создании списка:", error);
+    logger.error({ error: error }, "Ошибка при создании списка:");
     return { success: false, error: "Не удалось создать список" };
   }
 }
@@ -468,7 +469,7 @@ export async function deleteList(formData: FormData) {
     }
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при удалении списка:", error);
+    logger.error({ error: error }, "Ошибка при удалении списка:");
     return { success: false, error: "Не удалось удалить список" };
   }
 }
@@ -556,7 +557,7 @@ export async function shareList(formData: FormData) {
       },
     };
   } catch (error) {
-    console.error("Ошибка при предоставлении доступа:", error);
+    logger.error({ error: error }, "Ошибка при предоставлении доступа:");
     return {
       success: false,
       error: "Не удалось предоставить доступ",
@@ -612,7 +613,7 @@ export async function removeSharedUser(formData: FormData) {
     await notifyListMembers(result.data.listId);
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при удалении доступа:", error);
+    logger.error({ error: error }, "Ошибка при удалении доступа:");
     return { success: false, error: "Не удалось убрать доступ" };
   }
 }
@@ -662,7 +663,7 @@ export async function leaveSharedList(formData: FormData) {
     await notifyListMembers(listId);
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при выходе из списка:", error);
+    logger.error({ error: error }, "Ошибка при выходе из списка:");
     return { success: false, error: "Не удалось отписаться от списка" };
   }
 }
@@ -720,7 +721,7 @@ export async function renameList(formData: FormData) {
     await notifyListMembers(result.data.listId);
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при переименовании списка:", error);
+    logger.error({ error: error }, "Ошибка при переименовании списка:");
     return { success: false, error: "Не удалось переименовать список" };
   }
 }
@@ -763,7 +764,7 @@ export async function createGroup(formData: FormData) {
     revalidatePath("/", "layout");
     return { success: true, group };
   } catch (error) {
-    console.error("Ошибка при создании группы:", error);
+    logger.error({ error: error }, "Ошибка при создании группы:");
     return { success: false, error: "Не удалось создать группу" };
   }
 }
@@ -804,7 +805,7 @@ export async function deleteGroup(formData: FormData) {
     revalidatePath("/", "layout");
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при удалении группы:", error);
+    logger.error({ error: error }, "Ошибка при удалении группы:");
     return { success: false, error: "Не удалось удалить группу" };
   }
 }
@@ -854,7 +855,7 @@ export async function renameGroup(formData: FormData) {
     revalidatePath("/", "layout");
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при переименовании группы:", error);
+    logger.error({ error: error }, "Ошибка при переименовании группы:");
     return { success: false, error: "Не удалось переименовать группу" };
   }
 }
@@ -919,7 +920,7 @@ export async function addListToGroup(formData: FormData) {
     revalidatePath("/", "layout");
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при добавлении списка в группу:", error);
+    logger.error({ error: error }, "Ошибка при добавлении списка в группу:");
     return { success: false, error: "Не удалось добавить список в группу" };
   }
 }
@@ -968,7 +969,7 @@ export async function removeListFromGroup(formData: FormData) {
     revalidatePath("/", "layout");
     return { success: true };
   } catch (error) {
-    console.error("Ошибка при удалении списка из группы:", error);
+    logger.error({ error: error }, "Ошибка при удалении списка из группы:");
     return { success: false, error: "Не удалось убрать список из группы" };
   }
 }
@@ -994,7 +995,7 @@ async function notifyListMembers(listId: string) {
 
     await notifyUsers(userIds);
   } catch (err) {
-    console.error("notifyListMembers failed:", err);
+    logger.error({ error: err }, "notifyListMembers failed:");
   }
 }
 
@@ -1011,5 +1012,5 @@ async function notifyUsers(userIds: string[]) {
     userIds.map((userId) =>
       pusherServer.trigger(`private-user-${userId}`, "refresh", {}),
     ),
-  ).catch((err) => console.error("Pusher notify failed:", err));
+  ).catch((err) => logger.error("Pusher notify failed:", err));
 }

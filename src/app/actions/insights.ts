@@ -20,6 +20,7 @@
 
 import { auth } from "@/auth";
 import prisma from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 /** Максимальная длина пользовательского вопроса (символов). */
 const MAX_USER_MESSAGE_LENGTH = 500;
@@ -114,7 +115,7 @@ export async function getListInsight(
         data: { count: { decrement: 1 } },
       })
       .catch((err) => {
-        console.error("AiInsightUsage decrement failed:", err);
+        logger.error({ error: err }, "AiInsightUsage decrement failed:");
       });
     return { error: "rateLimitError" };
   }

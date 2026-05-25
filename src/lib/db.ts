@@ -20,7 +20,12 @@ import { PrismaClient } from "@prisma/client";
  * Вынесена отдельно, чтобы TypeScript мог вывести корректный тип через ReturnType<>.
  */
 const prismaClientSingleton = () => {
-  return new PrismaClient();
+  return new PrismaClient({
+    log:
+      process.env.NODE_ENV === "development"
+        ? ["query", "error", "warn"]
+        : ["error", "warn"],
+  });
 };
 
 /** Тип единственного экземпляра PrismaClient, выведенный из фабрики. */
