@@ -41,7 +41,7 @@ import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { pusherServer } from "@/lib/pusher-server";
-import { logger } from "@/lib/logger";
+import { logger, hashId } from "@/lib/logger";
 
 // ===========================================================================
 // SERVER ACTIONS ДЛЯ ЗАПИСЕЙ (Item)
@@ -109,6 +109,7 @@ export async function addItem(formData: FormData) {
     // Инвалидируем весь layout-дерево (/, /ru, /vi) → перефетч Server Component
     revalidatePath("/", "layout");
     await notifyListMembers(result.data.listId);
+    logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "addItem" }, "Запись добавлена");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при добавлении записи:");
@@ -162,6 +163,7 @@ export async function deleteItem(formData: FormData) {
 
   revalidatePath("/", "layout");
   await notifyListMembers(item.listId);
+  logger.info({ uid: hashId(session.user.id), listId: item.listId, action: "deleteItem" }, "Запись удалена");
 }
 
 /**
@@ -220,6 +222,7 @@ export async function toggleItem(formData: FormData) {
 
   revalidatePath("/", "layout");
   await notifyListMembers(item.listId);
+  logger.info({ uid: hashId(session.user.id), listId: item.listId, completed: !result.data.isCompleted, action: "toggleItem" }, "Статус записи изменён");
 }
 
 /**
@@ -277,7 +280,10 @@ export async function renameItem(formData: FormData) {
     });
 
     revalidatePath("/", "layout");
-    if (item) await notifyListMembers(item.listId);
+    if (item) {
+      await notifyListMembers(item.listId);
+      logger.info({ uid: hashId(session.user.id), listId: item.listId, action: "renameItem" }, "Запись переименована");
+    }
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при переименовании записи:");
@@ -376,6 +382,7 @@ export async function createList(formData: FormData) {
 
     revalidatePath("/", "layout");
     await notifyListMembers(newList.id);
+    logger.info({ uid: hashId(session.user.id), listId: newList.id, action: "createList" }, "Список создан");
 
     // Возвращаем только нужные поля (не весь объект Prisma)
     return {
@@ -467,6 +474,7 @@ export async function deleteList(formData: FormData) {
       ];
       await notifyUsers(userIds);
     }
+    logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "deleteList" }, "Список удалён");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при удалении списка:");
@@ -547,6 +555,7 @@ export async function shareList(formData: FormData) {
 
     revalidatePath("/", "layout");
     await notifyListMembers(result.data.listId);
+    logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "shareList" }, "Доступ к списку предоставлен");
 
     return {
       success: true,
@@ -611,6 +620,7 @@ export async function removeSharedUser(formData: FormData) {
     // но refresh должен прийти уже после revalidatePath, чтобы сервер вернул актуальные данные
     await notifyUsers([result.data.userId]);
     await notifyListMembers(result.data.listId);
+    logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "removeSharedUser" }, "Доступ к списку отозван");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при удалении доступа:");
@@ -661,6 +671,7 @@ export async function leaveSharedList(formData: FormData) {
     // поэтому notifyListMembers его не затронет (нужно для других вкладок/устройств)
     await notifyUsers([session.user.id]);
     await notifyListMembers(listId);
+    logger.info({ uid: hashId(session.user.id), listId, action: "leaveSharedList" }, "Пользователь покинул список");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при выходе из списка:");
@@ -719,6 +730,7 @@ export async function renameList(formData: FormData) {
 
     revalidatePath("/", "layout");
     await notifyListMembers(result.data.listId);
+    logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "renameList" }, "Список переименован");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при переименовании списка:");
@@ -762,6 +774,7 @@ export async function createGroup(formData: FormData) {
     });
 
     revalidatePath("/", "layout");
+    logger.info({ uid: hashId(session.user.id), groupId: group.id, action: "createGroup" }, "Группа создана");
     return { success: true, group };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при создании группы:");
@@ -803,6 +816,7 @@ export async function deleteGroup(formData: FormData) {
     }
 
     revalidatePath("/", "layout");
+    logger.info({ uid: hashId(session.user.id), groupId: result.data.groupId, action: "deleteGroup" }, "Группа удалена");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при удалении группы:");
@@ -853,6 +867,7 @@ export async function renameGroup(formData: FormData) {
     }
 
     revalidatePath("/", "layout");
+    logger.info({ uid: hashId(session.user.id), groupId: result.data.groupId, action: "renameGroup" }, "Группа переименована");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при переименовании группы:");
@@ -918,6 +933,7 @@ export async function addListToGroup(formData: FormData) {
     });
 
     revalidatePath("/", "layout");
+    logger.info({ uid: hashId(session.user.id), groupId: result.data.groupId, listId: result.data.listId, action: "addListToGroup" }, "Список добавлен в группу");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при добавлении списка в группу:");
@@ -967,6 +983,7 @@ export async function removeListFromGroup(formData: FormData) {
     });
 
     revalidatePath("/", "layout");
+    logger.info({ uid: hashId(session.user.id), groupId: result.data.groupId, listId: result.data.listId, action: "removeListFromGroup" }, "Список убран из группы");
     return { success: true };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при удалении списка из группы:");
