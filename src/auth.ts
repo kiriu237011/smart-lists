@@ -28,6 +28,7 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import prisma from "@/lib/db";
+import { logger, hashId } from "@/lib/logger";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   /**
@@ -49,7 +50,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
 
+  pages: {
+    error: "/auth-error",
+  },
+
   callbacks: {
+    /**
+     * Проверяет, разрешён ли вход для данного пользователя.
+     * Email должен присутствовать в таблице `AllowedEmail`.
+     * Управление списком — напрямую в БД, без деплоя.
+     */
+    async signIn({ user }) {
+      const email = user.email ?? "";
+      const allowed = await prisma.allowedEmail.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+      if (!allowed) {
+        logger.warn({ action: "signIn.denied", email }, "Попытка входа с неразрешённого email");
+        return false;
+      }
+      logger.info({ action: "signIn", uid: hashId(user.id ?? "") }, "Успешный вход");
+      return true;
+    },
+
     /**
      * Коллбэк `session` вызывается каждый раз при чтении сессии
      * (например, при вызове `auth()` или `useSession()`).
