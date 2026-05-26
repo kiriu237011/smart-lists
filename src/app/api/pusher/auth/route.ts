@@ -11,12 +11,14 @@
 
 import { auth } from "@/auth";
 import { pusherServer } from "@/lib/pusher-server";
+import { logger, hashId } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
 
   if (!session?.user?.id) {
+    logger.warn({ action: "pusherAuth" }, "Неавторизованный запрос к Pusher auth");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -26,12 +28,14 @@ export async function POST(req: NextRequest) {
   const channelName = params.get("channel_name");
 
   if (!socketId || !channelName) {
+    logger.warn({ uid: hashId(session.user.id), action: "pusherAuth" }, "Pusher auth: отсутствуют socket_id или channel_name");
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 
   // Разрешаем подписку только на собственный канал пользователя
   const expectedChannel = `private-user-${session.user.id}`;
   if (channelName !== expectedChannel) {
+    logger.warn({ uid: hashId(session.user.id), channelName, action: "pusherAuth" }, "Попытка подписки на чужой Pusher-канал");
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

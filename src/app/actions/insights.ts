@@ -20,7 +20,7 @@
 
 import { auth } from "@/auth";
 import prisma from "@/lib/db";
-import { logger } from "@/lib/logger";
+import { logger, hashId } from "@/lib/logger";
 
 /** Максимальная длина пользовательского вопроса (символов). */
 const MAX_USER_MESSAGE_LENGTH = 500;
@@ -73,6 +73,7 @@ export async function getListInsight(
   });
 
   if (!list) {
+    logger.warn({ uid: hashId(session.user.id), listId, action: "getListInsight" }, "Доступ к списку запрещён или список не найден");
     return { error: "Список не найден" };
   }
 
@@ -82,6 +83,7 @@ export async function getListInsight(
   const secret = process.env.INSIGHTS_SERVICE_SECRET;
 
   if (!serviceUrl || !secret) {
+    logger.error({ action: "getListInsight" }, "INSIGHTS_SERVICE_URL или INSIGHTS_SERVICE_SECRET не заданы");
     return { error: "Service not configured" };
   }
 
@@ -117,6 +119,7 @@ export async function getListInsight(
       .catch((err) => {
         logger.error({ error: err }, "AiInsightUsage decrement failed:");
       });
+    logger.warn({ uid: hashId(session.user.id), listId, count: usage.count, action: "getListInsight" }, "Превышен дневной лимит AI-инсайтов");
     return { error: "rateLimitError" };
   }
   // --- /Rate limiting ---
@@ -142,12 +145,15 @@ export async function getListInsight(
     });
 
     if (!response.ok) {
+      logger.error({ uid: hashId(session.user.id), listId, status: response.status, action: "getListInsight" }, "AI-сервис вернул ошибку");
       return { error: "Service error" };
     }
 
     const data = (await response.json()) as { insight: string };
+    logger.info({ uid: hashId(session.user.id), listId, action: "getListInsight" }, "AI-инсайт получен");
     return { insight: data.insight };
-  } catch {
+  } catch (error) {
+    logger.error({ uid: hashId(session.user.id), listId, error, action: "getListInsight" }, "Ошибка подключения к AI-сервису");
     return { error: "Could not connect to AI service" };
   }
 }

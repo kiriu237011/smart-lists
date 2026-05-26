@@ -54,6 +54,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     error: "/auth-error",
   },
 
+  events: {
+    signOut(event) {
+      if ("session" in event && event.session?.userId) {
+        logger.info({ uid: hashId(event.session.userId), action: "signOut" }, "Выход из системы");
+      }
+    },
+  },
+
   callbacks: {
     /**
      * Проверяет, разрешён ли вход для данного пользователя.
