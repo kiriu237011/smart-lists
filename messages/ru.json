@@ -16,6 +16,7 @@
     "owner": "Владелец: {name}",
     "unsubscribe": "Отписаться от списка",
     "noLists": "У вас пока нет списков.",
+    "noListsInGroup": "В этой группе пока нет списков.",
     "searchPlaceholder": "Поиск по спискам и записям...",
     "noSearchResults": "Ничего не найдено.",
     "searchResults": "Результаты поиска: {found} из {total}",

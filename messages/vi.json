@@ -16,6 +16,7 @@
     "owner": "Chủ sở hữu: {name}",
     "unsubscribe": "Rời khỏi danh sách",
     "noLists": "Bạn chưa có danh sách nào.",
+    "noListsInGroup": "Không có danh sách nào trong nhóm này.",
     "searchPlaceholder": "Tìm kiếm danh sách và ghi chú...",
     "noSearchResults": "Không tìm thấy kết quả.",
     "searchResults": "Kết quả tìm kiếm: {found} trong {total}",

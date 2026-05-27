@@ -782,7 +782,11 @@ export default function ListsContainer({
           {filteredLists.length === 0 && (
             <div className="text-center py-10 border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-xl">
               <p className="text-gray-500 dark:text-zinc-400">
-                {searchQuery.trim() ? t("noSearchResults") : t("noLists")}
+                {searchQuery.trim()
+                  ? t("noSearchResults")
+                  : optimisticLists.length === 0
+                    ? t("noLists")
+                    : t("noListsInGroup")}
               </p>
             </div>
           )}
