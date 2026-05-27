@@ -260,7 +260,11 @@ export default function SmartList({
             itemName: item.name,
           });
         });
-        toast.error(t("errors.renameFailed"));
+        toast.error(
+          result.error === "tooLong"
+            ? t("errors.tooLong")
+            : t("errors.renameFailed"),
+        );
       }
     } finally {
       processingItemRenameRef.current = false;
@@ -370,7 +374,7 @@ export default function SmartList({
                         <textarea
                           autoFocus
                           value={editItemName}
-                          maxLength={100}
+                          maxLength={200}
                           rows={1}
                           onFocus={(e) => {
                             e.target.select();
@@ -524,7 +528,11 @@ export default function SmartList({
                 setOptimisticItems({ action: "delete", itemId: tempId });
               });
               setNewItemName(trimmedName);
-              toast.error(t("errors.addFailed"));
+              toast.error(
+                result.error === "tooLong"
+                  ? t("errors.tooLong")
+                  : t("errors.addFailed"),
+              );
             }
           }}
           className="flex gap-2"
@@ -535,6 +543,7 @@ export default function SmartList({
             className="border dark:border-zinc-700 p-2 rounded-lg w-full text-sm bg-gray-50 dark:bg-zinc-900 focus:bg-white dark:focus:bg-zinc-950 focus:ring-1 ring-gray-800 dark:ring-zinc-500 outline-none transition"
             value={newItemName}
             onChange={(e) => setNewItemName(e.target.value)}
+            maxLength={200}
             required
           />
           <button

@@ -42,6 +42,12 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { pusherServer } from "@/lib/pusher-server";
 import { logger, hashId } from "@/lib/logger";
+import { ZodError } from "zod";
+
+/** Возвращает код ошибки валидации: "tooLong" при превышении длины, иначе "validationError". */
+function getValidationError(error: ZodError): string {
+  return error.issues.some((i) => i.code === "too_big") ? "tooLong" : "validationError";
+}
 
 // ===========================================================================
 // SERVER ACTIONS ДЛЯ ЗАПИСЕЙ (Item)
@@ -78,7 +84,7 @@ export async function addItem(formData: FormData) {
 
     if (!result.success) {
       logger.error({ error: result.error }, "Ошибка валидации:");
-      return { success: false, error: "Некорректные данные" };
+      return { success: false, error: getValidationError(result.error) };
     }
 
     // Проверяем, что пользователь является владельцем или участником списка
@@ -251,7 +257,7 @@ export async function renameItem(formData: FormData) {
     if (!result.success) {
       return {
         success: false,
-        error: result.error.issues[0]?.message || "Неверные данные",
+        error: getValidationError(result.error),
       };
     }
 
@@ -326,7 +332,7 @@ export async function createList(formData: FormData) {
     if (!result.success) {
       return {
         success: false,
-        error: result.error.issues[0]?.message || "Неверные данные",
+        error: getValidationError(result.error),
       };
     }
 
@@ -706,7 +712,7 @@ export async function renameList(formData: FormData) {
     if (!result.success) {
       return {
         success: false,
-        error: result.error.issues[0]?.message || "Неверные данные",
+        error: getValidationError(result.error),
       };
     }
 
@@ -761,7 +767,7 @@ export async function createGroup(formData: FormData) {
     if (!result.success) {
       return {
         success: false,
-        error: result.error.issues[0]?.message || "Неверные данные",
+        error: getValidationError(result.error),
       };
     }
 
@@ -847,7 +853,7 @@ export async function renameGroup(formData: FormData) {
     if (!result.success) {
       return {
         success: false,
-        error: result.error.issues[0]?.message || "Неверные данные",
+        error: getValidationError(result.error),
       };
     }
 

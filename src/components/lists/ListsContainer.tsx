@@ -319,7 +319,11 @@ export default function ListsContainer({
     if (result.success && result.group) {
       setGroups((prev) => [...prev, result.group!]);
     } else {
-      toast.error(t("errors.groupCreateFailed"));
+      toast.error(
+        result.error === "tooLong"
+          ? t("errors.tooLong")
+          : t("errors.groupCreateFailed"),
+      );
     }
   }, [t]);
 
@@ -375,7 +379,11 @@ export default function ListsContainer({
           prev.map((g) => (g.id === groupId ? originalGroup : g)),
         );
       }
-      toast.error(t("errors.groupRenameFailed"));
+      toast.error(
+        result.error === "tooLong"
+          ? t("errors.tooLong")
+          : t("errors.groupRenameFailed"),
+      );
     }
   }, [groups, t]);
 
@@ -448,7 +456,11 @@ export default function ListsContainer({
         startTransition(() => {
           setOptimisticLists({ action: "delete", listId: tempListId });
         });
-        toast.error(t("errors.createFailed"));
+        toast.error(
+          result?.error === "tooLong"
+            ? t("errors.tooLong")
+            : t("errors.createFailed"),
+        );
         return { success: false };
       }
 
@@ -502,7 +514,11 @@ export default function ListsContainer({
         startTransition(() => {
           setOptimisticLists({ action: "rename", listId, list: originalList });
         });
-        toast.error(t("errors.renameFailed"));
+        toast.error(
+          result.error === "tooLong"
+            ? t("errors.tooLong")
+            : t("errors.renameFailed"),
+        );
       }
     },
     [setOptimisticLists, t],

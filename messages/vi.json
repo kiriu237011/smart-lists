@@ -54,7 +54,8 @@
       "groupCreateFailed": "Không thể tạo nhóm",
       "groupDeleteFailed": "Không thể xóa nhóm",
       "groupRenameFailed": "Không thể đổi tên nhóm",
-      "groupAssignFailed": "Không thể thay đổi nhóm"
+      "groupAssignFailed": "Không thể thay đổi nhóm",
+      "tooLong": "Tên quá dài (tối đa 50 ký tự)"
     }
   },
   "Settings": {
@@ -82,7 +83,8 @@
     },
     "errors": {
       "renameFailed": "Không thể đổi tên ghi chú",
-      "addFailed": "Không thể thêm ghi chú"
+      "addFailed": "Không thể thêm ghi chú",
+      "tooLong": "Tên quá dài (tối đa 200 ký tự)"
     }
   },
   "CreateListForm": {

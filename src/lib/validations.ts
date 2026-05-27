@@ -27,7 +27,7 @@ export const createItemSchema = z.object({
    * Название записи.
    * Минимум 1 символ (не пустое), максимум 100 символов (защита от спама).
    */
-  itemName: z.string().min(1).max(100),
+  itemName: z.string().min(1).max(200, "Слишком длинное название"),
 
   /**
    * ID списка, к которому привязывается запись.
@@ -199,5 +199,5 @@ export const renameItemSchema = z.object({
   itemName: z
     .string()
     .min(1, "Название обязательно")
-    .max(100, "Слишком длинное название"),
+    .max(200, "Слишком длинное название"),
 });

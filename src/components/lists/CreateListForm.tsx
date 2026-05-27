@@ -87,6 +87,7 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
         className="w-full min-w-0 flex-1 border dark:border-zinc-700 p-3 rounded-lg bg-gray-50 dark:bg-zinc-800 focus:bg-white dark:focus:bg-zinc-900 focus:ring-1 ring-gray-800 dark:ring-zinc-400 outline-none transition text-left"
         value={title}
         onChange={(event) => setTitle(event.target.value)}
+        maxLength={50}
         disabled={isCreating}
         required
       />
