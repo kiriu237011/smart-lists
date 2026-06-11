@@ -117,5 +117,32 @@
       "removeFailed": "Không thể xóa quyền truy cập",
       "shareFailed": "Không thể chia sẻ quyền truy cập"
     }
+  },
+  "Attachments": {
+    "button": "Tệp",
+    "empty": "Chưa có tệp đính kèm",
+    "add": "Đính kèm tệp",
+    "uploading": "Đang tải lên...",
+    "unknownUser": "người dùng không xác định",
+    "you": "Bạn",
+    "hint": "PNG, JPEG, TXT, PDF · tối đa 10 MB",
+    "quotaReached": "Đã đạt giới hạn tệp trong danh sách ({max})",
+    "ariaView": "Mở tệp {name}",
+    "ariaDelete": "Xóa tệp {name}",
+    "deleteModal": {
+      "title": "Xóa tệp đính kèm?",
+      "body": "Bạn có chắc muốn xóa tệp «{name}»?",
+      "cancel": "Hủy",
+      "confirm": "Xóa"
+    },
+    "errors": {
+      "invalidFileType": "Loại tệp không hợp lệ",
+      "fileTooLarge": "Tệp quá lớn (tối đa 10 MB)",
+      "listQuotaExceeded": "Đã đạt giới hạn tệp trong danh sách",
+      "userQuotaExceeded": "Đã đạt tổng giới hạn tệp của bạn",
+      "uploadFailed": "Không thể tải tệp lên",
+      "deleteFailed": "Không thể xóa tệp",
+      "downloadFailed": "Không thể mở tệp"
+    }
   }
 }

@@ -437,6 +437,7 @@ export default function ListsContainer({
         items: [],
         sharedWith: [],
         groups: activeGroup ? [activeGroup] : [],
+        files: [],
       };
 
       // Регистрируем стабильный ключ для рендера: tempId → tempId

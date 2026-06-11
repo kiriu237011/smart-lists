@@ -35,6 +35,21 @@ export default async function ListsDataFetcher({
         where: { userId },
         select: { id: true, name: true },
       },
+      // Вложения: показываем ТОЛЬКО подтверждённые (UPLOADED).
+      // PENDING-строки (недозалитые) в UI не рендерятся.
+      files: {
+        where: { status: "UPLOADED" },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          contentType: true,
+          size: true,
+          // uploadedBy может быть null (onDelete: SetNull) — fallback в UI.
+          uploadedBy: { select: { id: true, name: true, email: true } },
+        },
+      },
     },
   });
 

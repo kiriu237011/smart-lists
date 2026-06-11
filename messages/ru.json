@@ -117,5 +117,32 @@
       "removeFailed": "Не удалось убрать доступ",
       "shareFailed": "Не удалось предоставить доступ"
     }
+  },
+  "Attachments": {
+    "button": "Вложения",
+    "empty": "Нет вложений",
+    "add": "Прикрепить файл",
+    "uploading": "Загрузка...",
+    "unknownUser": "неизвестный пользователь",
+    "you": "Вы",
+    "hint": "PNG, JPEG, TXT, PDF · до 10 МБ",
+    "quotaReached": "Достигнут лимит файлов в списке ({max})",
+    "ariaView": "Открыть файл {name}",
+    "ariaDelete": "Удалить файл {name}",
+    "deleteModal": {
+      "title": "Удалить вложение?",
+      "body": "Вы действительно хотите удалить файл «{name}»?",
+      "cancel": "Отмена",
+      "confirm": "Удалить"
+    },
+    "errors": {
+      "invalidFileType": "Недопустимый тип файла",
+      "fileTooLarge": "Файл слишком большой (макс. 10 МБ)",
+      "listQuotaExceeded": "Достигнут лимит файлов в списке",
+      "userQuotaExceeded": "Достигнут общий лимит ваших файлов",
+      "uploadFailed": "Не удалось загрузить файл",
+      "deleteFailed": "Не удалось удалить файл",
+      "downloadFailed": "Не удалось открыть файл"
+    }
   }
 }

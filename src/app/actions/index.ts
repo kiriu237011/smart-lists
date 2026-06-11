@@ -40,8 +40,9 @@ import {
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
-import { pusherServer } from "@/lib/pusher-server";
 import { logger, hashId } from "@/lib/logger";
+import { notifyListMembers, notifyUsers } from "@/lib/notify";
+import { deleteObjects } from "@/lib/s3";
 import { ZodError } from "zod";
 
 /** Возвращает код ошибки валидации: "tooLong" при превышении длины, иначе "validationError". */
@@ -415,6 +416,8 @@ export async function createList(formData: FormData) {
         })),
         sharedWith: newList.sharedWith,
         groups: listGroups,
+        // Новый список вложений ещё не имеет — поле обязательно для типа ListData.
+        files: [],
       },
     };
   } catch (error) {
@@ -450,13 +453,19 @@ export async function deleteList(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
-    // Собираем участников до удаления: после удаления запрос вернёт null
+    // Собираем участников И ключи вложений ДО удаления: каскад снесёт строки
+    // Attachment вместе со списком, а ключи для S3-уборки лежат именно в них.
     const listToNotify = await prisma.list.findFirst({
       where: { id: result.data.listId, ownerId: session.user.id },
-      select: { ownerId: true, sharedWith: { select: { id: true } } },
+      select: {
+        ownerId: true,
+        sharedWith: { select: { id: true } },
+        files: { select: { key: true } },
+      },
     });
 
-    // deleteMany с двойным условием — атомарная проверка прав
+    // deleteMany с двойным условием — атомарная проверка прав.
+    // onDelete: Cascade удалит строки Attachment автоматически.
     const deleted = await prisma.list.deleteMany({
       where: {
         id: result.data.listId,
@@ -469,6 +478,19 @@ export async function deleteList(formData: FormData) {
         success: false,
         error: "Только владелец может удалить список",
       };
+    }
+
+    // S3-уборка батчем — best-effort. Удаление списка НЕ блокируется её успехом:
+    // при сбое останется редкий невидимый сирота в бакете (дешевле битой ссылки).
+    if (listToNotify && listToNotify.files.length > 0) {
+      try {
+        await deleteObjects(listToNotify.files.map((f) => f.key));
+      } catch (s3Error) {
+        logger.error(
+          { error: s3Error, listId: result.data.listId, action: "deleteList" },
+          "Не удалось удалить вложения списка из S3 (осиротевшие файлы)",
+        );
+      }
     }
 
     revalidatePath("/", "layout");
@@ -995,45 +1017,4 @@ export async function removeListFromGroup(formData: FormData) {
     logger.error({ error: error }, "Ошибка при удалении списка из группы:");
     return { success: false, error: "Не удалось убрать список из группы" };
   }
-}
-
-/**
- * Находит всех пользователей у которых есть доступ к списку
- * (владелец + все с кем поделились) и отправляет им событие refresh.
- * Ошибка логируется, но не пробрасывается — сбой уведомления не отменяет уже успешную мутацию.
- */
-async function notifyListMembers(listId: string) {
-  try {
-    const list = await prisma.list.findUnique({
-      where: { id: listId },
-      select: {
-        ownerId: true,
-        sharedWith: { select: { id: true } },
-      },
-    });
-
-    if (!list) return;
-
-    const userIds = [list.ownerId, ...list.sharedWith.map((u) => u.id)];
-
-    await notifyUsers(userIds);
-  } catch (err) {
-    logger.error({ error: err }, "notifyListMembers failed:");
-  }
-}
-
-/**
- * Отправляет refresh в личные private-каналы пользователей.
- * Ошибка Pusher логируется, но не ломает уже завершённую мутацию.
- */
-async function notifyUsers(userIds: string[]) {
-  // Каждому пользователю — свой private-канал.
-  // private-* каналы требуют прохождения auth endpoint (/api/pusher/auth),
-  // который проверяет, что клиент подписывается только на свой канал.
-  // .catch не пробрасывает ошибку наружу — сбой Pusher не откатывает мутацию в БД.
-  await Promise.all(
-    userIds.map((userId) =>
-      pusherServer.trigger(`private-user-${userId}`, "refresh", {}),
-    ),
-  ).catch((err) => logger.error("Pusher notify failed:", err));
 }

@@ -23,6 +23,7 @@ import SmartList from "@/components/lists/SmartList";
 import Highlight from "@/components/ui/Highlight";
 import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
 import AiInsight, { AiInsightButton } from "@/components/lists/AiInsight";
+import Attachments, { AttachmentsButton } from "@/components/lists/Attachments";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -51,6 +52,18 @@ export type ListGroup = {
   name: string;
 };
 
+/** Вложение к списку (только подтверждённые, status UPLOADED). */
+export type Attachment = {
+  id: string;
+  name: string;
+  /** Категория для иконки в UI. */
+  type: "IMAGE" | "DOCUMENT";
+  contentType: string;
+  size: number;
+  /** Кто загрузил. null — аккаунт удалён (onDelete: SetNull), нужен fallback. */
+  uploadedBy: { id: string; name: string | null; email: string } | null;
+};
+
 /** Полные данные списка (включая связанные сущности). */
 export type ListData = {
   id: string;
@@ -61,6 +74,8 @@ export type ListData = {
   sharedWith: SharedUser[];
   /** Группы текущего пользователя, в которых находится этот список. */
   groups: ListGroup[];
+  /** Вложения списка (подтверждённые). */
+  files: Attachment[];
 };
 
 /** Пропсы компонента `ListCard`. */
@@ -123,10 +138,10 @@ const ListCard = memo(function ListCard({
   const processingRenameRef = useRef(false);
   const skipBlurRef = useRef(false);
 
-  // Активная панель: 'ai' | 'share' | null — только одна открыта одновременно
-  const [activePanel, setActivePanel] = useState<"ai" | "share" | null>(null);
+  // Активная панель: 'ai' | 'share' | 'files' | null — только одна открыта одновременно
+  const [activePanel, setActivePanel] = useState<"ai" | "share" | "files" | null>(null);
 
-  const togglePanel = (panel: "ai" | "share") =>
+  const togglePanel = (panel: "ai" | "share" | "files") =>
     setActivePanel((prev) => (prev === panel ? null : panel));
 
   // Состояние дропдауна меню групп
@@ -323,6 +338,22 @@ const ListCard = memo(function ListCard({
               </div>
             </div>
           )}
+
+          {/* Вложения — доступны любому участнику списка (владелец + sharedWith) */}
+          <div className="mt-2">
+            <AttachmentsButton
+              isOpen={activePanel === "files"}
+              onToggle={() => togglePanel("files")}
+              count={list.files.length}
+            />
+            <div className={activePanel === "files" ? "block" : "hidden"}>
+              <Attachments
+                listId={list.id}
+                files={list.files}
+                currentUserId={currentUserId}
+              />
+            </div>
+          </div>
         </div>
       )}
 

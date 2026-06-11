@@ -13,6 +13,7 @@
  */
 
 import { z } from "zod";
+import { MAX_FILE_SIZE } from "@/lib/attachments";
 
 // ---------------------------------------------------------------------------
 // Схемы для работы с записями (Item)
@@ -183,6 +184,62 @@ export const listGroupMembershipSchema = z.object({
   groupId: z.string(),
   /** ID списка. */
   listId: z.string(),
+});
+
+// ---------------------------------------------------------------------------
+// Схемы для работы с вложениями (Attachment)
+// ---------------------------------------------------------------------------
+
+/**
+ * Схема для запроса presigned URL на загрузку файла.
+ * Используется в Server Action `requestUpload`.
+ *
+ * Важно: `contentType` и `size` здесь — то, что обещал клиент. Реальные
+ * значения проверяются постфактум через S3 (policy + HeadObject на confirm),
+ * поэтому эта валидация — лишь ранний отсев (defense in depth).
+ */
+export const requestUploadSchema = z.object({
+  /** ID списка, к которому крепится вложение. */
+  listId: z.string().min(1),
+  /** Оригинальное имя файла (для показа). Ограничиваем длину. */
+  fileName: z.string().min(1).max(255, "Слишком длинное имя файла"),
+  /** Заявленный MIME-тип. Разрешённость проверяется отдельно по белому списку. */
+  contentType: z.string().min(1),
+  /** Заявленный размер в байтах. Потолок дублирует S3-policy. */
+  size: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_FILE_SIZE, "Файл слишком большой"),
+});
+
+/**
+ * Схема для подтверждения загрузки.
+ * Используется в Server Action `confirmUpload`.
+ */
+export const confirmUploadSchema = z.object({
+  /** ID ранее созданной PENDING-строки вложения. */
+  attachmentId: z.string().min(1),
+});
+
+/**
+ * Схема для удаления вложения.
+ * Используется в Server Action `deleteAttachment`.
+ */
+export const deleteAttachmentSchema = z.object({
+  /** ID удаляемого вложения. */
+  attachmentId: z.string().min(1),
+});
+
+/**
+ * Схема для получения ссылки на скачивание/просмотр вложения.
+ * Используется в Server Action `getAttachmentUrl`.
+ */
+export const getAttachmentUrlSchema = z.object({
+  /** ID вложения, для которого нужна presigned-ссылка. */
+  attachmentId: z.string().min(1),
+  /** true → форсировать скачивание, false → инлайн-просмотр. */
+  download: z.boolean().optional(),
 });
 
 /**
