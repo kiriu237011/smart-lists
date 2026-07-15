@@ -32,6 +32,7 @@ import {
   MAX_FILE_SIZE,
   MAX_FILES_PER_LIST,
   MAX_FILES_PER_USER,
+  STALE_MINUTES,
   getCategory,
   isAllowedType,
 } from "@/lib/attachments";
@@ -134,6 +135,27 @@ export async function requestUpload(input: {
       });
       if (!list) {
         return { error: "listNotFound" as const };
+      }
+
+      // Ленивая уборка зависших PENDING — вместо внешнего крона. Чистим ровно
+      // те два измерения квоты, что проверим ниже (этот список и этот юзер):
+      // так квота освобождается ровно тогда, когда на неё есть давление.
+      // Под List-локом → списочная квота без гонок; deleteMany атомарен и
+      // идемпотентен, поэтому пересечение по юзеру с параллельным запросом
+      // (другой список того же юзера) безвредно.
+      const threshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000);
+      const cleaned = await tx.attachment.deleteMany({
+        where: {
+          status: "PENDING",
+          createdAt: { lt: threshold },
+          OR: [{ listId }, { uploadedById: userId }],
+        },
+      });
+      if (cleaned.count > 0) {
+        logger.info(
+          { count: cleaned.count, listId, action: "requestUpload" },
+          "Прибраны зависшие PENDING-вложения (ленивая уборка)",
+        );
       }
 
       // Квота на список: считаем PENDING + UPLOADED (иначе обход через пачку
