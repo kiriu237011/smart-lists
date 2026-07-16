@@ -14,8 +14,10 @@ import SettingsToggles from "@/components/ui/SettingsToggles";
  * Рендерится для каждой локали: /ru и /vi.
  */
 export default async function Home() {
-  const session = await auth();
-  const t = await getTranslations();
+  // auth() и getTranslations() независимы — выполняем параллельно.
+  // Страница ре-рендерится при каждом Server Action (revalidatePath),
+  // поэтому каждый последовательный await здесь удлиняет все действия.
+  const [session, t] = await Promise.all([auth(), getTranslations()]);
 
   // -----------------------------------------------------------------------
   // СЦЕНАРИЙ 1: ГОСТЬ (не залогинен)

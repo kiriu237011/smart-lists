@@ -20,6 +20,7 @@
 import { auth } from "@/auth";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { logger, hashId } from "@/lib/logger";
 import { notifyListMembers } from "@/lib/notify";
 import {
@@ -236,6 +237,7 @@ export async function requestUpload(input: {
  */
 export async function confirmUpload(input: {
   attachmentId: string;
+  socketId?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const session = await auth();
@@ -305,7 +307,8 @@ export async function confirmUpload(input: {
     }
 
     revalidatePath("/", "layout");
-    await notifyListMembers(attachment.listId);
+    // Уведомление после ответа (after), без эха вкладке автора (socketId)
+    after(() => notifyListMembers(attachment.listId, result.data.socketId));
     logger.info(
       {
         uid: hashId(userId),
@@ -333,6 +336,7 @@ export async function confirmUpload(input: {
  */
 export async function deleteAttachment(input: {
   attachmentId: string;
+  socketId?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const session = await auth();
@@ -377,7 +381,8 @@ export async function deleteAttachment(input: {
     }
 
     revalidatePath("/", "layout");
-    await notifyListMembers(attachment.listId);
+    // Уведомление после ответа (after), без эха вкладке автора (socketId)
+    after(() => notifyListMembers(attachment.listId, result.data.socketId));
     logger.info(
       {
         uid: hashId(userId),

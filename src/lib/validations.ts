@@ -220,6 +220,8 @@ export const requestUploadSchema = z.object({
 export const confirmUploadSchema = z.object({
   /** ID ранее созданной PENDING-строки вложения. */
   attachmentId: z.string().min(1),
+  /** socket_id Pusher-соединения автора — исключается из рассылки refresh. */
+  socketId: z.string().optional(),
 });
 
 /**
@@ -229,6 +231,8 @@ export const confirmUploadSchema = z.object({
 export const deleteAttachmentSchema = z.object({
   /** ID удаляемого вложения. */
   attachmentId: z.string().min(1),
+  /** socket_id Pusher-соединения автора — исключается из рассылки refresh. */
+  socketId: z.string().optional(),
 });
 
 /**

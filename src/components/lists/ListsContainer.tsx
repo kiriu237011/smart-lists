@@ -54,7 +54,7 @@ import CreateListForm from "@/components/lists/CreateListForm";
 import { useTranslations } from "next-intl";
 import { useSettings } from "@/components/providers/SettingsProvider";
 import { useRouter } from "next/navigation";
-import { getPusherClient } from "@/lib/pusher-client";
+import { appendSocketId, getPusherClient } from "@/lib/pusher-client";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
 import ListsTopPanel from "@/components/lists/ListsTopPanel";
 import ConfirmModal from "@/components/ui/ConfirmModal";
@@ -451,6 +451,7 @@ export default function ListsContainer({
       formData.append("title", title);
       // Передаём активную группу — сервер подключит список к ней сразу
       if (activeGroupId) formData.append("groupId", activeGroupId);
+      appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
       const result = await createList(formData);
 
       if (!result || !result.success) {
@@ -508,6 +509,7 @@ export default function ListsContainer({
       const formData = new FormData();
       formData.append("listId", listId);
       formData.append("title", newTitle);
+      appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
       const result = await renameList(formData);
 
       if (result && !result.success) {
@@ -547,6 +549,7 @@ export default function ListsContainer({
 
     const formData = new FormData();
     formData.append("listId", list.id);
+    appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
     const result = await deleteList(formData);
 
     if (result && !result.success) {
@@ -584,6 +587,7 @@ export default function ListsContainer({
 
     const formData = new FormData();
     formData.append("listId", list.id);
+    appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
     const result = await leaveSharedList(formData);
 
     if (result && !result.success) {

@@ -22,6 +22,7 @@ import {
   useState,
 } from "react";
 import { removeSharedUser, shareList } from "@/app/actions";
+import { appendSocketId } from "@/lib/pusher-client";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
 
@@ -177,6 +178,7 @@ export default function ShareListForm({
     const formData = new FormData();
     formData.set("listId", listId);
     formData.set("userId", user.id);
+    appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
     const result = await removeSharedUser(formData);
 
     if (result && !result.success) {
@@ -244,6 +246,7 @@ export default function ShareListForm({
     setEmail("");
 
     formData.set("email", normalizedEmail);
+    appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
     const result = await shareList(formData);
 
     if (result && !result.success) {

@@ -39,6 +39,7 @@ import {
 } from "@/lib/validations";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { auth } from "@/auth";
 import { logger, hashId } from "@/lib/logger";
 import { notifyListMembers, notifyUsers } from "@/lib/notify";
@@ -115,7 +116,11 @@ export async function addItem(formData: FormData) {
 
     // Инвалидируем весь layout-дерево (/, /ru, /vi) → перефетч Server Component
     revalidatePath("/", "layout");
-    await notifyListMembers(result.data.listId);
+    // Pusher-уведомление уходит ПОСЛЕ отправки ответа клиенту (after) —
+    // не задерживает action. Вкладка автора исключается по socketId:
+    // ей свежие данные приходят вместе с ответом action (revalidatePath).
+    const socketId = formData.get("socketId");
+    after(() => notifyListMembers(result.data.listId, socketId));
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "addItem" }, "Запись добавлена");
     return { success: true };
   } catch (error) {
@@ -169,7 +174,9 @@ export async function deleteItem(formData: FormData) {
   });
 
   revalidatePath("/", "layout");
-  await notifyListMembers(item.listId);
+  // Уведомление после ответа (after), без эха вкладке автора (socketId)
+  const socketId = formData.get("socketId");
+  after(() => notifyListMembers(item.listId, socketId));
   logger.info({ uid: hashId(session.user.id), listId: item.listId, action: "deleteItem" }, "Запись удалена");
 }
 
@@ -228,7 +235,9 @@ export async function toggleItem(formData: FormData) {
   });
 
   revalidatePath("/", "layout");
-  await notifyListMembers(item.listId);
+  // Уведомление после ответа (after), без эха вкладке автора (socketId)
+  const socketId = formData.get("socketId");
+  after(() => notifyListMembers(item.listId, socketId));
   logger.info({ uid: hashId(session.user.id), listId: item.listId, completed: !result.data.isCompleted, action: "toggleItem" }, "Статус записи изменён");
 }
 
@@ -288,7 +297,9 @@ export async function renameItem(formData: FormData) {
 
     revalidatePath("/", "layout");
     if (item) {
-      await notifyListMembers(item.listId);
+      // Уведомление после ответа (after), без эха вкладке автора (socketId)
+      const socketId = formData.get("socketId");
+      after(() => notifyListMembers(item.listId, socketId));
       logger.info({ uid: hashId(session.user.id), listId: item.listId, action: "renameItem" }, "Запись переименована");
     }
     return { success: true };
@@ -388,7 +399,9 @@ export async function createList(formData: FormData) {
     }
 
     revalidatePath("/", "layout");
-    await notifyListMembers(newList.id);
+    // Уведомление после ответа (after), без эха вкладке автора (socketId)
+    const socketId = formData.get("socketId");
+    after(() => notifyListMembers(newList.id, socketId));
     logger.info({ uid: hashId(session.user.id), listId: newList.id, action: "createList" }, "Список создан");
 
     // Возвращаем только нужные поля (не весь объект Prisma)
@@ -494,13 +507,15 @@ export async function deleteList(formData: FormData) {
     }
 
     revalidatePath("/", "layout");
-    // Уведомляем всех участников после удаления (используем заранее собранные ID)
+    // Уведомляем всех участников после удаления (используем заранее собранные ID).
+    // after — после отправки ответа; socketId исключает вкладку автора из эха.
     if (listToNotify) {
       const userIds = [
         listToNotify.ownerId,
         ...listToNotify.sharedWith.map((u) => u.id),
       ];
-      await notifyUsers(userIds);
+      const socketId = formData.get("socketId");
+      after(() => notifyUsers(userIds, socketId));
     }
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "deleteList" }, "Список удалён");
     return { success: true };
@@ -582,7 +597,9 @@ export async function shareList(formData: FormData) {
     });
 
     revalidatePath("/", "layout");
-    await notifyListMembers(result.data.listId);
+    // Уведомление после ответа (after), без эха вкладке автора (socketId)
+    const socketId = formData.get("socketId");
+    after(() => notifyListMembers(result.data.listId, socketId));
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "shareList" }, "Доступ к списку предоставлен");
 
     return {
@@ -644,10 +661,14 @@ export async function removeSharedUser(formData: FormData) {
     });
 
     revalidatePath("/", "layout");
-    // Уведомляем удалённого пользователя отдельно — после disconnect он уже не в sharedWith,
-    // но refresh должен прийти уже после revalidatePath, чтобы сервер вернул актуальные данные
-    await notifyUsers([result.data.userId]);
-    await notifyListMembers(result.data.listId);
+    // Уведомляем удалённого пользователя отдельно — после disconnect он уже не в sharedWith.
+    // after гарантирует, что refresh придёт после ответа (и после revalidatePath);
+    // socketId исключает вкладку автора из эха.
+    const socketId = formData.get("socketId");
+    after(async () => {
+      await notifyUsers([result.data.userId], socketId);
+      await notifyListMembers(result.data.listId, socketId);
+    });
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "removeSharedUser" }, "Доступ к списку отозван");
     return { success: true };
   } catch (error) {
@@ -696,9 +717,14 @@ export async function leaveSharedList(formData: FormData) {
 
     revalidatePath("/", "layout");
     // Уведомляем самого пользователя отдельно — после disconnect его нет в sharedWith,
-    // поэтому notifyListMembers его не затронет (нужно для других вкладок/устройств)
-    await notifyUsers([session.user.id]);
-    await notifyListMembers(listId);
+    // поэтому notifyListMembers его не затронет (нужно для других вкладок/устройств).
+    // after — после ответа; socketId исключает ТЕКУЩУЮ вкладку автора (другие получат).
+    const userId = session.user.id;
+    const socketId = formData.get("socketId");
+    after(async () => {
+      await notifyUsers([userId], socketId);
+      await notifyListMembers(listId, socketId);
+    });
     logger.info({ uid: hashId(session.user.id), listId, action: "leaveSharedList" }, "Пользователь покинул список");
     return { success: true };
   } catch (error) {
@@ -757,7 +783,9 @@ export async function renameList(formData: FormData) {
     }
 
     revalidatePath("/", "layout");
-    await notifyListMembers(result.data.listId);
+    // Уведомление после ответа (after), без эха вкладке автора (socketId)
+    const socketId = formData.get("socketId");
+    after(() => notifyListMembers(result.data.listId, socketId));
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "renameList" }, "Список переименован");
     return { success: true };
   } catch (error) {

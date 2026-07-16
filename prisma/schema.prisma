@@ -161,6 +161,10 @@ model List {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Postgres не индексирует FK-колонки автоматически. По ownerId фильтрует
+  // главный запрос выборки списков (он выполняется при каждом рендере страницы).
+  @@index([ownerId])
 }
 
 /// Группа списков, созданная пользователем для личной организации.
@@ -183,6 +187,9 @@ model ListGroup {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Индекс FK: выборка групп пользователя выполняется при каждом рендере страницы.
+  @@index([userId])
 }
 
 /// Запись внутри списка.
@@ -212,6 +219,11 @@ model Item {
   addedBy     User?        @relation("AddedItems", fields: [addedById], references: [id], onDelete: SetNull)
 
   createdAt   DateTime     @default(now())
+
+  // Индексы FK (как у Attachment): listId — выборка записей списка при каждом
+  // рендере и каскадное удаление; addedById — SetNull при удалении аккаунта.
+  @@index([listId])
+  @@index([addedById])
 }
 
 // =============================================================================

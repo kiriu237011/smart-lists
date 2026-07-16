@@ -35,6 +35,7 @@ import {
   deleteAttachment,
   getAttachmentUrl,
 } from "@/app/actions/attachments";
+import { getPusherSocketId } from "@/lib/pusher-client";
 
 // ---------------------------------------------------------------------------
 // Кнопка-триггер
@@ -245,6 +246,8 @@ export default function Attachments({
       // Шаг 3 — подтверждение (сервер проверяет факт через HeadObject)
       const confirmed = await confirmUpload({
         attachmentId: req.upload.attachmentId,
+        // Исключаем эту вкладку из Pusher-эха (данные придут с router.refresh)
+        socketId: getPusherSocketId() ?? undefined,
       });
       if (!confirmed.success) {
         toast.error(mapError(confirmed.error));
@@ -284,7 +287,11 @@ export default function Attachments({
     setIsDeleting(true);
     setFileToDelete(null);
 
-    const res = await deleteAttachment({ attachmentId: file.id });
+    const res = await deleteAttachment({
+      attachmentId: file.id,
+      // Исключаем эту вкладку из Pusher-эха (данные придут с router.refresh)
+      socketId: getPusherSocketId() ?? undefined,
+    });
     if (!res.success) {
       toast.error(t("errors.deleteFailed"));
     } else {

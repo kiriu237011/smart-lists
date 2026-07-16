@@ -33,6 +33,7 @@ import {
   useState,
 } from "react";
 import { addItem, deleteItem, toggleItem, renameItem } from "@/app/actions";
+import { appendSocketId } from "@/lib/pusher-client";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
 import Highlight from "@/components/ui/Highlight";
@@ -195,6 +196,7 @@ export default function SmartList({
 
     const formData = new FormData();
     formData.append("itemId", item.id);
+    appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
     await deleteItem(formData);
 
     setIsDeletingItem(false);
@@ -250,6 +252,7 @@ export default function SmartList({
       const formData = new FormData();
       formData.append("itemId", item.id);
       formData.append("itemName", trimmedName);
+      appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
       const result = await renameItem(formData);
 
       if (result && !result.success) {
@@ -314,6 +317,7 @@ export default function SmartList({
                           "isCompleted",
                           item.isCompleted.toString(),
                         );
+                        appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
 
                         await toggleItem(formData);
                       }}
@@ -518,6 +522,7 @@ export default function SmartList({
             const formData = new FormData();
             formData.append("listId", listId);
             formData.append("itemName", trimmedName);
+            appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
             const result = await addItem(formData);
 
             setIsAddingItem(false);
