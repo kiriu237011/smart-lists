@@ -5,7 +5,11 @@
 /// Генератор создаёт TypeScript-клиент (`@prisma/client`) на основе этой схемы.
 /// Запускается командой: `npx prisma generate`
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // relationJoins: позволяет relationLoadStrategy: "join" — вложенные связи
+  // грузятся ОДНИМ SQL-запросом (LATERAL JOIN) вместо серии последовательных.
+  // Критично при удалённой БД: каждый лишний запрос = +RTT до Сингапура.
+  previewFeatures = ["relationJoins"]
 }
 
 // =============================================================================

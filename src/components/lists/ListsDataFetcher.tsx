@@ -22,8 +22,11 @@ export default async function ListsDataFetcher({
   userEmail: string;
 }) {
   const [allLists, userGroups] = await Promise.all([
-    // Списки, доступные пользователю (свои + расшаренные), со всеми связями
+    // Списки, доступные пользователю (свои + расшаренные), со всеми связями.
+    // relationLoadStrategy: "join" — все связи одним SQL-запросом (LATERAL JOIN):
+    // один round-trip до БД вместо ~6 последовательных (по одному на связь).
     prisma.list.findMany({
+      relationLoadStrategy: "join",
       where: {
         OR: [
           { ownerId: userId },
