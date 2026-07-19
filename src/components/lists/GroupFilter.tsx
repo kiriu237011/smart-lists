@@ -177,7 +177,7 @@ export default function GroupFilter({
                   onTouchEnd={cancelLongPress}
                   onTouchMove={cancelLongPress}
                   onContextMenu={(e) => e.preventDefault()}
-                  className={`pl-3 pr-6 py-1 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
+                  className={`${activeGroupId === group.id ? "pl-3 pr-6" : "px-3"} py-1 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
                     activeGroupId === group.id
                       ? "bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900"
                       : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-700"
@@ -187,8 +187,7 @@ export default function GroupFilter({
                 </button>
               )}
 
-              {/* Кнопка удаления группы */}
-              {editingGroupId !== group.id && (
+              {editingGroupId !== group.id && activeGroupId === group.id && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -196,11 +195,7 @@ export default function GroupFilter({
                     onDeleteGroup(group.id);
                   }}
                   aria-label={t("ariaDeleteGroup", { name: group.name })}
-                  className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full text-xs transition-opacity ${
-                    activeGroupId === group.id
-                      ? "text-white/70 hover:text-white dark:text-zinc-900/60 dark:hover:text-zinc-900 opacity-100"
-                      : "text-gray-400 hover:text-gray-700 dark:text-zinc-300 dark:hover:text-white opacity-0"
-                  }`}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded-full text-xs text-white/70 transition-colors hover:text-white dark:text-zinc-900/60 dark:hover:text-zinc-900"
                 >
                   ✕
                 </button>
