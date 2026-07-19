@@ -62,8 +62,8 @@ export function AttachmentsButton({
       onClick={onToggle}
       className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all duration-200 ${
         isOpen
-          ? "bg-gray-100 border-gray-300 text-gray-700 dark:bg-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          : "bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700 hover:bg-gray-50 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200 dark:hover:bg-zinc-800"
+          ? "bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-700/50 dark:text-emerald-400"
+          : "bg-white border-gray-200 text-gray-500 hover:border-emerald-300 hover:text-emerald-600 hover:bg-emerald-50 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-emerald-700/50 dark:hover:text-emerald-400 dark:hover:bg-emerald-900/30"
       }`}
     >
       {/* Иконка скрепки */}
