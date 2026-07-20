@@ -5,7 +5,9 @@ import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  // resolvedTheme содержит фактическую тему ("light"/"dark"), в отличие от theme,
+  // который при defaultTheme="system" может быть равен "system" и ломать переключение.
+  const { resolvedTheme, setTheme } = useTheme();
   // We use mounted state to avoid hydration mismatch
   const [mounted, setMounted] = React.useState(false);
 
@@ -18,13 +20,15 @@ export function ThemeToggle() {
     return <div className="w-10 h-10" />;
   }
 
+  const isDark = resolvedTheme === "dark";
+
   return (
     <button
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
       className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
       aria-label="Toggle theme"
     >
-      {theme === "dark" ? (
+      {isDark ? (
         <Moon className="w-6 h-6 text-gray-200" />
       ) : (
         <Sun className="w-6 h-6 text-gray-700" />
