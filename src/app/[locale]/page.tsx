@@ -1,6 +1,10 @@
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import prisma from "@/lib/db";
 import { auth, signIn, signOut } from "@/auth";
+import { GUEST_COOKIE, isGuestModeEnabled } from "@/lib/app-settings";
+import { enterGuestMode } from "@/app/actions/guest";
+import GuestHome from "@/components/guest/GuestHome";
 import { getTranslations } from "next-intl/server";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 import AvatarButton from "@/components/ui/AvatarButton";
@@ -20,9 +24,23 @@ export default async function Home() {
   const [session, t] = await Promise.all([auth(), getTranslations()]);
 
   // -----------------------------------------------------------------------
-  // СЦЕНАРИЙ 1: ГОСТЬ (не залогинен)
+  // СЦЕНАРИЙ 1: НЕ ЗАЛОГИНЕН (экран входа или гостевой режим)
   // -----------------------------------------------------------------------
   if (!session || !session.user || !session.user.id) {
+    // Флаг из БД и cookie гостя нужны только на этой ветке —
+    // авторизованные пользователи лишний запрос к БД не платят
+    const [guestModeEnabled, cookieStore] = await Promise.all([
+      isGuestModeEnabled(),
+      cookies(),
+    ]);
+
+    // Гость с cookie-флагом — показываем гостевую версию приложения.
+    // Если гостевой режим выключили в БД, ветка не сработает и гость
+    // увидит обычный экран входа (данные в его localStorage сохранятся).
+    if (guestModeEnabled && cookieStore.get(GUEST_COOKIE)?.value === "1") {
+      return <GuestHome />;
+    }
+
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-6 sm:p-24">
         <div className="absolute top-4 right-4">
@@ -62,6 +80,25 @@ export default async function Home() {
             {t("Auth.signIn")}
           </button>
         </form>
+
+        {/* Гостевой вход — только если разрешён настройкой в БД */}
+        {guestModeEnabled && (
+          <div className="mt-6 flex flex-col items-center gap-2">
+            <form
+              action={async () => {
+                "use server";
+                await enterGuestMode();
+              }}
+            >
+              <button className="px-6 py-3 rounded-lg font-semibold border border-gray-300 dark:border-zinc-700 text-gray-600 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 transition cursor-pointer">
+                {t("Auth.guestSignIn")}
+              </button>
+            </form>
+            <p className="text-xs text-gray-400 dark:text-zinc-500">
+              {t("Auth.guestHint")}
+            </p>
+          </div>
+        )}
       </main>
     );
   }

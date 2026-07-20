@@ -19,6 +19,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { useListsApi } from "@/components/providers/ListsApiProvider";
 import SmartList from "@/components/lists/SmartList";
 import Highlight from "@/components/ui/Highlight";
 import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
@@ -132,6 +133,10 @@ const ListCard = memo(function ListCard({
   onToggleListGroup,
 }: ListCardProps) {
   const t = useTranslations("ListsContainer");
+
+  // Гостевой режим: шаринг, AI-инсайты и вложения требуют аккаунта/сервера —
+  // соответствующий блок кнопок не рендерится вовсе
+  const { isGuest } = useListsApi();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -286,8 +291,8 @@ const ListCard = memo(function ListCard({
         />
       )}
 
-      {/* AI инсайт и форма совместного доступа */}
-      {!isTemp && (
+      {/* AI инсайт и форма совместного доступа — недоступны в гостевом режиме */}
+      {!isTemp && !isGuest && (
         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-700">
           {/* Если есть участники — кнопки вертикально (каждая над своей панелью).
               Иначе — на одной строке, панель полной шириной под ними. */}

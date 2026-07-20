@@ -1,5 +1,6 @@
 import prisma from "@/lib/db";
 import ListsContainer from "@/components/lists/ListsContainer";
+import ServerListsApiProvider from "@/components/providers/ServerListsApiProvider";
 
 /**
  * Server Component: загружает все данные для контейнера списков.
@@ -82,12 +83,15 @@ export default async function ListsDataFetcher({
   ]);
 
   return (
-    <ListsContainer
-      allLists={allLists}
-      currentUserId={userId}
-      currentUserName={userName}
-      currentUserEmail={userEmail}
-      userGroups={userGroups}
-    />
+    // Серверная реализация адаптера ListsApi: операции идут в БД через Server Actions
+    <ServerListsApiProvider>
+      <ListsContainer
+        allLists={allLists}
+        currentUserId={userId}
+        currentUserName={userName}
+        currentUserEmail={userEmail}
+        userGroups={userGroups}
+      />
+    </ServerListsApiProvider>
   );
 }

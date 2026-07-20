@@ -32,8 +32,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { addItem, deleteItem, toggleItem, renameItem } from "@/app/actions";
-import { appendSocketId } from "@/lib/pusher-client";
+import { useListsApi } from "@/components/providers/ListsApiProvider";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
 import Highlight from "@/components/ui/Highlight";
@@ -89,6 +88,9 @@ export default function SmartList({
   searchQuery = "",
 }: SmartListProps) {
   const t = useTranslations("SmartList");
+
+  // Адаптер операций: Server Actions (авторизованный) или localStorage (гость)
+  const api = useListsApi();
 
   /**
    * Оптимистичный массив записей.
@@ -194,13 +196,10 @@ export default function SmartList({
       setOptimisticItems({ action: "delete", itemId: item.id });
     });
 
-    const formData = new FormData();
-    formData.append("itemId", item.id);
-    appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
-    await deleteItem(formData);
+    await api.deleteItem(item.id);
 
     setIsDeletingItem(false);
-  }, [itemToDelete, setOptimisticItems]);
+  }, [itemToDelete, setOptimisticItems, api]);
 
   /**
    * Эффект: подписка на клавиатурные события при открытом модале удаления записи.
@@ -249,11 +248,7 @@ export default function SmartList({
         });
       });
 
-      const formData = new FormData();
-      formData.append("itemId", item.id);
-      formData.append("itemName", trimmedName);
-      appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
-      const result = await renameItem(formData);
+      const result = await api.renameItem(item.id, trimmedName);
 
       if (result && !result.success) {
         startTransition(() => {
@@ -310,16 +305,8 @@ export default function SmartList({
                           itemId: item.id,
                         });
 
-                        // 2. Отправляем данные на сервер
-                        const formData = new FormData();
-                        formData.append("itemId", item.id);
-                        formData.append(
-                          "isCompleted",
-                          item.isCompleted.toString(),
-                        );
-                        appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
-
-                        await toggleItem(formData);
+                        // 2. Сохраняем инверсию текущего статуса в фоне
+                        await api.toggleItem(item.id, item.isCompleted);
                       }}
                     >
                       <button
@@ -518,12 +505,8 @@ export default function SmartList({
             setNewItemName("");
             setIsAddingItem(true);
 
-            // 4. Отправляем данные на сервер в фоне
-            const formData = new FormData();
-            formData.append("listId", listId);
-            formData.append("itemName", trimmedName);
-            appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
-            const result = await addItem(formData);
+            // 4. Сохраняем запись в фоне (БД или localStorage — решает адаптер)
+            const result = await api.addItem(listId, trimmedName);
 
             setIsAddingItem(false);
 

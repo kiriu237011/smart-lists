@@ -38,23 +38,14 @@ import {
   useTransition,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  createList,
-  deleteList,
-  renameList,
-  leaveSharedList,
-  createGroup,
-  deleteGroup,
-  renameGroup,
-  addListToGroup,
-  removeListFromGroup,
-} from "@/app/actions";
+import { useListsApi } from "@/components/providers/ListsApiProvider";
 import toast from "react-hot-toast";
 import CreateListForm from "@/components/lists/CreateListForm";
 import { useTranslations } from "next-intl";
 import { useSettings } from "@/components/providers/SettingsProvider";
 import { useRouter } from "next/navigation";
-import { appendSocketId, getPusherClient } from "@/lib/pusher-client";
+import { getPusherClient } from "@/lib/pusher-client";
+import { randomUUID } from "@/lib/uuid";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
 import ListsTopPanel from "@/components/lists/ListsTopPanel";
 import ConfirmModal from "@/components/ui/ConfirmModal";
@@ -95,6 +86,14 @@ export default function ListsContainer({
   const t = useTranslations("ListsContainer");
   const router = useRouter();
   const { showAuthors } = useSettings();
+
+  // Адаптер операций: Server Actions (авторизованный) или localStorage (гость)
+  const api = useListsApi();
+
+  // Ключи localStorage для UI-настроек: у гостя свои, чтобы значения
+  // (например, ID активной группы) не пересекались с аккаунтом в этом браузере
+  const tabStorageKey = api.isGuest ? "guest:activeTab" : "activeTab";
+  const groupStorageKey = api.isGuest ? "guest:activeGroupId" : "activeGroupId";
 
   /**
    * Список, ожидающий подтверждения удаления.
@@ -156,10 +155,10 @@ export default function ListsContainer({
   // Читаем сохранённые значения из localStorage только после гидрации,
   // чтобы не было расхождения между серверным и клиентским HTML.
   useEffect(() => {
-    setIsSearchOpen(localStorage.getItem("activeTab") === "search");
-    const savedGroupId = localStorage.getItem("activeGroupId");
+    setIsSearchOpen(localStorage.getItem(tabStorageKey) === "search");
+    const savedGroupId = localStorage.getItem(groupStorageKey);
     if (savedGroupId) setActiveGroupId(savedGroupId);
-  }, []);
+  }, [tabStorageKey, groupStorageKey]);
 
   /**
    * Эффект: подписка на личный private-канал Pusher текущего пользователя.
@@ -173,6 +172,10 @@ export default function ListsContainer({
    * Это обеспечивает real-time обновление у всех участников списка.
    */
   useEffect(() => {
+    // Гость не подключается к Pusher: realtime-обновлений у localStorage нет,
+    // а auth endpoint private-каналов всё равно отклонил бы подписку
+    if (api.isGuest) return;
+
     const client = getPusherClient();
     const channel = client.subscribe(`private-user-${currentUserId}`);
 
@@ -184,7 +187,7 @@ export default function ListsContainer({
       channel.unbind_all();
       client.unsubscribe(`private-user-${currentUserId}`);
     };
-  }, [currentUserId, router]);
+  }, [api.isGuest, currentUserId, router]);
 
   /**
    * Карта стабильных ключей для рендера карточек списков.
@@ -266,15 +269,34 @@ export default function ListsContainer({
   );
 
   /**
+   * Списки без дублей по id.
+   *
+   * Дубль возможен в переходном рендере при создании списка: базовый массив
+   * `allLists` уже обновился (в гостевом режиме `refresh()` синхронный,
+   * на сервере — RSC-payload из revalidatePath), а оптимистичный temp-список
+   * ещё не отыгран и после действия `replace` совпадает с реальным по id.
+   * Оба маппятся на один стабильный ключ рендера — React ругается на
+   * дублирующиеся ключи. Оставляем первое вхождение каждого id.
+   */
+  const uniqueLists = useMemo(() => {
+    const seen = new Set<string>();
+    return optimisticLists.filter((list) => {
+      if (seen.has(list.id)) return false;
+      seen.add(list.id);
+      return true;
+    });
+  }, [optimisticLists]);
+
+  /**
    * Отфильтрованные списки: сначала по группе, затем по поисковому запросу.
    */
   const filteredLists = useMemo(() => {
     // Шаг 1: фильтр по активной группе
     const groupFiltered = activeGroupId
-      ? optimisticLists.filter((list) =>
+      ? uniqueLists.filter((list) =>
           list.groups.some((g) => g.id === activeGroupId),
         )
-      : optimisticLists;
+      : uniqueLists;
 
     // Шаг 2: фильтр по поисковому запросу
     const q = searchQuery.trim().toLowerCase();
@@ -297,7 +319,7 @@ export default function ListsContainer({
       }
       return acc;
     }, []);
-  }, [optimisticLists, searchQuery, activeGroupId]);
+  }, [uniqueLists, searchQuery, activeGroupId]);
 
   // -------------------------------------------------------------------------
   // Обработчики для групп
@@ -306,16 +328,14 @@ export default function ListsContainer({
   const handleSelectGroup = useCallback((groupId: string | null) => {
     setActiveGroupId(groupId);
     if (groupId) {
-      localStorage.setItem("activeGroupId", groupId);
+      localStorage.setItem(groupStorageKey, groupId);
     } else {
-      localStorage.removeItem("activeGroupId");
+      localStorage.removeItem(groupStorageKey);
     }
-  }, []);
+  }, [groupStorageKey]);
 
   const handleCreateGroup = useCallback(async (name: string) => {
-    const formData = new FormData();
-    formData.append("name", name);
-    const result = await createGroup(formData);
+    const result = await api.createGroup(name);
     if (result.success && result.group) {
       setGroups((prev) => [...prev, result.group!]);
     } else {
@@ -325,7 +345,7 @@ export default function ListsContainer({
           : t("errors.groupCreateFailed"),
       );
     }
-  }, [t]);
+  }, [api, t]);
 
   /** Открывает модал подтверждения удаления группы. */
   const handleDeleteGroup = useCallback((groupId: string) => {
@@ -349,9 +369,7 @@ export default function ListsContainer({
     }
     setGroups((prev) => prev.filter((g) => g.id !== group.id));
 
-    const formData = new FormData();
-    formData.append("groupId", group.id);
-    const result = await deleteGroup(formData);
+    const result = await api.deleteGroup(group.id);
     if (!result.success) {
       // Откат: восстанавливаем полный снимок до удаления
       setGroups(groupsSnapshot);
@@ -359,7 +377,7 @@ export default function ListsContainer({
     }
 
     setIsDeletingGroup(false);
-  }, [groupToDelete, activeGroupId, handleSelectGroup, groups, t]);
+  }, [groupToDelete, activeGroupId, handleSelectGroup, groups, api, t]);
 
   const handleRenameGroup = useCallback(async (groupId: string, newName: string) => {
     // Захватываем текущее состояние группы до оптимистичного обновления
@@ -368,10 +386,7 @@ export default function ListsContainer({
       prev.map((g) => (g.id === groupId ? { ...g, name: newName } : g)),
     );
 
-    const formData = new FormData();
-    formData.append("groupId", groupId);
-    formData.append("name", newName);
-    const result = await renameGroup(formData);
+    const result = await api.renameGroup(groupId, newName);
     if (!result.success) {
       // Откат: восстанавливаем старое имя из снимка текущего состояния
       if (originalGroup) {
@@ -385,21 +400,19 @@ export default function ListsContainer({
           : t("errors.groupRenameFailed"),
       );
     }
-  }, [groups, t]);
+  }, [groups, api, t]);
 
   const handleToggleListGroup = useCallback(
     async (listId: string, groupId: string, inGroup: boolean) => {
-      const formData = new FormData();
-      formData.append("groupId", groupId);
-      formData.append("listId", listId);
-      const action = inGroup ? removeListFromGroup : addListToGroup;
-      const result = await action(formData);
+      const result = inGroup
+        ? await api.removeListFromGroup(listId, groupId)
+        : await api.addListToGroup(listId, groupId);
       if (!result.success) {
         toast.error(t("errors.groupAssignFailed"));
       }
       // router.refresh подхватит актуальные данные через Pusher/revalidatePath
     },
-    [t],
+    [api, t],
   );
 
   /**
@@ -418,7 +431,7 @@ export default function ListsContainer({
    */
   const handleCreateList = useCallback(
     async (title: string) => {
-      const tempListId = `temp-${crypto.randomUUID()}`;
+      const tempListId = `temp-${randomUUID()}`;
 
       // Если активна группа — оптимистично включаем список в неё сразу
       const activeGroup = activeGroupId
@@ -447,12 +460,8 @@ export default function ListsContainer({
         setOptimisticLists({ action: "add", list: optimisticList });
       });
 
-      const formData = new FormData();
-      formData.append("title", title);
-      // Передаём активную группу — сервер подключит список к ней сразу
-      if (activeGroupId) formData.append("groupId", activeGroupId);
-      appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
-      const result = await createList(formData);
+      // Передаём активную группу — список подключится к ней сразу
+      const result = await api.createList({ title, groupId: activeGroupId });
 
       if (!result || !result.success) {
         startTransition(() => {
@@ -488,7 +497,7 @@ export default function ListsContainer({
 
       return { success: true };
     },
-    [currentUserEmail, currentUserId, currentUserName, setOptimisticLists, activeGroupId, groups],
+    [currentUserEmail, currentUserId, currentUserName, setOptimisticLists, activeGroupId, groups, api, t],
   );
 
   /**
@@ -506,11 +515,7 @@ export default function ListsContainer({
         });
       });
 
-      const formData = new FormData();
-      formData.append("listId", listId);
-      formData.append("title", newTitle);
-      appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
-      const result = await renameList(formData);
+      const result = await api.renameList(listId, newTitle);
 
       if (result && !result.success) {
         // Откат: восстанавливаем исходное название
@@ -524,7 +529,7 @@ export default function ListsContainer({
         );
       }
     },
-    [setOptimisticLists, t],
+    [setOptimisticLists, api, t],
   );
 
   /**
@@ -547,10 +552,7 @@ export default function ListsContainer({
       setOptimisticLists({ action: "delete", listId: list.id });
     });
 
-    const formData = new FormData();
-    formData.append("listId", list.id);
-    appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
-    const result = await deleteList(formData);
+    const result = await api.deleteList(list.id);
 
     if (result && !result.success) {
       // Откат: возвращаем список на исходную позицию
@@ -565,7 +567,7 @@ export default function ListsContainer({
     }
 
     setIsDeleting(false);
-  }, [listToDelete, setOptimisticLists]);
+  }, [listToDelete, setOptimisticLists, api, t]);
 
   /**
    * Обработчик подтверждения выхода из расшаренного списка.
@@ -585,10 +587,7 @@ export default function ListsContainer({
       setOptimisticLists({ action: "delete", listId: list.id });
     });
 
-    const formData = new FormData();
-    formData.append("listId", list.id);
-    appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
-    const result = await leaveSharedList(formData);
+    const result = await api.leaveSharedList(list.id);
 
     if (result && !result.success) {
       // Откат: возвращаем список на исходную позицию
@@ -599,7 +598,7 @@ export default function ListsContainer({
     }
 
     setIsLeaving(false);
-  }, [listToLeave, setOptimisticLists]);
+  }, [listToLeave, setOptimisticLists, api, t]);
 
   /**
    * Эффект: клавиатурные события при открытом модале выхода из списка.
@@ -707,18 +706,18 @@ export default function ListsContainer({
         onTabCreate={() => {
           setIsSearchOpen(false);
           setSearchInput("");
-          localStorage.setItem("activeTab", "create");
+          localStorage.setItem(tabStorageKey, "create");
         }}
         onTabSearch={() => {
           setIsSearchOpen(true);
-          localStorage.setItem("activeTab", "search");
+          localStorage.setItem(tabStorageKey, "search");
           requestAnimationFrame(() => searchInputRef.current?.focus());
         }}
         onSearchChange={(value) => setSearchInput(value)}
         onSearchEscape={() => {
           setIsSearchOpen(false);
           setSearchInput("");
-          localStorage.setItem("activeTab", "create");
+          localStorage.setItem(tabStorageKey, "create");
         }}
         createListContent={<CreateListForm onCreateList={handleCreateList} />}
       />
@@ -727,11 +726,11 @@ export default function ListsContainer({
       {searchQuery && (
         <div className="flex items-center justify-between mb-4 px-1">
           <span className="text-sm text-gray-500">
-            {t("searchResults", { found: filteredLists.length, total: optimisticLists.length })}
+            {t("searchResults", { found: filteredLists.length, total: uniqueLists.length })}
           </span>
           <button
             type="button"
-            onClick={() => { setIsSearchOpen(false); setSearchInput(""); localStorage.setItem("activeTab", "create"); }}
+            onClick={() => { setIsSearchOpen(false); setSearchInput(""); localStorage.setItem(tabStorageKey, "create"); }}
             className="text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
           >
             {t("closeSearch")} ✕
@@ -789,7 +788,7 @@ export default function ListsContainer({
               <p className="text-gray-500 dark:text-zinc-400">
                 {searchQuery.trim()
                   ? t("noSearchResults")
-                  : optimisticLists.length === 0
+                  : uniqueLists.length === 0
                     ? t("noLists")
                     : t("noListsInGroup")}
               </p>

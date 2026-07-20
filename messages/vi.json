@@ -2,7 +2,14 @@
   "Auth": {
     "title": "Smart Lists",
     "subtitle": "Đăng nhập để lưu danh sách của bạn",
-    "signIn": "Đăng nhập bằng Google"
+    "signIn": "Đăng nhập bằng Google",
+    "guestSignIn": "Tiếp tục với tư cách khách",
+    "guestHint": "Không cần tài khoản — danh sách chỉ được lưu trong trình duyệt này"
+  },
+  "Guest": {
+    "name": "Khách",
+    "hint": "Danh sách chỉ được lưu trong trình duyệt này",
+    "exit": "Thoát"
   },
   "Home": {
     "greeting": "{name}",
