@@ -14,7 +14,7 @@ Next.js shopping list app with real-time collaboration and internationalization.
 - Tailwind CSS 4, Framer Motion
 - NextAuth v5 (Google OAuth)
 - Prisma + PostgreSQL
-- next-intl (ru/vi locales)
+- next-intl (ru/vi/en/ja locales)
 - Zod (validation), React Hot Toast
 
 ## Structure
@@ -31,7 +31,7 @@ Next.js shopping list app with real-time collaboration and internationalization.
 - Server Components by default, `"use client"` only when needed
 - Optimistic updates with `useOptimistic`
 - All validation via Zod `.safeParse()` (no exceptions)
-- Locale in URL path: `/ru`, `/vi` (default: ru)
+- Locale in URL path: `/ru`, `/vi`, `/en`, `/ja` (default: en, auto-detected from browser)
 - Comments in Russian (project documentation)
 - Black-white style for app
 - Be consistant with the style and always re-check if the style you are adding is consistant with the rest of the app

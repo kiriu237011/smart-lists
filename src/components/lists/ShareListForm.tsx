@@ -189,7 +189,7 @@ export default function ShareListForm({
     }
 
     setIsRemovingUser(false);
-  }, [userToRemove, setOptimisticSharedWith, listId]);
+  }, [userToRemove, setOptimisticSharedWith, listId, t]);
 
   /**
    * Эффект: подписка на клавиатурные события при открытом модале удаления пользователя.

@@ -5,7 +5,8 @@ import { routing } from "./i18n/routing";
  * Proxy (ранее middleware) для интернационализации маршрутов.
  * В Next.js 16 файл переименован с middleware.ts → proxy.ts.
  *
- * При заходе на `/` автоматически редиректит на `/ru` (defaultLocale).
+ * При заходе на `/` редиректит на локаль пользователя:
+ * кука NEXT_LOCALE → Accept-Language браузера → defaultLocale (/en).
  * API-маршруты (`/api/...`) исключены через `matcher`.
  */
 import { NextRequest } from "next/server";

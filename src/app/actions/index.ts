@@ -16,7 +16,7 @@
  *   2. Сборка сырых данных из `FormData`.
  *   3. Валидация через Zod (`schema.safeParse`).
  *   4. Операция с БД через Prisma.
- *   5. Инвалидация кеша Next.js (`revalidatePath("/", "layout")` — весь layout-дерево, включая /ru, /vi).
+ *   5. Инвалидация кеша Next.js (`revalidatePath("/", "layout")` — весь layout-дерево, включая все локали: /ru, /vi, /en, /ja).
  *   6. Возврат результата `{ success: true }` или `{ success: false, error: string }`.
  */
 
@@ -114,7 +114,7 @@ export async function addItem(formData: FormData) {
       },
     });
 
-    // Инвалидируем весь layout-дерево (/, /ru, /vi) → перефетч Server Component
+    // Инвалидируем весь layout-дерево (/ и все локали) → перефетч Server Component
     revalidatePath("/", "layout");
     // Pusher-уведомление уходит ПОСЛЕ отправки ответа клиенту (after) —
     // не задерживает action. Вкладка автора исключается по socketId:

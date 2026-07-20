@@ -131,23 +131,23 @@ export default function ListsContainer({
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  // isSearching: true в промежутке между вводом и применением дебаунса —
-  // используется для показа лоадера в поле поиска.
-  const [isSearching, setIsSearching] = useState(false);
   // isPending: true пока React рендерит результаты поиска (низкоприоритетный переход)
   const [isPending, startSearchTransition] = useTransition();
+
+  // isSearching: true в промежутке между вводом и применением дебаунса —
+  // используется для показа лоадера в поле поиска. Выводится из состояния,
+  // а не хранится отдельно (иначе setState в эффекте — cascading renders).
+  const isSearching = searchInput !== searchQuery;
 
   // Debounce: применяем поисковый запрос с задержкой 350мс,
   // чтобы не пересчитывать filteredLists при каждом нажатии клавиши.
   // startSearchTransition помечает обновление searchQuery как низкоприоритетное —
   // React не блокирует UI пока пересчитывает filteredLists.
   useEffect(() => {
-    if (searchInput !== searchQuery) setIsSearching(true);
     const timer = setTimeout(() => {
       startSearchTransition(() => {
         setSearchQuery(searchInput);
       });
-      setIsSearching(false);
     }, 350);
     return () => clearTimeout(timer);
   }, [searchInput]);
@@ -155,6 +155,7 @@ export default function ListsContainer({
   // Читаем сохранённые значения из localStorage только после гидрации,
   // чтобы не было расхождения между серверным и клиентским HTML.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsSearchOpen(localStorage.getItem(tabStorageKey) === "search");
     const savedGroupId = localStorage.getItem(groupStorageKey);
     if (savedGroupId) setActiveGroupId(savedGroupId);
@@ -193,8 +194,10 @@ export default function ListsContainer({
    * Карта стабильных ключей для рендера карточек списков.
    * Сопоставляет listId → renderKey, чтобы при замене temp-списка реальным
    * React видел тот же ключ и не запускал exit/enter анимацию.
+   * Хранится в состоянии (обновляется иммутабельно), а не в ref:
+   * читать ref во время рендера запрещено (react-hooks/refs).
    */
-  const stableKeys = useRef(new Map<string, string>());
+  const [stableKeys, setStableKeys] = useState(() => new Map<string, string>());
 
   /**
    * Оптимистичный список всех списков покупок.
@@ -454,7 +457,7 @@ export default function ListsContainer({
       };
 
       // Регистрируем стабильный ключ для рендера: tempId → tempId
-      stableKeys.current.set(tempListId, tempListId);
+      setStableKeys((prev) => new Map(prev).set(tempListId, tempListId));
 
       startTransition(() => {
         setOptimisticLists({ action: "add", list: optimisticList });
@@ -484,7 +487,8 @@ export default function ListsContainer({
       }
 
       // Переносим стабильный ключ: теперь realId тоже рендерится под tempId
-      stableKeys.current.set(result.list.id, tempListId);
+      const realListId = result.list.id;
+      setStableKeys((prev) => new Map(prev).set(realListId, tempListId));
 
       // Заменяем временный список реальным объектом из БД
       startTransition(() => {
@@ -755,7 +759,7 @@ export default function ListsContainer({
             <AnimatePresence initial={false}>
               {filteredLists.map((list) => (
                 <motion.div
-                  key={stableKeys.current.get(list.id) ?? list.id}
+                  key={stableKeys.get(list.id) ?? list.id}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}

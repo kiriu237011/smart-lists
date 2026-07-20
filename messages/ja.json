@@ -1,0 +1,155 @@
+{
+  "Auth": {
+    "title": "Smart Lists",
+    "subtitle": "ログインしてリストを保存しましょう",
+    "signIn": "Googleでログイン",
+    "guestSignIn": "ゲストとして続ける",
+    "guestHint": "アカウント不要 — リストはこのブラウザにのみ保存されます"
+  },
+  "Guest": {
+    "name": "ゲスト",
+    "hint": "リストはこのブラウザにのみ保存されます",
+    "exit": "終了"
+  },
+  "Home": {
+    "greeting": "{name}",
+    "signOut": "ログアウト",
+    "listsLabel": "件のリスト"
+  },
+  "ListsContainer": {
+    "createTitle": "新しいリストを作成",
+    "showAuthors": "項目の作成者を表示",
+    "creating": "リストを作成中...",
+    "owner": "オーナー: {name}",
+    "unsubscribe": "リストから退出",
+    "noLists": "まだリストがありません。",
+    "noListsInGroup": "このグループにはまだリストがありません。",
+    "searchPlaceholder": "リストと項目を検索...",
+    "noSearchResults": "何も見つかりませんでした。",
+    "searchResults": "検索結果: {total}件中{found}件",
+    "tabCreate": "作成",
+    "tabSearch": "検索",
+    "closeSearch": "検索をクリア",
+    "ariaRename": "リスト{title}の名前を変更",
+    "ariaDelete": "リスト{title}を削除",
+    "leaveModal": {
+      "title": "リストから退出しますか？",
+      "body": "リスト「{title}」から退出しますか？再度アクセスするには、オーナーに共有し直してもらってください。",
+      "cancel": "キャンセル",
+      "confirm": "退出"
+    },
+    "deleteModal": {
+      "title": "リストを削除しますか？",
+      "body": "リスト「{title}」を本当に削除しますか？この操作は取り消せず、すべての項目が失われます。",
+      "cancel": "キャンセル",
+      "confirm": "削除"
+    },
+    "deleteGroupModal": {
+      "title": "グループを削除しますか？",
+      "body": "グループ「{name}」を削除しますか？グループ内のリストは削除されません。",
+      "cancel": "キャンセル",
+      "confirm": "削除"
+    },
+    "ariaGroupMenu": "グループに追加",
+    "noGroup": "グループなし",
+    "noGroupsHint": "上のフィルターでグループを作成できます",
+    "errors": {
+      "createFailed": "リストを作成できませんでした",
+      "createLoadFailed": "リストは作成されましたが、データの読み込み中にエラーが発生しました",
+      "renameFailed": "リストの名前を変更できませんでした",
+      "deleteFailed": "リストを削除できませんでした",
+      "leaveFailed": "リストから退出できませんでした",
+      "groupCreateFailed": "グループを作成できませんでした",
+      "groupDeleteFailed": "グループを削除できませんでした",
+      "groupRenameFailed": "グループの名前を変更できませんでした",
+      "groupAssignFailed": "グループを変更できませんでした",
+      "tooLong": "名前が長すぎます（最大50文字）"
+    }
+  },
+  "Settings": {
+    "showAuthors": "項目の作成者",
+    "scrollToTop": "「トップへ」ボタン"
+  },
+  "GroupFilter": {
+    "all": "すべて",
+    "newGroupPlaceholder": "名前...",
+    "ariaCreateGroup": "グループを作成",
+    "ariaDeleteGroup": "グループ{name}を削除"
+  },
+  "SmartList": {
+    "saving": "保存中...",
+    "you": "あなた",
+    "empty": "リストは空です",
+    "placeholder": "何を追加しますか？",
+    "ariaRename": "項目{name}の名前を変更",
+    "ariaDelete": "項目{name}を削除",
+    "deleteModal": {
+      "title": "項目を削除しますか？",
+      "body": "項目「{name}」を本当に削除しますか？",
+      "cancel": "キャンセル",
+      "confirm": "削除"
+    },
+    "errors": {
+      "renameFailed": "項目の名前を変更できませんでした",
+      "addFailed": "項目を追加できませんでした",
+      "tooLong": "名前が長すぎます（最大200文字）"
+    }
+  },
+  "CreateListForm": {
+    "placeholder": "例: 今週の買い物...",
+    "creating": "作成中...",
+    "submit": "作成"
+  },
+  "AiInsight": {
+    "button": "AIインサイト",
+    "placeholder": "質問（任意）...",
+    "analyze": "分析する",
+    "analyzing": "分析中...",
+    "error": "インサイトを取得できませんでした",
+    "rateLimitError": "本日の上限に達しました。明日お試しください。"
+  },
+  "ShareListForm": {
+    "share": "リストを共有",
+    "saving": "保存中...",
+    "placeholder": "友達のメールアドレス...",
+    "invite": "招待",
+    "ariaRemove": "{name}のアクセス権を削除",
+    "removeModal": {
+      "title": "アクセス権を削除しますか？",
+      "body": "ユーザー「{name}」のアクセス権を本当に削除しますか？",
+      "cancel": "キャンセル",
+      "confirm": "削除"
+    },
+    "errors": {
+      "removeFailed": "アクセス権を削除できませんでした",
+      "shareFailed": "アクセス権を付与できませんでした"
+    }
+  },
+  "Attachments": {
+    "button": "添付ファイル",
+    "empty": "添付ファイルはありません",
+    "add": "ファイルを添付",
+    "uploading": "アップロード中...",
+    "unknownUser": "不明なユーザー",
+    "you": "あなた",
+    "hint": "PNG、JPEG、TXT、PDF · 最大10 MB",
+    "quotaReached": "リストのファイル数上限に達しました（{max}）",
+    "ariaView": "ファイル{name}を開く",
+    "ariaDelete": "ファイル{name}を削除",
+    "deleteModal": {
+      "title": "添付ファイルを削除しますか？",
+      "body": "ファイル「{name}」を本当に削除しますか？",
+      "cancel": "キャンセル",
+      "confirm": "削除"
+    },
+    "errors": {
+      "invalidFileType": "無効なファイル形式です",
+      "fileTooLarge": "ファイルが大きすぎます（最大10 MB）",
+      "listQuotaExceeded": "リストのファイル数上限に達しました",
+      "userQuotaExceeded": "あなたのファイル総数の上限に達しました",
+      "uploadFailed": "ファイルをアップロードできませんでした",
+      "deleteFailed": "ファイルを削除できませんでした",
+      "downloadFailed": "ファイルを開けませんでした"
+    }
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "Auth": {
+    "title": "Smart Lists",
+    "subtitle": "Sign in to save your lists",
+    "signIn": "Sign in with Google",
+    "guestSignIn": "Continue as guest",
+    "guestHint": "No account — lists are stored only in this browser"
+  },
+  "Guest": {
+    "name": "Guest",
+    "hint": "Lists are stored only in this browser",
+    "exit": "Exit"
+  },
+  "Home": {
+    "greeting": "{name}",
+    "signOut": "Sign out",
+    "listsLabel": "{count, plural, one {list} other {lists}}"
+  },
+  "ListsContainer": {
+    "createTitle": "Create a new list",
+    "showAuthors": "Show item authors",
+    "creating": "Creating list...",
+    "owner": "Owner: {name}",
+    "unsubscribe": "Leave list",
+    "noLists": "You don't have any lists yet.",
+    "noListsInGroup": "There are no lists in this group yet.",
+    "searchPlaceholder": "Search lists and items...",
+    "noSearchResults": "Nothing found.",
+    "searchResults": "Search results: {found} of {total}",
+    "tabCreate": "Create",
+    "tabSearch": "Search",
+    "closeSearch": "Clear search",
+    "ariaRename": "Rename list {title}",
+    "ariaDelete": "Delete list {title}",
+    "leaveModal": {
+      "title": "Leave list?",
+      "body": "Do you want to leave the list \"{title}\"? To regain access, ask the owner to share it with you again.",
+      "cancel": "Cancel",
+      "confirm": "Leave"
+    },
+    "deleteModal": {
+      "title": "Delete list?",
+      "body": "Are you sure you want to delete the list \"{title}\"? This action cannot be undone and all its items will be lost.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "deleteGroupModal": {
+      "title": "Delete group?",
+      "body": "Do you want to delete the group \"{name}\"? The lists inside the group will not be deleted.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "ariaGroupMenu": "Add to group",
+    "noGroup": "No group",
+    "noGroupsHint": "Create a group in the filter above",
+    "errors": {
+      "createFailed": "Failed to create the list",
+      "createLoadFailed": "The list was created, but an error occurred while loading data",
+      "renameFailed": "Failed to rename the list",
+      "deleteFailed": "Failed to delete the list",
+      "leaveFailed": "Failed to leave the list",
+      "groupCreateFailed": "Failed to create the group",
+      "groupDeleteFailed": "Failed to delete the group",
+      "groupRenameFailed": "Failed to rename the group",
+      "groupAssignFailed": "Failed to change the group",
+      "tooLong": "The name is too long (50 characters max)"
+    }
+  },
+  "Settings": {
+    "showAuthors": "Item authors",
+    "scrollToTop": "\"Back to top\" button"
+  },
+  "GroupFilter": {
+    "all": "All",
+    "newGroupPlaceholder": "Name...",
+    "ariaCreateGroup": "Create group",
+    "ariaDeleteGroup": "Delete group {name}"
+  },
+  "SmartList": {
+    "saving": "Saving...",
+    "you": "You",
+    "empty": "The list is empty",
+    "placeholder": "What would you like to add?",
+    "ariaRename": "Rename item {name}",
+    "ariaDelete": "Delete item {name}",
+    "deleteModal": {
+      "title": "Delete item?",
+      "body": "Are you sure you want to delete the item \"{name}\"?",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "errors": {
+      "renameFailed": "Failed to rename the item",
+      "addFailed": "Failed to add the item",
+      "tooLong": "The name is too long (200 characters max)"
+    }
+  },
+  "CreateListForm": {
+    "placeholder": "For example: Groceries for the week...",
+    "creating": "Creating...",
+    "submit": "Create"
+  },
+  "AiInsight": {
+    "button": "AI insight",
+    "placeholder": "Your question (optional)...",
+    "analyze": "Analyze",
+    "analyzing": "Analyzing...",
+    "error": "Failed to get the insight",
+    "rateLimitError": "Daily limit reached. Try again tomorrow."
+  },
+  "ShareListForm": {
+    "share": "Share list",
+    "saving": "Saving...",
+    "placeholder": "Friend's email...",
+    "invite": "Invite",
+    "ariaRemove": "Remove access for {name}",
+    "removeModal": {
+      "title": "Remove access?",
+      "body": "Are you sure you want to remove access for user \"{name}\"?",
+      "cancel": "Cancel",
+      "confirm": "Remove"
+    },
+    "errors": {
+      "removeFailed": "Failed to remove access",
+      "shareFailed": "Failed to share access"
+    }
+  },
+  "Attachments": {
+    "button": "Attachments",
+    "empty": "No attachments",
+    "add": "Attach a file",
+    "uploading": "Uploading...",
+    "unknownUser": "unknown user",
+    "you": "You",
+    "hint": "PNG, JPEG, TXT, PDF · up to 10 MB",
+    "quotaReached": "File limit for this list reached ({max})",
+    "ariaView": "Open file {name}",
+    "ariaDelete": "Delete file {name}",
+    "deleteModal": {
+      "title": "Delete attachment?",
+      "body": "Are you sure you want to delete the file \"{name}\"?",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "errors": {
+      "invalidFileType": "Invalid file type",
+      "fileTooLarge": "The file is too large (10 MB max)",
+      "listQuotaExceeded": "File limit for this list reached",
+      "userQuotaExceeded": "Your overall file limit reached",
+      "uploadFailed": "Failed to upload the file",
+      "deleteFailed": "Failed to delete the file",
+      "downloadFailed": "Failed to open the file"
+    }
+  }
+}

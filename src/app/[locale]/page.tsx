@@ -15,7 +15,7 @@ import HeaderSettings from "@/components/layout/HeaderSettings";
 import SettingsToggles from "@/components/ui/SettingsToggles";
 /**
  * Главная страница приложения (Server Component).
- * Рендерится для каждой локали: /ru и /vi.
+ * Рендерится для каждой локали: /ru, /vi, /en, /ja.
  */
 export default async function Home() {
   // auth() и getTranslations() независимы — выполняем параллельно.
