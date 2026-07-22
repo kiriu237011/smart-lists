@@ -25,6 +25,7 @@ import Highlight from "@/components/ui/Highlight";
 import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
 import AiInsight, { AiInsightButton } from "@/components/lists/AiInsight";
 import Attachments, { AttachmentsButton } from "@/components/lists/Attachments";
+import { ListNote, ListNoteButton } from "@/components/lists/Notes";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -43,6 +44,8 @@ export type ListOwner = {
 export type Item = {
   id: string;
   name: string;
+  note: string | null;
+  noteVersion: number;
   isCompleted: boolean;
   addedBy: { id: string; name: string | null; email: string } | null;
 };
@@ -69,6 +72,8 @@ export type Attachment = {
 export type ListData = {
   id: string;
   title: string;
+  note: string | null;
+  noteVersion: number;
   ownerId: string;
   owner: ListOwner;
   items: Item[];
@@ -145,9 +150,17 @@ const ListCard = memo(function ListCard({
 
   // Активная панель: 'ai' | 'share' | 'files' | null — только одна открыта одновременно
   const [activePanel, setActivePanel] = useState<"ai" | "share" | "files" | null>(null);
+  const [isListNoteOpen, setIsListNoteOpen] = useState(false);
 
-  const togglePanel = (panel: "ai" | "share" | "files") =>
+  const togglePanel = (panel: "ai" | "share" | "files") => {
+    setIsListNoteOpen(false);
     setActivePanel((prev) => (prev === panel ? null : panel));
+  };
+
+  const toggleListNote = () => {
+    setActivePanel(null);
+    setIsListNoteOpen((current) => !current);
+  };
 
   // Состояние дропдауна меню групп
   const [isGroupMenuOpen, setIsGroupMenuOpen] = useState(false);
@@ -230,44 +243,66 @@ const ListCard = memo(function ListCard({
           )}
         </div>
 
-        {/* Кнопки переименования и удаления: только для владельца и только для реальных списков */}
-        {isOwner && !isTemp && (
+        {/* Заметка доступна всем EDITOR-участникам; удаление — только владельцу. */}
+        {!isTemp && (
           <div className="flex items-center gap-1 flex-shrink-0">
-            {isEditing ? (
-              <>
+            {!isEditing && (
+              <ListNoteButton
+                note={list.note}
+                isOpen={isListNoteOpen}
+                onToggle={toggleListNote}
+              />
+            )}
+
+            {isOwner && (
+              isEditing ? (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Сохранить"
+                    onMouseDown={() => { skipBlurRef.current = true; }}
+                    onClick={() => void handleConfirmRename()}
+                    className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Отменить"
+                    onMouseDown={() => { skipBlurRef.current = true; }}
+                    onClick={() => setIsEditing(false)}
+                    className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
+                  >
+                    ✗
+                  </button>
+                </>
+              ) : (
                 <button
                   type="button"
-                  aria-label="Сохранить"
-                  onMouseDown={() => { skipBlurRef.current = true; }}
-                  onClick={() => void handleConfirmRename()}
-                  className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition"
+                  aria-label={t("ariaDelete", { title: list.title })}
+                  disabled={isDeleting}
+                  onClick={() => onDelete(list)}
+                  className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs font-bold px-2 py-1"
                 >
-                  ✓
+                  ✕
                 </button>
-                <button
-                  type="button"
-                  aria-label="Отменить"
-                  onMouseDown={() => { skipBlurRef.current = true; }}
-                  onClick={() => setIsEditing(false)}
-                  className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
-                >
-                  ✗
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                aria-label={t("ariaDelete", { title: list.title })}
-                disabled={isDeleting}
-                onClick={() => onDelete(list)}
-                className="text-red-500 dark:text-red-400/50 hover:text-red-700 dark:hover:text-red-400 text-xs font-bold px-2 py-1"
-              >
-                ✕
-              </button>
+              )
             )}
           </div>
         )}
       </div>
+
+      {/* Общая заметка доступна владельцу, EDITOR-участникам и гостю. */}
+      {!isTemp && (
+        <ListNote
+          listId={list.id}
+          note={list.note}
+          noteVersion={list.noteVersion}
+          searchQuery={searchQuery}
+          isOpen={isListNoteOpen}
+          onClose={() => setIsListNoteOpen(false)}
+        />
+      )}
 
       {/* Skeleton-заглушка для temp-списка */}
       {isTemp && (

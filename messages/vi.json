@@ -24,7 +24,7 @@
     "unsubscribe": "Rời khỏi danh sách",
     "noLists": "Bạn chưa có danh sách nào.",
     "noListsInGroup": "Không có danh sách nào trong nhóm này.",
-    "searchPlaceholder": "Tìm kiếm danh sách và ghi chú...",
+    "searchPlaceholder": "Tìm kiếm danh sách, mục và ghi chú...",
     "noSearchResults": "Không tìm thấy kết quả.",
     "searchResults": "Kết quả tìm kiếm: {found} trong {total}",
     "tabCreate": "Tạo mới",
@@ -95,6 +95,21 @@
       "tooLong": "Tên quá dài (tối đa 200 ký tự)"
     }
   },
+  "Notes": {
+    "listNote": "Ghi chú của danh sách",
+    "addListNote": "Thêm ghi chú cho danh sách",
+    "addItemNote": "Thêm ghi chú cho mục",
+    "editItemNote": "Sửa ghi chú của mục",
+    "placeholder": "Bối cảnh, chi tiết hoặc điều kiện bổ sung...",
+    "save": "Lưu",
+    "saving": "Đang lưu...",
+    "cancel": "Hủy",
+    "conflict": "Ghi chú đã được thay đổi ở nơi khác. Bản nháp của bạn vẫn được giữ.",
+    "loadLatest": "Tải bản mới nhất",
+    "overwrite": "Lưu phiên bản của tôi",
+    "tooLong": "Ghi chú quá dài (tối đa 4000 ký tự)",
+    "saveFailed": "Không thể lưu ghi chú"
+  },
   "CreateListForm": {
     "placeholder": "Ví dụ: Thực phẩm cả tuần...",
     "creating": "Đang tạo...",
@@ -106,7 +121,8 @@
     "analyze": "Phân tích",
     "analyzing": "Đang phân tích...",
     "error": "Không thể lấy phân tích",
-    "rateLimitError": "Đã đạt giới hạn hôm nay. Thử lại vào ngày mai."
+    "rateLimitError": "Đã đạt giới hạn hôm nay. Thử lại vào ngày mai.",
+    "notesContext": "Đã gửi ghi chú mục: {included}; đã bỏ qua: {omitted}."
   },
   "ShareListForm": {
     "share": "Chia sẻ danh sách",

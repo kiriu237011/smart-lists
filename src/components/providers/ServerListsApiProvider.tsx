@@ -21,9 +21,11 @@ import {
   deleteItem,
   toggleItem,
   renameItem,
+  updateItemNote,
   createList,
   deleteList,
   renameList,
+  updateListNote,
   leaveSharedList,
   createGroup,
   deleteGroup,
@@ -65,12 +67,16 @@ export default function ServerListsApiProvider({
         return createList(buildFormData(fields, spaceId));
       },
       renameList: async (listId, title) => renameList(buildFormData({ listId, title }, spaceId)),
+      updateListNote: async (listId, note, expectedVersion) =>
+        updateListNote(buildFormData({ listId, note, expectedVersion: expectedVersion.toString() }, spaceId)),
       deleteList: async (listId) => deleteList(buildFormData({ listId }, spaceId)),
       leaveSharedList: async (listId) => leaveSharedList(buildFormData({ listId }, spaceId)),
 
       // ---- Записи ----
       addItem: async (listId, itemName) => addItem(buildFormData({ listId, itemName }, spaceId)),
       renameItem: async (itemId, itemName) => renameItem(buildFormData({ itemId, itemName }, spaceId)),
+      updateItemNote: async (itemId, note, expectedVersion) =>
+        updateItemNote(buildFormData({ itemId, note, expectedVersion: expectedVersion.toString() }, spaceId)),
       deleteItem: async (itemId) => deleteItem(buildFormData({ itemId }, spaceId)),
       toggleItem: async (itemId, isCompleted) =>
         toggleItem(buildFormData({ itemId, isCompleted: isCompleted.toString() }, spaceId)),

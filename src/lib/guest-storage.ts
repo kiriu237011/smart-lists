@@ -34,10 +34,13 @@ import {
   renameListSchema,
   createGroupSchema,
   renameGroupSchema,
+  updateListNoteSchema,
+  updateItemNoteSchema,
 } from "@/lib/validations";
 import type { ListData, ListGroup } from "@/components/lists/ListCard";
 import type { ListsApi } from "@/components/providers/ListsApiProvider";
 import { randomUUID } from "@/lib/uuid";
+import { normalizeNote } from "@/lib/notes";
 
 // ---------------------------------------------------------------------------
 // Схема хранимых данных
@@ -54,12 +57,16 @@ const storedItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   isCompleted: z.boolean(),
+  note: z.string().nullable().optional(),
+  noteVersion: z.number().int().nonnegative().optional(),
 });
 
 /** Гостевой список. Порядок в массиве = порядок отображения (новые сверху). */
 const storedListSchema = z.object({
   id: z.string(),
   title: z.string(),
+  note: z.string().nullable().optional(),
+  noteVersion: z.number().int().nonnegative().optional(),
   /** ID групп, к которым привязан список. */
   groupIds: z.array(z.string()),
   /** Записи в порядке добавления (как orderBy createdAt asc на сервере). */
@@ -149,12 +156,16 @@ function storedListToListData(
   return {
     id: list.id,
     title: list.title,
+    note: list.note ?? null,
+    noteVersion: list.noteVersion ?? 0,
     ownerId: GUEST_USER_ID,
     owner: { name: guestName, email: "" },
     items: list.items.map((item) => ({
       id: item.id,
       name: item.name,
       isCompleted: item.isCompleted,
+      note: item.note ?? null,
+      noteVersion: item.noteVersion ?? 0,
       addedBy: guestUser,
     })),
     sharedWith: [],
@@ -215,6 +226,8 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
       const newList: StoredList = {
         id: guestId(),
         title: parsed.data.title,
+        note: null,
+        noteVersion: 0,
         // Привязываем к группе сразу, если она существует (как на сервере)
         groupIds:
           parsed.data.groupId && data.groups.some((g) => g.id === parsed.data.groupId)
@@ -244,6 +257,33 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
       });
     },
 
+    updateListNote: async (listId, note, expectedVersion) => {
+      const parsed = updateListNoteSchema.safeParse({ listId, note, expectedVersion });
+      if (!parsed.success) {
+        return { success: false, error: getValidationError(parsed.error) };
+      }
+      let savedNote: string | null = null;
+      let savedVersion = expectedVersion;
+      const result = mutate((data) => {
+        const list = data.lists.find((l) => l.id === parsed.data.listId);
+        if (!list) return { success: false, error: "Список не найден" };
+        const currentVersion = list.noteVersion ?? 0;
+        if (currentVersion !== parsed.data.expectedVersion) {
+          return { success: false, error: "noteConflict" };
+        }
+        savedNote = normalizeNote(parsed.data.note);
+        if ((list.note ?? null) === savedNote) {
+          savedVersion = currentVersion;
+          return { success: true };
+        }
+        savedVersion = currentVersion + 1;
+        list.note = savedNote;
+        list.noteVersion = savedVersion;
+        return { success: true };
+      });
+      return { ...result, note: savedNote, noteVersion: savedVersion };
+    },
+
     deleteList: async (listId) => {
       return mutate((data) => {
         const before = data.lists.length;
@@ -268,7 +308,13 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
       return mutate((data) => {
         const list = data.lists.find((l) => l.id === parsed.data.listId);
         if (!list) return { success: false, error: "Список не найден" };
-        list.items.push({ id: guestId(), name: parsed.data.itemName, isCompleted: false });
+        list.items.push({
+          id: guestId(),
+          name: parsed.data.itemName,
+          isCompleted: false,
+          note: null,
+          noteVersion: 0,
+        });
         return { success: true };
       });
     },
@@ -286,6 +332,35 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         item.name = parsed.data.itemName;
         return { success: true };
       });
+    },
+
+    updateItemNote: async (itemId, note, expectedVersion) => {
+      const parsed = updateItemNoteSchema.safeParse({ itemId, note, expectedVersion });
+      if (!parsed.success) {
+        return { success: false, error: getValidationError(parsed.error) };
+      }
+      let savedNote: string | null = null;
+      let savedVersion = expectedVersion;
+      const result = mutate((data) => {
+        const item = data.lists
+          .flatMap((l) => l.items)
+          .find((i) => i.id === parsed.data.itemId);
+        if (!item) return { success: false, error: "Запись не найдена" };
+        const currentVersion = item.noteVersion ?? 0;
+        if (currentVersion !== parsed.data.expectedVersion) {
+          return { success: false, error: "noteConflict" };
+        }
+        savedNote = normalizeNote(parsed.data.note);
+        if ((item.note ?? null) === savedNote) {
+          savedVersion = currentVersion;
+          return { success: true };
+        }
+        savedVersion = currentVersion + 1;
+        item.note = savedNote;
+        item.noteVersion = savedVersion;
+        return { success: true };
+      });
+      return { ...result, note: savedNote, noteVersion: savedVersion };
     },
 
     deleteItem: async (itemId) => {

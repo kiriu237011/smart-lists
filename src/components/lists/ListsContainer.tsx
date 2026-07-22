@@ -311,15 +311,18 @@ export default function ListsContainer({
     if (!q) return groupFiltered;
 
     return groupFiltered.reduce<typeof groupFiltered>((acc, list) => {
-      const titleMatches = list.title.toLowerCase().includes(q);
+      const titleMatches = list.title.toLocaleLowerCase().includes(q);
+      const listNoteMatches = list.note?.toLocaleLowerCase().includes(q) ?? false;
 
-      if (titleMatches) {
-        // Название совпало — показываем список со всеми записями
+      if (titleMatches || listNoteMatches) {
+        // Название или общая заметка совпали — показываем список со всеми записями
         acc.push(list);
       } else {
-        // Ищем совпадения внутри записей
-        const matchedItems = list.items.filter((item) =>
-          item.name.toLowerCase().includes(q),
+        // Ищем совпадения в названии и заметке каждой записи
+        const matchedItems = list.items.filter(
+          (item) =>
+            item.name.toLocaleLowerCase().includes(q) ||
+            (item.note?.toLocaleLowerCase().includes(q) ?? false),
         );
         if (matchedItems.length > 0) {
           acc.push({ ...list, items: matchedItems });
@@ -450,6 +453,8 @@ export default function ListsContainer({
       const optimisticList: ListData = {
         id: tempListId,
         title,
+        note: null,
+        noteVersion: 0,
         ownerId: currentUserId,
         owner: {
           name: currentUserName,

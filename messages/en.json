@@ -24,7 +24,7 @@
     "unsubscribe": "Leave list",
     "noLists": "You don't have any lists yet.",
     "noListsInGroup": "There are no lists in this group yet.",
-    "searchPlaceholder": "Search lists and items...",
+    "searchPlaceholder": "Search lists, items, and notes...",
     "noSearchResults": "Nothing found.",
     "searchResults": "Search results: {found} of {total}",
     "tabCreate": "Create",
@@ -95,6 +95,21 @@
       "tooLong": "The name is too long (200 characters max)"
     }
   },
+  "Notes": {
+    "listNote": "List note",
+    "addListNote": "Add a list note",
+    "addItemNote": "Add an item note",
+    "editItemNote": "Edit item note",
+    "placeholder": "Additional context, details, or conditions...",
+    "save": "Save",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "conflict": "This note was changed elsewhere. Your draft is still preserved.",
+    "loadLatest": "Load latest",
+    "overwrite": "Save my version",
+    "tooLong": "The note is too long (4000 characters max)",
+    "saveFailed": "Failed to save the note"
+  },
   "CreateListForm": {
     "placeholder": "For example: Groceries for the week...",
     "creating": "Creating...",
@@ -106,7 +121,8 @@
     "analyze": "Analyze",
     "analyzing": "Analyzing...",
     "error": "Failed to get the insight",
-    "rateLimitError": "Daily limit reached. Try again tomorrow."
+    "rateLimitError": "Daily limit reached. Try again tomorrow.",
+    "notesContext": "Item notes sent: {included}; omitted: {omitted}."
   },
   "ShareListForm": {
     "share": "Share list",

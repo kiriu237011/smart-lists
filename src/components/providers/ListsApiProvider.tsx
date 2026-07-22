@@ -30,6 +30,17 @@ import type { ListData, ListGroup } from "@/components/lists/ListCard";
 /** Базовый результат операции — контракт Server Actions. */
 export type ActionResult = { success: boolean; error?: string };
 
+/**
+ * Результат сохранения заметки. При конфликте возвращает актуальную серверную
+ * версию, чтобы UI мог предложить загрузить её или явно перезаписать.
+ */
+export type NoteActionResult = ActionResult & {
+  note?: string | null;
+  noteVersion?: number;
+  currentNote?: string | null;
+  currentVersion?: number;
+};
+
 /** Результат создания списка: при успехе содержит созданный список. */
 export type CreateListResult = ActionResult & { list?: ListData };
 
@@ -48,12 +59,14 @@ export type ListsApi = {
   // ---- Списки ----
   createList: (input: { title: string; groupId?: string | null }) => Promise<CreateListResult>;
   renameList: (listId: string, title: string) => Promise<ActionResult>;
+  updateListNote: (listId: string, note: string, expectedVersion: number) => Promise<NoteActionResult>;
   deleteList: (listId: string) => Promise<ActionResult>;
   leaveSharedList: (listId: string) => Promise<ActionResult>;
 
   // ---- Записи ----
   addItem: (listId: string, itemName: string) => Promise<ActionResult>;
   renameItem: (itemId: string, itemName: string) => Promise<ActionResult>;
+  updateItemNote: (itemId: string, note: string, expectedVersion: number) => Promise<NoteActionResult>;
   deleteItem: (itemId: string) => Promise<void>;
   toggleItem: (itemId: string, isCompleted: boolean) => Promise<void>;
 

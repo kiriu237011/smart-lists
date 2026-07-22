@@ -14,6 +14,7 @@
 
 import { z } from "zod";
 import { MAX_FILE_SIZE } from "@/lib/attachments";
+import { MAX_NOTE_LENGTH } from "@/lib/notes";
 
 // ---------------------------------------------------------------------------
 // Схемы для работы с записями (Item)
@@ -261,4 +262,32 @@ export const renameItemSchema = z.object({
     .string()
     .min(1, "Название обязательно")
     .max(200, "Слишком длинное название"),
+});
+
+// ---------------------------------------------------------------------------
+// Схемы для текстовых заметок списка и записей
+// ---------------------------------------------------------------------------
+
+/** Версия приходит числом из guest API или строкой из FormData Server Action. */
+const noteVersionSchema = z.union([
+  z.number().int().nonnegative(),
+  z.string().regex(/^\d+$/).transform(Number),
+]);
+
+/** Общая часть обеих схем: plain text и ожидаемая версия для защиты от конфликтов. */
+const noteFieldsSchema = {
+  note: z.string().max(MAX_NOTE_LENGTH, "Слишком длинная заметка"),
+  expectedVersion: noteVersionSchema,
+};
+
+/** Схема сохранения общей заметки списка. */
+export const updateListNoteSchema = z.object({
+  listId: z.string().min(1),
+  ...noteFieldsSchema,
+});
+
+/** Схема сохранения заметки отдельной записи. */
+export const updateItemNoteSchema = z.object({
+  itemId: z.string().min(1),
+  ...noteFieldsSchema,
 });

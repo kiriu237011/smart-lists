@@ -90,11 +90,16 @@ export default function AiInsight({ listId }: AiInsightProps) {
 
   const [userMessage, setUserMessage] = useState("");
   const [insight, setInsight] = useState<string | null>(null);
+  const [notesContext, setNotesContext] = useState<{
+    includedItemNotes: number;
+    omittedItemNotes: number;
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleAnalyze = async () => {
     setInsight(null);
+    setNotesContext(null);
     setError(null);
     setIsLoading(true);
 
@@ -108,6 +113,7 @@ export default function AiInsight({ listId }: AiInsightProps) {
       setError(t("error"));
     } else if (result.insight) {
       setInsight(result.insight);
+      setNotesContext(result.notesContext ?? null);
     }
   };
 
@@ -179,6 +185,14 @@ export default function AiInsight({ listId }: AiInsightProps) {
           >
             {insight}
           </ReactMarkdown>
+          {notesContext && (notesContext.includedItemNotes > 0 || notesContext.omittedItemNotes > 0) && (
+            <p className="mt-2 border-t border-gray-200 pt-2 text-[10px] text-gray-400 dark:border-zinc-700 dark:text-zinc-500">
+              {t("notesContext", {
+                included: notesContext.includedItemNotes,
+                omitted: notesContext.omittedItemNotes,
+              })}
+            </p>
+          )}
         </div>
       )}
 

@@ -36,6 +36,8 @@ import { useListsApi } from "@/components/providers/ListsApiProvider";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
 import Highlight from "@/components/ui/Highlight";
+import { NoteEditor, NoteIcon } from "@/components/lists/Notes";
+import { getNoteExcerpt } from "@/lib/notes";
 
 // ---------------------------------------------------------------------------
 // Типы данных
@@ -45,6 +47,8 @@ import Highlight from "@/components/ui/Highlight";
 type Item = {
   id: string;
   name: string;
+  note: string | null;
+  noteVersion: number;
   isCompleted: boolean;
   /** Пользователь, добавивший запись. null — для старых записей или temp-записей. */
   addedBy: { id: string; name: string | null; email: string } | null;
@@ -88,6 +92,7 @@ export default function SmartList({
   searchQuery = "",
 }: SmartListProps) {
   const t = useTranslations("SmartList");
+  const notesT = useTranslations("Notes");
 
   // Адаптер операций: Server Actions (авторизованный) или localStorage (гость)
   const api = useListsApi();
@@ -135,6 +140,8 @@ export default function SmartList({
             {
               id: itemId,
               name: itemName || "",
+              note: null,
+              noteVersion: 0,
               isCompleted: false,
               addedBy: addedBy ?? null,
             },
@@ -171,6 +178,9 @@ export default function SmartList({
 
   /** Текущее значение поля ввода при редактировании записи. */
   const [editItemName, setEditItemName] = useState("");
+
+  /** ID записи с раскрытым редактором заметки. */
+  const [editingNoteItemId, setEditingNoteItemId] = useState<string | null>(null);
 
   /** Защита от двойного вызова rename (Enter → blur). */
   const processingItemRenameRef = useRef(false);
@@ -284,16 +294,23 @@ export default function SmartList({
                * В этом состоянии интерактивные элементы заблокированы.
                */
               const isPending = item.id.startsWith("temp-");
+              const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+              const noteMatchesSearch = Boolean(
+                item.note &&
+                  normalizedQuery &&
+                  item.note.toLocaleLowerCase().includes(normalizedQuery),
+              );
 
               return (
                 <li
                   key={item.id}
-                  className={`flex items-center justify-between gap-2 py-2 px-1 transition-all duration-200 ${
+                  className={`py-2 px-1 transition-all duration-200 ${
                     item.isCompleted
                       ? "bg-gray-100 dark:bg-transparent"
                       : "bg-gray-50 dark:bg-transparent"
                   }`}
                 >
+                  <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     {/* Кнопка переключения статуса (чекбокс): invisible при редактировании */}
                     <form
@@ -355,6 +372,7 @@ export default function SmartList({
                       onClick={
                         !isPending && !item.isCompleted && editingItemId !== item.id
                           ? () => {
+                              setEditingNoteItemId(null);
                               setEditingItemId(item.id);
                               setEditItemName(item.name);
                             }
@@ -447,6 +465,24 @@ export default function SmartList({
                       </>
                     ) : (
                       <>
+                        {/* Заметка записи доступна независимо от статуса выполнения. */}
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          onClick={() => {
+                            setEditingItemId(null);
+                            setEditingNoteItemId((current) => current === item.id ? null : item.id);
+                          }}
+                          aria-label={item.note ? notesT("editItemNote") : notesT("addItemNote")}
+                          title={item.note ? notesT("editItemNote") : notesT("addItemNote")}
+                          className={`inline-flex h-7 w-7 items-center justify-center rounded transition-colors ${
+                            item.note
+                              ? "text-indigo-500 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+                              : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                          }`}
+                        >
+                          <NoteIcon filled={Boolean(item.note)} />
+                        </button>
                         {/* Кнопка удаления записи */}
                         <button
                           type="button"
@@ -465,6 +501,28 @@ export default function SmartList({
                       </>
                     )}
                   </div>
+                  </div>
+
+                  {noteMatchesSearch && item.note && editingNoteItemId !== item.id && (
+                    <p className="ml-8 mt-1.5 rounded-md bg-white/70 px-2 py-1.5 text-xs leading-relaxed text-gray-500 dark:bg-zinc-900/50 dark:text-zinc-400">
+                      <Highlight text={getNoteExcerpt(item.note, searchQuery)} query={searchQuery} />
+                    </p>
+                  )}
+
+                  {!isPending && editingNoteItemId === item.id && (
+                    <div className="ml-8">
+                      <NoteEditor
+                        note={item.note}
+                        version={item.noteVersion}
+                        compact
+                        onSave={(draft, expectedVersion) =>
+                          api.updateItemNote(item.id, draft, expectedVersion)
+                        }
+                        onCancel={() => setEditingNoteItemId(null)}
+                        onSaved={() => setEditingNoteItemId(null)}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}

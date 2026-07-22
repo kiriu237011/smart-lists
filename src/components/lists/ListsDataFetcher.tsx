@@ -36,6 +36,8 @@ export default async function ListsDataFetcher({
       select: {
         id: true,
         title: true,
+        note: true,
+        noteVersion: true,
         ownerId: true,
         owner: { select: { name: true, email: true } },
         items: {
@@ -43,6 +45,8 @@ export default async function ListsDataFetcher({
           select: {
             id: true,
             name: true,
+            note: true,
+            noteVersion: true,
             isCompleted: true,
             addedBy: {
               select: { id: true, name: true, email: true },

@@ -36,6 +36,8 @@ import {
   deleteGroupSchema,
   renameGroupSchema,
   listGroupMembershipSchema,
+  updateListNoteSchema,
+  updateItemNoteSchema,
 } from "@/lib/validations";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
@@ -50,6 +52,7 @@ import {
   getUserSpace,
   listInSpaceWhere,
 } from "@/lib/spaces";
+import { normalizeNote } from "@/lib/notes";
 
 /** Возвращает код ошибки валидации: "tooLong" при превышении длины, иначе "validationError". */
 function getValidationError(error: ZodError): string {
@@ -311,9 +314,187 @@ export async function renameItem(formData: FormData) {
   }
 }
 
+/**
+ * Сохраняет заметку записи с optimistic concurrency control.
+ * Редактировать её может любой участник списка с ролью EDITOR.
+ */
+export async function updateItemNote(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+
+    const result = updateItemNoteSchema.safeParse({
+      itemId: formData.get("itemId"),
+      note: formData.get("note"),
+      expectedVersion: formData.get("expectedVersion"),
+    });
+    if (!result.success) {
+      return { success: false, error: getValidationError(result.error) };
+    }
+
+    const current = await prisma.item.findFirst({
+      where: {
+        id: result.data.itemId,
+        list: listInSpaceWhere(session.user.id, space.id),
+      },
+      select: { note: true, noteVersion: true, listId: true },
+    });
+    if (!current) return { success: false, error: "Запись не найдена" };
+
+    if (current.noteVersion !== result.data.expectedVersion) {
+      return {
+        success: false,
+        error: "noteConflict",
+        currentNote: current.note,
+        currentVersion: current.noteVersion,
+      };
+    }
+
+    const note = normalizeNote(result.data.note);
+    if (current.note === note) {
+      return { success: true, note, noteVersion: current.noteVersion };
+    }
+
+    const updated = await prisma.item.updateMany({
+      where: {
+        id: result.data.itemId,
+        noteVersion: result.data.expectedVersion,
+        list: listInSpaceWhere(session.user.id, space.id),
+      },
+      data: {
+        note,
+        noteVersion: { increment: 1 },
+        noteUpdatedAt: new Date(),
+      },
+    });
+
+    if (updated.count === 0) {
+      const latest = await prisma.item.findFirst({
+        where: {
+          id: result.data.itemId,
+          list: listInSpaceWhere(session.user.id, space.id),
+        },
+        select: { note: true, noteVersion: true },
+      });
+      return {
+        success: false,
+        error: "noteConflict",
+        currentNote: latest?.note ?? null,
+        currentVersion: latest?.noteVersion ?? result.data.expectedVersion,
+      };
+    }
+
+    const noteVersion = result.data.expectedVersion + 1;
+    revalidatePath("/", "layout");
+    const socketId = formData.get("socketId");
+    after(() => notifyListMembers(current.listId, socketId));
+    logger.info(
+      { uid: hashId(session.user.id), listId: current.listId, action: "updateItemNote" },
+      "Заметка записи обновлена",
+    );
+    return { success: true, note, noteVersion };
+  } catch (error) {
+    logger.error({ error }, "Ошибка при сохранении заметки записи:");
+    return { success: false, error: "Не удалось сохранить заметку" };
+  }
+}
+
 // ===========================================================================
 // SERVER ACTIONS ДЛЯ СПИСКОВ (List)
 // ===========================================================================
+
+/**
+ * Сохраняет общую заметку списка с optimistic concurrency control.
+ * В отличие от названия списка, заметка доступна всем EDITOR-участникам.
+ */
+export async function updateListNote(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+
+    const result = updateListNoteSchema.safeParse({
+      listId: formData.get("listId"),
+      note: formData.get("note"),
+      expectedVersion: formData.get("expectedVersion"),
+    });
+    if (!result.success) {
+      return { success: false, error: getValidationError(result.error) };
+    }
+
+    const current = await prisma.list.findFirst({
+      where: {
+        id: result.data.listId,
+        ...listInSpaceWhere(session.user.id, space.id),
+      },
+      select: { note: true, noteVersion: true },
+    });
+    if (!current) return { success: false, error: "Список не найден" };
+
+    if (current.noteVersion !== result.data.expectedVersion) {
+      return {
+        success: false,
+        error: "noteConflict",
+        currentNote: current.note,
+        currentVersion: current.noteVersion,
+      };
+    }
+
+    const note = normalizeNote(result.data.note);
+    if (current.note === note) {
+      return { success: true, note, noteVersion: current.noteVersion };
+    }
+
+    const updated = await prisma.list.updateMany({
+      where: {
+        id: result.data.listId,
+        noteVersion: result.data.expectedVersion,
+        ...listInSpaceWhere(session.user.id, space.id),
+      },
+      data: {
+        note,
+        noteVersion: { increment: 1 },
+        noteUpdatedAt: new Date(),
+      },
+    });
+
+    if (updated.count === 0) {
+      const latest = await prisma.list.findFirst({
+        where: {
+          id: result.data.listId,
+          ...listInSpaceWhere(session.user.id, space.id),
+        },
+        select: { note: true, noteVersion: true },
+      });
+      return {
+        success: false,
+        error: "noteConflict",
+        currentNote: latest?.note ?? null,
+        currentVersion: latest?.noteVersion ?? result.data.expectedVersion,
+      };
+    }
+
+    const noteVersion = result.data.expectedVersion + 1;
+    revalidatePath("/", "layout");
+    const socketId = formData.get("socketId");
+    after(() => notifyListMembers(result.data.listId, socketId));
+    logger.info(
+      { uid: hashId(session.user.id), listId: result.data.listId, action: "updateListNote" },
+      "Заметка списка обновлена",
+    );
+    return { success: true, note, noteVersion };
+  } catch (error) {
+    logger.error({ error }, "Ошибка при сохранении заметки списка:");
+    return { success: false, error: "Не удалось сохранить заметку" };
+  }
+}
 
 /**
  * Создаёт новый список для авторизованного пользователя.
@@ -375,11 +556,15 @@ export async function createList(formData: FormData) {
     })) as {
       id: string;
       title: string;
+      note: string | null;
+      noteVersion: number;
       ownerId: string;
       owner: { name: string | null; email: string };
       items: {
         id: string;
         name: string;
+        note: string | null;
+        noteVersion: number;
         isCompleted: boolean;
         addedBy: { id: string; name: string | null; email: string } | null;
       }[];
@@ -413,6 +598,8 @@ export async function createList(formData: FormData) {
       list: {
         id: newList.id,
         title: newList.title,
+        note: newList.note,
+        noteVersion: newList.noteVersion,
         ownerId: newList.ownerId,
         owner: {
           name: newList.owner.name,
@@ -421,6 +608,8 @@ export async function createList(formData: FormData) {
         items: newList.items.map((item) => ({
           id: item.id,
           name: item.name,
+          note: item.note,
+          noteVersion: item.noteVersion,
           isCompleted: item.isCompleted,
           addedBy: item.addedBy
             ? {
