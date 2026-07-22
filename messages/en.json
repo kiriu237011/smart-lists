@@ -108,6 +108,8 @@
     "save": "Save",
     "saving": "Saving...",
     "cancel": "Cancel",
+    "close": "Close",
+    "edit": "Edit",
     "conflict": "This note was changed elsewhere. Your draft is still preserved.",
     "loadLatest": "Load latest",
     "overwrite": "Save my version",

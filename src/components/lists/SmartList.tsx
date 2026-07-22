@@ -36,7 +36,7 @@ import { useListsApi } from "@/components/providers/ListsApiProvider";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
 import Highlight from "@/components/ui/Highlight";
-import { NoteEditor, NoteIcon } from "@/components/lists/Notes";
+import { NoteIcon, NotePanel } from "@/components/lists/Notes";
 import { getNoteExcerpt } from "@/lib/notes";
 
 // ---------------------------------------------------------------------------
@@ -179,8 +179,8 @@ export default function SmartList({
   /** Текущее значение поля ввода при редактировании записи. */
   const [editItemName, setEditItemName] = useState("");
 
-  /** ID записи с раскрытым редактором заметки. */
-  const [editingNoteItemId, setEditingNoteItemId] = useState<string | null>(null);
+  /** ID записи с раскрытой заметкой. */
+  const [openNoteItemId, setOpenNoteItemId] = useState<string | null>(null);
 
   /** ID записи с открытым меню действий. */
   const [openItemActionsId, setOpenItemActionsId] = useState<string | null>(null);
@@ -401,7 +401,7 @@ export default function SmartList({
                       onClick={
                         !isPending && !item.isCompleted && editingItemId !== item.id
                           ? () => {
-                              setEditingNoteItemId(null);
+                              setOpenNoteItemId(null);
                               setOpenItemActionsId(null);
                               setEditingItemId(item.id);
                               setEditItemName(item.name);
@@ -502,7 +502,7 @@ export default function SmartList({
                           onClick={() => {
                             setEditingItemId(null);
                             setOpenItemActionsId(null);
-                            setEditingNoteItemId((current) => current === item.id ? null : item.id);
+                            setOpenNoteItemId((current) => current === item.id ? null : item.id);
                           }}
                           aria-label={item.note ? notesT("editItemNote") : notesT("addItemNote")}
                           title={item.note ? notesT("editItemNote") : notesT("addItemNote")}
@@ -526,7 +526,7 @@ export default function SmartList({
                             title={isPending ? t("saving") : undefined}
                             onClick={() => {
                               setEditingItemId(null);
-                              setEditingNoteItemId(null);
+                              setOpenNoteItemId(null);
                               setOpenItemActionsId((current) =>
                                 current === item.id ? null : item.id,
                               );
@@ -596,23 +596,23 @@ export default function SmartList({
                   </div>
                   </div>
 
-                  {noteMatchesSearch && item.note && editingNoteItemId !== item.id && (
+                  {noteMatchesSearch && item.note && openNoteItemId !== item.id && (
                     <p className="ml-8 mt-1.5 rounded-md bg-white/70 px-2 py-1.5 text-xs leading-relaxed text-gray-500 dark:bg-zinc-900/50 dark:text-zinc-400">
                       <Highlight text={getNoteExcerpt(item.note, searchQuery)} query={searchQuery} />
                     </p>
                   )}
 
-                  {!isPending && editingNoteItemId === item.id && (
+                  {!isPending && openNoteItemId === item.id && (
                     <div className="ml-8">
-                      <NoteEditor
+                      <NotePanel
                         note={item.note}
                         version={item.noteVersion}
                         compact
+                        searchQuery={searchQuery}
                         onSave={(draft, expectedVersion) =>
                           api.updateItemNote(item.id, draft, expectedVersion)
                         }
-                        onCancel={() => setEditingNoteItemId(null)}
-                        onSaved={() => setEditingNoteItemId(null)}
+                        onClose={() => setOpenNoteItemId(null)}
                       />
                     </div>
                   )}

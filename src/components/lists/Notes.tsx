@@ -1,6 +1,6 @@
 /**
  * @file Notes.tsx
- * @description Общий редактор plain-text заметок и панель заметки списка.
+ * @description Общие просмотрщик и редактор plain-text заметок, а также панель заметки списка.
  *
  * Редактор сохраняет текст только по явному действию пользователя. Версия,
  * полученная при открытии, передаётся в API: если заметку уже изменили в другой
@@ -34,6 +34,15 @@ type NoteEditorProps = {
   onCancel: () => void;
   onSaved?: (note: string | null, version: number) => void;
   compact?: boolean;
+};
+
+type NotePanelProps = {
+  note: string | null;
+  version: number;
+  onSave: (note: string, expectedVersion: number) => Promise<NoteActionResult>;
+  onClose: () => void;
+  compact?: boolean;
+  searchQuery?: string;
 };
 
 /** Иконка заметки; заполненная версия показывает, что текст уже существует. */
@@ -261,6 +270,93 @@ export function NoteEditor({
   );
 }
 
+/**
+ * Заметка с отдельными режимами чтения и редактирования.
+ * Существующий текст открывается без фокуса, а новая заметка — сразу в редакторе.
+ */
+export function NotePanel({
+  note,
+  version,
+  onSave,
+  onClose,
+  compact = false,
+  searchQuery = "",
+}: NotePanelProps) {
+  const t = useTranslations("Notes");
+  const [isEditing, setIsEditing] = useState(!note);
+  const [displayed, setDisplayed] = useState({ note, version });
+
+  // Обновляем режим чтения и базовую версию редактора при внешнем изменении заметки.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDisplayed({ note, version });
+  }, [note, version]);
+
+  if (isEditing) {
+    return (
+      <NoteEditor
+        note={displayed.note}
+        version={displayed.version}
+        compact={compact}
+        onSave={onSave}
+        onCancel={() => {
+          if (displayed.note) {
+            setIsEditing(false);
+          } else {
+            onClose();
+          }
+        }}
+        onSaved={(savedNote, savedVersion) => {
+          setDisplayed({ note: savedNote, version: savedVersion });
+          if (savedNote) {
+            setIsEditing(false);
+          } else {
+            onClose();
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className={`${compact ? "mt-2" : "mt-3"} space-y-2`}>
+      <p className="whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+        <Highlight text={displayed.note ?? ""} query={searchQuery.trim()} />
+      </p>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          {t("close")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setIsEditing(true)}
+          className="inline-flex items-center gap-1.5 rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+          </svg>
+          {t("edit")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Раскрывающаяся заметка всего списка. Доступна также в гостевом режиме. */
 export function ListNote({
   listId,
@@ -294,12 +390,12 @@ export function ListNote({
       )}
 
       {isOpen && (
-        <NoteEditor
+        <NotePanel
           note={note}
           version={noteVersion}
           onSave={(draft, expectedVersion) => api.updateListNote(listId, draft, expectedVersion)}
-          onCancel={onClose}
-          onSaved={onClose}
+          onClose={onClose}
+          searchQuery={query}
         />
       )}
     </div>
