@@ -151,6 +151,9 @@ const ListCard = memo(function ListCard({
   // Активная панель: 'ai' | 'share' | 'files' | null — только одна открыта одновременно
   const [activePanel, setActivePanel] = useState<"ai" | "share" | "files" | null>(null);
   const [isListNoteOpen, setIsListNoteOpen] = useState(false);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
+  const actionsMenuButtonRef = useRef<HTMLButtonElement>(null);
 
   const togglePanel = (panel: "ai" | "share" | "files") => {
     setIsListNoteOpen(false);
@@ -159,8 +162,33 @@ const ListCard = memo(function ListCard({
 
   const toggleListNote = () => {
     setActivePanel(null);
+    setIsActionsMenuOpen(false);
     setIsListNoteOpen((current) => !current);
   };
+
+  // Закрываем меню действий по клику снаружи или по Escape.
+  useEffect(() => {
+    if (!isActionsMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!actionsMenuRef.current?.contains(event.target as Node)) {
+        setIsActionsMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsActionsMenuOpen(false);
+        actionsMenuButtonRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isActionsMenuOpen]);
 
   // Состояние дропдауна меню групп
   const [isGroupMenuOpen, setIsGroupMenuOpen] = useState(false);
@@ -243,7 +271,7 @@ const ListCard = memo(function ListCard({
           )}
         </div>
 
-        {/* Заметка доступна всем EDITOR-участникам; удаление — только владельцу. */}
+        {/* Заметка доступна всем EDITOR-участникам; меню действий — только владельцу. */}
         {!isTemp && (
           <div className="flex items-center gap-1 flex-shrink-0">
             {!isEditing && (
@@ -277,15 +305,75 @@ const ListCard = memo(function ListCard({
                   </button>
                 </>
               ) : (
-                <button
-                  type="button"
-                  aria-label={t("ariaDelete", { title: list.title })}
-                  disabled={isDeleting}
-                  onClick={() => onDelete(list)}
-                  className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-xs font-bold px-2 py-1"
-                >
-                  ✕
-                </button>
+                <div ref={actionsMenuRef} className="relative">
+                  <button
+                    ref={actionsMenuButtonRef}
+                    type="button"
+                    aria-label={t("ariaListActions", { title: list.title })}
+                    aria-haspopup="menu"
+                    aria-expanded={isActionsMenuOpen}
+                    aria-controls={`list-actions-${list.id}`}
+                    onClick={() => {
+                      setIsListNoteOpen(false);
+                      setIsActionsMenuOpen((current) => !current);
+                    }}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                      isActionsMenuOpen
+                        ? "bg-gray-100 text-gray-900 dark:bg-zinc-800 dark:text-white"
+                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white"
+                    }`}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="18"
+                      height="18"
+                      fill="currentColor"
+                      aria-hidden
+                    >
+                      <circle cx="12" cy="5" r="1.75" />
+                      <circle cx="12" cy="12" r="1.75" />
+                      <circle cx="12" cy="19" r="1.75" />
+                    </svg>
+                  </button>
+
+                  {isActionsMenuOpen && (
+                    <div
+                      id={`list-actions-${list.id}`}
+                      role="menu"
+                      className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={isDeleting}
+                        onClick={() => {
+                          setIsActionsMenuOpen(false);
+                          onDelete(list);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="17"
+                          height="17"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M8 6V4h8v2" />
+                          <line x1="10" y1="11" x2="10" y2="17" />
+                          <line x1="14" y1="11" x2="14" y2="17" />
+                        </svg>
+                        {t("deleteListAction")}
+                      </button>
+                    </div>
+                  )}
+                </div>
               )
             )}
           </div>

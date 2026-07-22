@@ -32,6 +32,8 @@
     "closeSearch": "Xóa tìm kiếm",
     "ariaRename": "Đổi tên danh sách {title}",
     "ariaDelete": "Xóa danh sách {title}",
+    "ariaListActions": "Thao tác cho danh sách {title}",
+    "deleteListAction": "Xóa danh sách",
     "leaveModal": {
       "title": "Rời khỏi danh sách?",
       "body": "Bạn có muốn rời khỏi danh sách «{title}»? Để có lại quyền truy cập, hãy yêu cầu chủ sở hữu chia sẻ lại.",
@@ -83,6 +85,8 @@
     "placeholder": "Bạn muốn thêm gì?",
     "ariaRename": "Đổi tên ghi chú {name}",
     "ariaDelete": "Xóa ghi chú {name}",
+    "ariaItemActions": "Thao tác cho mục {name}",
+    "deleteItemAction": "Xóa mục",
     "deleteModal": {
       "title": "Xóa ghi chú?",
       "body": "Bạn có chắc muốn xóa ghi chú «{name}»?",

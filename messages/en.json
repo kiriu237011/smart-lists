@@ -32,6 +32,8 @@
     "closeSearch": "Clear search",
     "ariaRename": "Rename list {title}",
     "ariaDelete": "Delete list {title}",
+    "ariaListActions": "Actions for list {title}",
+    "deleteListAction": "Delete list",
     "leaveModal": {
       "title": "Leave list?",
       "body": "Do you want to leave the list \"{title}\"? To regain access, ask the owner to share it with you again.",
@@ -83,6 +85,8 @@
     "placeholder": "What would you like to add?",
     "ariaRename": "Rename item {name}",
     "ariaDelete": "Delete item {name}",
+    "ariaItemActions": "Actions for item {name}",
+    "deleteItemAction": "Delete item",
     "deleteModal": {
       "title": "Delete item?",
       "body": "Are you sure you want to delete the item \"{name}\"?",

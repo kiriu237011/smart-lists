@@ -32,6 +32,8 @@
     "closeSearch": "Сбросить поиск",
     "ariaRename": "Переименовать список {title}",
     "ariaDelete": "Удалить список {title}",
+    "ariaListActions": "Действия со списком {title}",
+    "deleteListAction": "Удалить список",
     "leaveModal": {
       "title": "Отписаться от списка?",
       "body": "Вы хотите отписаться от списка «{title}»? Чтобы снова получить доступ, попросите владельца поделиться им заново.",
@@ -83,6 +85,8 @@
     "placeholder": "Что хотите добавить?",
     "ariaRename": "Переименовать запись {name}",
     "ariaDelete": "Удалить запись {name}",
+    "ariaItemActions": "Действия с записью {name}",
+    "deleteItemAction": "Удалить запись",
     "deleteModal": {
       "title": "Удалить запись?",
       "body": "Вы действительно хотите удалить запись «{name}»?",

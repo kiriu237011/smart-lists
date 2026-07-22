@@ -32,6 +32,8 @@
     "closeSearch": "検索をクリア",
     "ariaRename": "リスト{title}の名前を変更",
     "ariaDelete": "リスト{title}を削除",
+    "ariaListActions": "リスト{title}の操作",
+    "deleteListAction": "リストを削除",
     "leaveModal": {
       "title": "リストから退出しますか？",
       "body": "リスト「{title}」から退出しますか？再度アクセスするには、オーナーに共有し直してもらってください。",
@@ -83,6 +85,8 @@
     "placeholder": "何を追加しますか？",
     "ariaRename": "項目{name}の名前を変更",
     "ariaDelete": "項目{name}を削除",
+    "ariaItemActions": "項目{name}の操作",
+    "deleteItemAction": "項目を削除",
     "deleteModal": {
       "title": "項目を削除しますか？",
       "body": "項目「{name}」を本当に削除しますか？",

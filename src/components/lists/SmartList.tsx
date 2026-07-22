@@ -182,6 +182,11 @@ export default function SmartList({
   /** ID записи с раскрытым редактором заметки. */
   const [editingNoteItemId, setEditingNoteItemId] = useState<string | null>(null);
 
+  /** ID записи с открытым меню действий. */
+  const [openItemActionsId, setOpenItemActionsId] = useState<string | null>(null);
+  const itemActionsMenuRef = useRef<HTMLDivElement>(null);
+  const itemActionsButtonRef = useRef<HTMLButtonElement>(null);
+
   /** Защита от двойного вызова rename (Enter → blur). */
   const processingItemRenameRef = useRef(false);
 
@@ -235,6 +240,30 @@ export default function SmartList({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleConfirmDeleteItem, isDeletingItem, itemToDelete]);
+
+  // Закрываем меню действий записи по клику снаружи или по Escape.
+  useEffect(() => {
+    if (!openItemActionsId) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!itemActionsMenuRef.current?.contains(event.target as Node)) {
+        setOpenItemActionsId(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenItemActionsId(null);
+        itemActionsButtonRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openItemActionsId]);
 
   /**
    * Подтверждает переименование записи.
@@ -373,6 +402,7 @@ export default function SmartList({
                         !isPending && !item.isCompleted && editingItemId !== item.id
                           ? () => {
                               setEditingNoteItemId(null);
+                              setOpenItemActionsId(null);
                               setEditingItemId(item.id);
                               setEditItemName(item.name);
                             }
@@ -471,6 +501,7 @@ export default function SmartList({
                           disabled={isPending}
                           onClick={() => {
                             setEditingItemId(null);
+                            setOpenItemActionsId(null);
                             setEditingNoteItemId((current) => current === item.id ? null : item.id);
                           }}
                           aria-label={item.note ? notesT("editItemNote") : notesT("addItemNote")}
@@ -483,21 +514,83 @@ export default function SmartList({
                         >
                           <NoteIcon filled={Boolean(item.note)} />
                         </button>
-                        {/* Кнопка удаления записи */}
-                        <button
-                          type="button"
-                          disabled={isPending}
-                          title={isPending ? t("saving") : undefined}
-                          onClick={() => setItemToDelete(item)}
-                          aria-label={t("ariaDelete", { name: item.name })}
-                          className={`text-xs font-bold px-2 py-1 transition-colors ${
-                            isPending
-                              ? "text-gray-300 cursor-not-allowed"
-                              : "text-red-500 dark:text-red-400/50 hover:text-red-700 dark:hover:text-red-400"
-                          }`}
+                        {/* Меню действий записи: безопасное место для удаления и будущих команд. */}
+                        <div
+                          ref={openItemActionsId === item.id ? itemActionsMenuRef : undefined}
+                          className="relative"
                         >
-                          ✕
-                        </button>
+                          <button
+                            ref={openItemActionsId === item.id ? itemActionsButtonRef : undefined}
+                            type="button"
+                            disabled={isPending}
+                            title={isPending ? t("saving") : undefined}
+                            onClick={() => {
+                              setEditingItemId(null);
+                              setEditingNoteItemId(null);
+                              setOpenItemActionsId((current) =>
+                                current === item.id ? null : item.id,
+                              );
+                            }}
+                            aria-label={t("ariaItemActions", { name: item.name })}
+                            aria-haspopup="menu"
+                            aria-expanded={openItemActionsId === item.id}
+                            aria-controls={`item-actions-${item.id}`}
+                            className={`inline-flex h-7 w-7 items-center justify-center rounded transition-colors ${
+                              openItemActionsId === item.id
+                                ? "bg-gray-100 text-gray-900 dark:bg-zinc-800 dark:text-white"
+                                : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                            } disabled:cursor-not-allowed disabled:text-gray-300 dark:disabled:text-zinc-700`}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="18"
+                              height="18"
+                              fill="currentColor"
+                              aria-hidden
+                            >
+                              <circle cx="12" cy="5" r="1.75" />
+                              <circle cx="12" cy="12" r="1.75" />
+                              <circle cx="12" cy="19" r="1.75" />
+                            </svg>
+                          </button>
+
+                          {openItemActionsId === item.id && (
+                            <div
+                              id={`item-actions-${item.id}`}
+                              role="menu"
+                              className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
+                            >
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOpenItemActionsId(null);
+                                  setItemToDelete(item);
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                              >
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  width="17"
+                                  height="17"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden
+                                >
+                                  <polyline points="3 6 5 6 21 6" />
+                                  <path d="M19 6l-1 14H6L5 6" />
+                                  <path d="M8 6V4h8v2" />
+                                  <line x1="10" y1="11" x2="10" y2="17" />
+                                  <line x1="14" y1="11" x2="14" y2="17" />
+                                </svg>
+                                {t("deleteItemAction")}
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </>
                     )}
                   </div>
