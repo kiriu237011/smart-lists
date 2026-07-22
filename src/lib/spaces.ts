@@ -16,28 +16,15 @@ export function normalizeSpaceName(name: string): string {
   return name.trim().normalize("NFKC").toLowerCase();
 }
 
-/**
- * Идемпотентно создаёт default-пространство и чинит редкие записи без spaceId,
- * которые мог создать старый deployment во время expand-релиза.
- */
+/** Идемпотентно создаёт default-пространство пользователя. */
 export async function ensureSpaceState(userId: string) {
   const spaceId = defaultSpaceId(userId);
 
-  await prisma.$transaction([
-    prisma.space.upsert({
-      where: { id: spaceId },
-      create: { id: spaceId, userId, isDefault: true },
-      update: {},
-    }),
-    prisma.list.updateMany({
-      where: { ownerId: userId, spaceId: null },
-      data: { spaceId },
-    }),
-    prisma.listGroup.updateMany({
-      where: { userId, spaceId: null },
-      data: { spaceId },
-    }),
-  ]);
+  await prisma.space.upsert({
+    where: { id: spaceId },
+    create: { id: spaceId, userId, isDefault: true },
+    update: {},
+  });
 
   return spaceId;
 }

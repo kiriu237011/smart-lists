@@ -35,40 +35,36 @@ datasource db {
 /// Создаётся Auth.js автоматически при первом входе через Google.
 /// Расширена бизнес-связями списков, пространств и общего доступа.
 model User {
-  id            String          @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String?
-  email         String          @unique
+  email         String    @unique
   emailVerified DateTime?
   image         String?
 
   /// Связанные OAuth-аккаунты пользователя (например, Google).
-  accounts      Account[]
+  accounts Account[]
 
   /// Активные сессии пользователя.
-  sessions      Session[]
+  sessions Session[]
 
   // -------------------------------------------------------------------------
   // Наши бизнес-поля (добавлены поверх базовой схемы Auth.js)
   // -------------------------------------------------------------------------
 
   /// Списки, созданные этим пользователем (он — владелец).
-  myLists       List[]  @relation("Owner")
-
-  /// Legacy-связь: runtime её больше не использует. Остаётся только до
-  /// следующего contract-релиза, чтобы текущий production был совместим с БД.
-  sharedLists   List[]  @relation("Shared")
+  myLists List[] @relation("Owner")
 
   /// Персональные пространства пользователя.
-  spaces        Space[]
+  spaces Space[]
 
   /// Явные записи общего доступа к спискам с размещением в пространстве.
   receivedListShares ListShare[]
 
   /// Записи, добавленные этим пользователем.
-  addedItems    Item[]          @relation("AddedItems")
+  addedItems Item[] @relation("AddedItems")
 
   /// Группы списков, созданные этим пользователем.
-  listGroups    ListGroup[]
+  listGroups ListGroup[]
 
   /// Счётчики запросов к AI-инсайтам (для rate limiting).
   aiInsightUsage AiInsightUsage[]
@@ -78,8 +74,8 @@ model User {
   /// остаётся в расшаренном списке, но атрибуция становится «неизвестный».
   uploadedAttachments Attachment[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// OAuth-аккаунт, привязанный к пользователю.
@@ -97,12 +93,12 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
- 
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
- 
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
- 
+
   @@id([provider, providerAccountId])
 }
 
@@ -113,7 +109,7 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
- 
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -124,7 +120,7 @@ model VerificationToken {
   identifier String
   token      String
   expires    DateTime
- 
+
   @@id([identifier, token])
 }
 
@@ -135,49 +131,45 @@ model VerificationToken {
 /// Список.
 /// Может принадлежать одному владельцу и быть общим для нескольких пользователей.
 model List {
-  id        String   @id @default(cuid())
-  title     String
+  id    String @id @default(cuid())
+  title String
 
   /// Цвет иконки списка (зарезервировано для будущей функциональности).
-  color     String   @default("blue")
-  
+  color String @default("blue")
+
   // ---- Связь "Владелец" (Many-to-One) ----
 
   /// ID пользователя-владельца. Используется для проверки прав в Server Actions.
-  ownerId   String
+  ownerId String
 
   /// Объект владельца. Каскадное удаление: при удалении пользователя его списки тоже удаляются.
-  owner     User     @relation("Owner", fields: [ownerId], references: [id], onDelete: Cascade)
+  owner User @relation("Owner", fields: [ownerId], references: [id], onDelete: Cascade)
 
-  /// Пространство владельца. Nullable только на время expand-миграции:
-  /// старые deployment-инстансы ещё могут создать список без spaceId.
-  spaceId   String?
+  /// Пространство владельца.
+  spaceId String
 
   /// Составная связь не позволяет привязать список к пространству другого пользователя.
-  space     Space?   @relation("SpaceLists", fields: [spaceId, ownerId], references: [id, userId], onDelete: Cascade)
+  space Space @relation("SpaceLists", fields: [spaceId, ownerId], references: [id, userId], onDelete: Cascade)
 
   // ---- Связь "Записи" (One-to-Many) ----
 
   /// Записи, входящие в этот список.
-  items     Item[]
+  items Item[]
 
-  // ---- Связь "Общий доступ" (Many-to-Many) ----
-
-  /// Legacy-связь, не используемая runtime. Удаляется отдельным contract-релизом.
-  sharedWith User[] @relation("Shared")
+  // ---- Связь "Общий доступ" ----
 
   /// Явная модель общего доступа с размещением в пространстве получателя.
-  shares     ListShare[]
+  shares ListShare[]
 
   /// Группы, в которые пользователи добавили этот список.
   /// Каждый пользователь имеет свои группы — один список может быть в разных группах разных пользователей.
-  groups     ListGroup[] @relation("ListGroupMembers")
+  groups ListGroup[] @relation("ListGroupMembers")
 
   // ---- Связь "Вложения" (One-to-Many) ----
 
   /// Файлы, прикреплённые к списку (изображения и документы в S3).
   /// Вложение принадлежит списку целиком, а не отдельной записи.
-  files     Attachment[]
+  files Attachment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -192,25 +184,25 @@ model List {
 /// Группы персональные: каждый пользователь видит только свои группы.
 /// Список может входить в несколько групп разных пользователей (M2M).
 model ListGroup {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Название группы (например: "Работа", "Дом", "Поход").
-  name      String
+  name String
 
   /// ID пользователя-владельца группы.
-  userId    String
+  userId String
 
   /// Пользователь-владелец. Каскадное удаление: при удалении пользователя его группы тоже удаляются.
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// Пространство группы. Nullable только на время expand-миграции.
-  spaceId   String?
+  /// Пространство группы.
+  spaceId String
 
   /// Составная связь гарантирует, что пространство принадлежит владельцу группы.
-  space     Space?   @relation(fields: [spaceId, userId], references: [id, userId], onDelete: Cascade)
+  space Space @relation(fields: [spaceId, userId], references: [id, userId], onDelete: Cascade)
 
   /// Списки, входящие в эту группу (Many-to-Many).
-  lists     List[]   @relation("ListGroupMembers")
+  lists List[] @relation("ListGroupMembers")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -223,25 +215,25 @@ model ListGroup {
 /// Персональное пространство пользователя — верхний уровень организации списков.
 /// Default-пространство существует всегда и не учитывается в лимите пяти дополнительных.
 model Space {
-  id             String   @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Пользовательское имя. null у непереименованного default-пространства:
   /// интерфейс показывает локализованное название «Основное».
-  name           String?
+  name String?
 
   /// Нормализованное имя для регистронезависимой уникальности.
   normalizedName String?
 
-  isDefault      Boolean  @default(false)
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isDefault Boolean @default(false)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   lists          List[]      @relation("SpaceLists")
   groups         ListGroup[]
   receivedShares ListShare[]
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, normalizedName])
   // Нужен для составных FK: список/группа/share не могут ссылаться на чужое пространство.
@@ -252,14 +244,14 @@ model Space {
 /// Явный общий доступ к списку и его размещение у получателя.
 /// Один список может быть доступен пользователю только в одном его пространстве.
 model ListShare {
-  listId    String
-  userId    String
-  spaceId   String
-  role      ListShareRole @default(EDITOR)
+  listId  String
+  userId  String
+  spaceId String
+  role    ListShareRole @default(EDITOR)
 
-  list      List  @relation(fields: [listId], references: [id], onDelete: Cascade)
-  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  space     Space @relation(fields: [spaceId, userId], references: [id, userId], onDelete: Cascade)
+  list  List  @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space Space @relation(fields: [spaceId, userId], references: [id, userId], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -274,31 +266,31 @@ enum ListShareRole {
 
 /// Запись внутри списка.
 model Item {
-  id          String       @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Название записи (например, "Молоко 1л").
-  name        String
+  name String
 
   /// Статус покупки: false — не куплен, true — куплен (зачёркнут в UI).
-  isCompleted Boolean      @default(false)
-  
+  isCompleted Boolean @default(false)
+
   // ---- Связь с List (Many-to-One) ----
 
   /// ID списка, которому принадлежит запись.
-  listId      String
+  listId String
 
   /// Родительский список. Каскадное удаление: при удалении списка все его записи тоже удаляются.
-  list        List @relation(fields: [listId], references: [id], onDelete: Cascade)
+  list List @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   // ---- Кто добавил запись ----
 
   /// ID пользователя, добавившего запись (опционально: NULL для старых записей).
-  addedById   String?
+  addedById String?
 
   /// Пользователь, добавивший запись. При удалении пользователя поле обнуляется.
-  addedBy     User?        @relation("AddedItems", fields: [addedById], references: [id], onDelete: SetNull)
+  addedBy User? @relation("AddedItems", fields: [addedById], references: [id], onDelete: SetNull)
 
-  createdAt   DateTime     @default(now())
+  createdAt DateTime @default(now())
 
   // Индексы FK (как у Attachment): listId — выборка записей списка при каждом
   // рендере и каскадное удаление; addedById — SetNull при удалении аккаунта.
@@ -343,16 +335,16 @@ model AppSetting {
 /// (setUTCHours(0,0,0,0)). Postgres не накладывает ограничений на timestamp.
 /// Уникальный индекс (userId, date) гарантирует атомарность upsert.
 model AiInsightUsage {
-  id        String   @id @default(cuid())
-  userId    String
+  id     String @id @default(cuid())
+  userId String
 
   /// Дата в UTC (нормализована до 00:00:00.000 в Server Action перед записью).
-  date      DateTime
+  date DateTime
 
   /// Количество запросов за этот день.
-  count     Int      @default(0)
+  count Int @default(0)
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
 }
@@ -372,8 +364,8 @@ enum FileCategory {
 /// Недозалитый файл (PENDING) не виден в UI, но считается в квоту;
 /// зависшие PENDING-строки периодически чистит крон.
 enum AttachmentStatus {
-  PENDING    // строка создана, файл ещё не подтверждён через HeadObject
-  UPLOADED   // файл залит в S3 и проверен на сервере
+  PENDING // строка создана, файл ещё не подтверждён через HeadObject
+  UPLOADED // файл залит в S3 и проверен на сервере
 }
 
 /// Вложение к списку. Сами байты хранятся в приватном S3-бакете,
@@ -381,38 +373,38 @@ enum AttachmentStatus {
 /// а не по полному URL: URL завязан на bucket/регион и протухает (presigned),
 /// тогда как key стабилен.
 model Attachment {
-  id           String           @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Object key в S3 по схеме `lists/{listId}/{cuid}.ext`.
   /// Генерируется сервером — это исключает коллизии имён, юникод-сюрпризы
   /// и path-traversal. `@unique` — страховка от бага в генераторе ключей.
-  key          String           @unique
+  key String @unique
 
   /// Оригинальное имя файла — только для показа человеку.
-  name         String
+  name String
 
   /// Категория файла (иконка + набор форматов).
-  type         FileCategory
+  type FileCategory
 
   /// Реальный MIME-тип (image/png, application/pdf) — для корректной отдачи
   /// и валидации. Отличается от `type`: `type` — UI, `contentType` — безопасность.
-  contentType  String
+  contentType String
 
   /// Размер файла в байтах (UI + валидация + квота).
-  size         Int
+  size Int
 
   /// Статус two-phase-загрузки. По умолчанию PENDING до подтверждения.
-  status       AttachmentStatus @default(PENDING)
+  status AttachmentStatus @default(PENDING)
 
   // ---- Связь со списком (Many-to-One) ----
 
   /// ID списка, которому принадлежит вложение.
-  listId       String
+  listId String
 
   /// Родительский список. Каскадное удаление: при удалении списка строки
   /// вложений тоже удаляются. ВАЖНО: каскад убирает только строки в БД —
   /// объекты в S3 нужно удалять отдельно (см. deleteList).
-  list         List             @relation(fields: [listId], references: [id], onDelete: Cascade)
+  list List @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   // ---- Кто загрузил (Many-to-One, опционально) ----
 
@@ -421,9 +413,9 @@ model Attachment {
 
   /// Пользователь, загрузивший файл. При удалении аккаунта — null
   /// («загрузил неизвестный»), файл остаётся в расшаренном списке.
-  uploadedBy   User?            @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
 
-  createdAt    DateTime         @default(now())
+  createdAt DateTime @default(now())
 
   // Postgres не индексирует FK-колонки автоматически; индексы нужны
   // для выборок по списку/пользователю и ускоряют каскадное удаление.
