@@ -33,7 +33,7 @@ function toSocketId(value: unknown): string | undefined {
 }
 
 /**
- * Находит всех пользователей с доступом к списку (владелец + обе share-модели)
+ * Находит всех пользователей с доступом к списку (владелец + ListShare)
  * и отправляет им событие refresh.
  *
  * @param listId - ID списка, участников которого уведомляем.
@@ -45,7 +45,6 @@ export async function notifyListMembers(listId: string, excludeSocketId?: unknow
       where: { id: listId },
       select: {
         ownerId: true,
-        sharedWith: { select: { id: true } },
         shares: { select: { userId: true } },
       },
     });
@@ -55,7 +54,6 @@ export async function notifyListMembers(listId: string, excludeSocketId?: unknow
     const userIds = [
       ...new Set([
         list.ownerId,
-        ...list.sharedWith.map((u) => u.id),
         ...list.shares.map((share) => share.userId),
       ]),
     ];

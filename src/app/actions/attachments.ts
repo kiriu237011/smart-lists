@@ -125,7 +125,7 @@ export async function requestUpload(input: {
         return { error: "listNotFound" as const };
       }
 
-      // Membership: владелец или пользователь из sharedWith
+      // Membership: владелец или пользователь с записью ListShare.
       const list = await tx.list.findFirst({
         where: {
           id: listId,

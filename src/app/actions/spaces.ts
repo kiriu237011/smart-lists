@@ -134,16 +134,14 @@ export async function deleteSpace(spaceId: string, confirmationName: string) {
     select: {
       files: { select: { key: true } },
       shares: { select: { userId: true } },
-      sharedWith: { select: { id: true } },
     },
   });
   const keys = ownedLists.flatMap((list) => list.files.map((file) => file.key));
   const affectedUsers = [
     ...new Set(
-      ownedLists.flatMap((list) => [
-        ...list.shares.map((share) => share.userId),
-        ...list.sharedWith.map((user) => user.id),
-      ]),
+      ownedLists.flatMap((list) =>
+        list.shares.map((share) => share.userId),
+      ),
     ),
   ];
 

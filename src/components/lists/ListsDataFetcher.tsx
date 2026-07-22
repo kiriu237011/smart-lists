@@ -10,7 +10,7 @@ import { listInSpaceWhere } from "@/lib/spaces";
  * при первой загрузке, но и при КАЖДОМ Server Action (revalidatePath("/", "layout")
  * подкладывает свежий RSC-payload в ответ action). Поэтому:
  *   - оба запроса независимы и выполняются параллельно (Promise.all);
- *   - везде точечный select вместо include: раньше owner и sharedWith тянулись
+ *   - везде точечный select вместо include: раньше связанные User тянулись
  *     целиком (все поля User — image, даты и т.д.), клиенту нужны только
  *     id/name/email. Меньше данных — быстрее запрос и меньше RSC-payload.
  */
@@ -49,7 +49,11 @@ export default async function ListsDataFetcher({
             },
           },
         },
-        sharedWith: { select: { id: true, name: true, email: true } },
+        shares: {
+          select: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
         // Подгружаем только группы, принадлежащие текущему пользователю
         groups: {
           where: { userId, spaceId },
@@ -80,11 +84,18 @@ export default async function ListsDataFetcher({
     }),
   ]);
 
+  // UI пока использует имя sharedWith как представление списка участников.
+  // Источником данных уже служит только явная модель ListShare.
+  const lists = allLists.map(({ shares, ...list }) => ({
+    ...list,
+    sharedWith: shares.map(({ user }) => user),
+  }));
+
   return (
     // Серверная реализация адаптера ListsApi: операции идут в БД через Server Actions
     <ServerListsApiProvider spaceId={spaceId}>
       <ListsContainer
-        allLists={allLists}
+        allLists={lists}
         currentUserId={userId}
         currentUserName={userName}
         currentUserEmail={userEmail}

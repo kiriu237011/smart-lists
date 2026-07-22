@@ -371,7 +371,6 @@ export async function createList(formData: FormData) {
             },
           },
         },
-        sharedWith: true,
       },
     })) as {
       id: string;
@@ -384,7 +383,6 @@ export async function createList(formData: FormData) {
         isCompleted: boolean;
         addedBy: { id: string; name: string | null; email: string } | null;
       }[];
-      sharedWith: { id: string; name: string | null; email: string | null }[];
     };
 
     // Если передан groupId — сразу подключаем список к группе (одна операция)
@@ -432,7 +430,7 @@ export async function createList(formData: FormData) {
               }
             : null,
         })),
-        sharedWith: newList.sharedWith,
+        sharedWith: [],
         groups: listGroups,
         // Новый список вложений ещё не имеет — поле обязательно для типа ListData.
         files: [],
@@ -479,7 +477,7 @@ export async function deleteList(formData: FormData) {
       where: { id: result.data.listId, ownerId: session.user.id, spaceId: space.id },
       select: {
         ownerId: true,
-        sharedWith: { select: { id: true } },
+        shares: { select: { userId: true } },
         files: { select: { key: true } },
       },
     });
@@ -520,7 +518,7 @@ export async function deleteList(formData: FormData) {
     if (listToNotify) {
       const userIds = [
         listToNotify.ownerId,
-        ...listToNotify.sharedWith.map((u) => u.id),
+        ...listToNotify.shares.map((share) => share.userId),
       ];
       const socketId = formData.get("socketId");
       after(() => notifyUsers(userIds, socketId));
@@ -541,7 +539,7 @@ export async function deleteList(formData: FormData) {
  *   2. Валидируем listId и email приглашённого.
  *   3. Ищем пользователя с таким email в БД.
  *   4. Запрещаем приглашать самого себя.
- *   5. Добавляем пользователя в Many-to-Many связь `sharedWith`.
+ *   5. Создаём явную запись доступа `ListShare`.
  *
  * Защита: `update` с условием `ownerId === session.user.id` гарантирует,
  * что только владелец списка может приглашать других.
@@ -594,7 +592,6 @@ export async function shareList(formData: FormData) {
     }
 
     // Получатель всегда видит новый общий список в своём default-пространстве.
-    // Старую M2M-связь пишем параллельно до contract-релиза.
     const recipientSpaceId = await ensureSpaceState(userToShare.id);
     await prisma.$transaction(async (tx) => {
       const ownedList = await tx.list.findFirst({
@@ -603,10 +600,6 @@ export async function shareList(formData: FormData) {
       });
       if (!ownedList) throw new Error("LIST_NOT_FOUND");
 
-      await tx.list.update({
-        where: { id: ownedList.id },
-        data: { sharedWith: { connect: { id: userToShare.id } } },
-      });
       await tx.listShare.upsert({
         where: {
           listId_userId: { listId: ownedList.id, userId: userToShare.id },
@@ -675,21 +668,20 @@ export async function removeSharedUser(formData: FormData) {
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.list.update({
-        where: {
-          id: result.data.listId,
-          ownerId,
-          spaceId: space.id,
-        },
-        data: { sharedWith: { disconnect: { id: result.data.userId } } },
+      const ownedList = await tx.list.findFirst({
+        where: { id: result.data.listId, ownerId, spaceId: space.id },
+        select: { id: true },
       });
+      if (!ownedList) throw new Error("LIST_NOT_FOUND");
+
       await tx.listShare.deleteMany({
-        where: { listId: result.data.listId, userId: result.data.userId },
+        where: { listId: ownedList.id, userId: result.data.userId },
       });
     });
 
     revalidatePath("/", "layout");
-    // Уведомляем удалённого пользователя отдельно — после disconnect он уже не в sharedWith.
+    // Уведомляем удалённого пользователя отдельно — после удаления ListShare
+    // notifyListMembers уже не включает его в рассылку.
     // after гарантирует, что refresh придёт после ответа (и после revalidatePath);
     // socketId исключает вкладку автора из эха.
     const socketId = formData.get("socketId");
@@ -709,11 +701,10 @@ export async function removeSharedUser(formData: FormData) {
  * Позволяет пользователю самостоятельно покинуть расшаренный список.
  *
  * В отличие от `removeSharedUser` (где действует владелец), здесь
- * действует сам пользователь: он отключает себя из `sharedWith`.
+ * действует сам пользователь: он удаляет собственную запись `ListShare`.
  *
- * Защита: в WHERE-условии стоит `sharedWith: { some: { id: session.user.id } }`,
- * что гарантирует — пользователь действительно входит в список и не может
- * покинуть чужой список, к которому у него нет доступа.
+ * Защита: удаляется только ListShare текущего пользователя в выбранном
+ * пространстве, существование которой проверено перед операцией.
  *
  * @param formData - FormData с полем:
  *   - `listId` {string} — ID списка, от которого пользователь хочет отписаться.
@@ -739,21 +730,12 @@ export async function leaveSharedList(formData: FormData) {
     });
     if (!share) return { success: false, error: "Список не найден" };
 
-    await prisma.$transaction(async (tx) => {
-      await tx.list.update({
-        where: {
-          id: listId,
-          sharedWith: { some: { id: userId } },
-        },
-        data: { sharedWith: { disconnect: { id: userId } } },
-      });
-      await tx.listShare.deleteMany({
-        where: { listId, userId },
-      });
+    await prisma.listShare.deleteMany({
+      where: { listId, userId, spaceId: space.id },
     });
 
     revalidatePath("/", "layout");
-    // Уведомляем самого пользователя отдельно — после disconnect его нет в sharedWith,
+    // Уведомляем самого пользователя отдельно — после удаления его нет в ListShare,
     // поэтому notifyListMembers его не затронет (нужно для других вкладок/устройств).
     // after — после ответа; socketId исключает ТЕКУЩУЮ вкладку автора (другие получат).
     const socketId = formData.get("socketId");
@@ -984,7 +966,7 @@ export async function renameGroup(formData: FormData) {
  *
  * Проверяет, что:
  *   1. Пользователь — владелец группы.
- *   2. Пользователь имеет доступ к списку (владелец или в sharedWith).
+ *   2. Пользователь имеет доступ к списку (владелец или через ListShare).
  *
  * @param formData - FormData с полями:
  *   - `groupId` {string} — ID группы.

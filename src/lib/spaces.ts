@@ -39,23 +39,6 @@ export async function ensureSpaceState(userId: string) {
     }),
   ]);
 
-  // Старый deployment мог записать только implicit sharedWith. Восстанавливаем
-  // явное размещение такого списка в default-пространстве получателя.
-  const missingShares = await prisma.list.findMany({
-    where: {
-      sharedWith: { some: { id: userId } },
-      shares: { none: { userId } },
-    },
-    select: { id: true },
-  });
-
-  if (missingShares.length > 0) {
-    await prisma.listShare.createMany({
-      data: missingShares.map(({ id: listId }) => ({ listId, userId, spaceId })),
-      skipDuplicates: true,
-    });
-  }
-
   return spaceId;
 }
 
