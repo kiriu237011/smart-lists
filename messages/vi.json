@@ -151,5 +151,29 @@
       "deleteFailed": "Không thể xóa tệp",
       "downloadFailed": "Không thể mở tệp"
     }
+  },
+  "Spaces": {
+    "label": "Không gian",
+    "defaultName": "Chính",
+    "create": "Tạo không gian ({current}/{max})",
+    "rename": "Đổi tên",
+    "delete": "Xóa",
+    "save": "Lưu",
+    "cancel": "Hủy",
+    "newPlaceholder": "Tên không gian",
+    "renamePlaceholder": "Tên mới",
+    "deleteTitle": "Xóa không gian?",
+    "deleteImpact": "Sẽ xóa {lists} danh sách, {groups} nhóm và {files} tệp đính kèm. Quyền truy cập {receivedShares} danh sách được chia sẻ sẽ bị gỡ; {collaborators} cộng tác viên có thể mất quyền truy cập.",
+    "deletePrompt": "Nhập “{name}” để xác nhận.",
+    "errors": {
+      "unauthorized": "Bạn cần đăng nhập",
+      "invalidName": "Nhập tên dài tối đa 50 ký tự",
+      "duplicateName": "Không gian với tên này đã tồn tại",
+      "limitReached": "Đã đạt giới hạn không gian bổ sung",
+      "notFound": "Không tìm thấy không gian",
+      "defaultSpace": "Không thể xóa không gian chính",
+      "confirmationMismatch": "Tên không khớp",
+      "unknownError": "Không thể hoàn tất thao tác"
+    }
   }
 }

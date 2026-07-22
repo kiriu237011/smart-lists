@@ -1,23 +1,21 @@
-import { Suspense } from "react";
 import { cookies } from "next/headers";
-import prisma from "@/lib/db";
-import { auth, signIn, signOut } from "@/auth";
+import { redirect } from "next/navigation";
+import { auth, signIn } from "@/auth";
 import { GUEST_COOKIE, isGuestModeEnabled } from "@/lib/app-settings";
 import { enterGuestMode } from "@/app/actions/guest";
 import GuestHome from "@/components/guest/GuestHome";
 import { getTranslations } from "next-intl/server";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
-import AvatarButton from "@/components/ui/AvatarButton";
-import ListsDataFetcher from "@/components/lists/ListsDataFetcher";
-import ListsSkeleton from "@/components/lists/ListsSkeleton";
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import HeaderSettings from "@/components/layout/HeaderSettings";
-import SettingsToggles from "@/components/ui/SettingsToggles";
+import { ensureSpaceState, getUserSpace, LAST_SPACE_COOKIE } from "@/lib/spaces";
 /**
  * Главная страница приложения (Server Component).
  * Рендерится для каждой локали: /ru, /vi, /en, /ja.
  */
-export default async function Home() {
+export default async function Home({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
   // auth() и getTranslations() независимы — выполняем параллельно.
   // Страница ре-рендерится при каждом Server Action (revalidatePath),
   // поэтому каждый последовательный await здесь удлиняет все действия.
@@ -103,138 +101,15 @@ export default async function Home() {
     );
   }
 
-  // -----------------------------------------------------------------------
-  // СЦЕНАРИЙ 2: АВТОРИЗОВАННЫЙ ПОЛЬЗОВАТЕЛЬ
-  // -----------------------------------------------------------------------
-  const listsCount = await prisma.list.count({
-    where: {
-      OR: [
-        { ownerId: session.user.id },
-        { sharedWith: { some: { id: session.user.id } } },
-      ],
-    },
-  });
-
-  return (
-    <main className="p-4 sm:p-10 max-w-7xl mx-auto">
-      {/* Шапка */}
-      <div className="flex items-center justify-between gap-3 sm:gap-4 mb-8 p-3 sm:p-5 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-700 rounded-2xl shadow-sm dark:shadow-md dark:shadow-black/40">
-        {/* Аватар + имя + email */}
-        <div className="flex items-center gap-3 min-w-0">
-          <AvatarButton
-            initial={(session.user.name ?? session.user.email ?? "?").charAt(0)}
-            email={session.user.email ?? ""}
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-base font-semibold text-gray-800 dark:text-zinc-100 truncate">
-              {t("Home.greeting", {
-                name: session.user.name ?? session.user.email ?? "",
-              })}
-            </p>
-            <p className="text-sm text-gray-400 dark:text-zinc-400 truncate">
-              {session.user.email}
-            </p>
-          </div>
-        </div>
-
-        {/* Правая часть: элементы управления */}
-        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-          <div className="flex flex-col items-center flex-shrink-0">
-            <span className="text-xl font-bold text-gray-800 dark:text-zinc-100 leading-none">
-              {listsCount}
-            </span>
-            <span className="text-xs text-gray-400 mt-0.5">
-              {t("Home.listsLabel", { count: listsCount })}
-            </span>
-          </div>
-
-          {/* Десктопная версия (растянутые кнопки) */}
-          <div className="hidden sm:flex items-center gap-4">
-            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
-            <ThemeToggle />
-            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
-            <LanguageSwitcher />
-            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
-            <HeaderSettings>
-              <SettingsToggles />
-            </HeaderSettings>
-            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
-            <form
-              action={async () => {
-                "use server";
-                await signOut();
-              }}
-            >
-              <button className="flex items-center gap-2 text-base text-gray-400 hover:text-red-500 transition-colors cursor-pointer">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <polyline points="16 17 21 12 16 7" />
-                  <line x1="21" y1="12" x2="9" y2="12" />
-                </svg>
-                <span>{t("Home.signOut")}</span>
-              </button>
-            </form>
-          </div>
-
-          {/* Мобильная версия меню (под шестерёнкой) */}
-          <div className="sm:hidden flex items-center">
-            <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800 mr-2" />
-            <HeaderSettings>
-              <div className="flex justify-center items-center gap-6 mb-5">
-                <ThemeToggle />
-                <div className="w-px h-6 bg-gray-200 dark:bg-zinc-700" />
-                <LanguageSwitcher />
-              </div>
-              <div className="h-px bg-gray-100 dark:bg-zinc-800 mb-4" />
-              <SettingsToggles />
-              <div className="h-px bg-gray-100 dark:bg-zinc-800 my-4" />
-              <form
-                action={async () => {
-                  "use server";
-                  await signOut();
-                }}
-              >
-                <button className="flex items-center gap-3 text-base text-red-500 hover:text-red-600 transition font-medium w-full">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                    <polyline points="16 17 21 12 16 7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                  </svg>
-                  {t("Home.signOut")}
-                </button>
-              </form>
-            </HeaderSettings>
-          </div>
-        </div>
-      </div>
-
-      <Suspense fallback={<ListsSkeleton />}>
-        <ListsDataFetcher
-          userId={session.user.id}
-          userName={session.user.name ?? null}
-          userEmail={session.user.email ?? ""}
-        />
-      </Suspense>
-    </main>
-  );
+  // Авторизованная главная — только точка входа в последнее пространство.
+  const [{ locale }, cookieStore, defaultSpaceId] = await Promise.all([
+    params,
+    cookies(),
+    ensureSpaceState(session.user.id),
+  ]);
+  const rememberedId = cookieStore.get(LAST_SPACE_COOKIE)?.value;
+  const rememberedSpace = rememberedId
+    ? await getUserSpace(session.user.id, rememberedId)
+    : null;
+  redirect(`/${locale}/spaces/${rememberedSpace?.id ?? defaultSpaceId}`);
 }

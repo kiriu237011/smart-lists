@@ -23,6 +23,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { logger, hashId } from "@/lib/logger";
 import { notifyListMembers } from "@/lib/notify";
+import { listInSpaceWhere } from "@/lib/spaces";
 import {
   requestUploadSchema,
   confirmUploadSchema,
@@ -73,6 +74,7 @@ interface RequestUploadResult {
  */
 export async function requestUpload(input: {
   listId: string;
+  spaceId: string;
   fileName: string;
   contentType: string;
   size: number;
@@ -127,10 +129,7 @@ export async function requestUpload(input: {
       const list = await tx.list.findFirst({
         where: {
           id: listId,
-          OR: [
-            { ownerId: userId },
-            { sharedWith: { some: { id: userId } } },
-          ],
+          ...listInSpaceWhere(userId, input.spaceId),
         },
         select: { id: true },
       });
@@ -237,6 +236,7 @@ export async function requestUpload(input: {
  */
 export async function confirmUpload(input: {
   attachmentId: string;
+  spaceId: string;
   socketId?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
@@ -258,10 +258,7 @@ export async function confirmUpload(input: {
         id: result.data.attachmentId,
         status: "PENDING",
         list: {
-          OR: [
-            { ownerId: userId },
-            { sharedWith: { some: { id: userId } } },
-          ],
+          ...listInSpaceWhere(userId, input.spaceId),
         },
       },
       select: { id: true, key: true, listId: true },
@@ -336,6 +333,7 @@ export async function confirmUpload(input: {
  */
 export async function deleteAttachment(input: {
   attachmentId: string;
+  spaceId: string;
   socketId?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
@@ -355,10 +353,7 @@ export async function deleteAttachment(input: {
       where: {
         id: result.data.attachmentId,
         list: {
-          OR: [
-            { ownerId: userId },
-            { sharedWith: { some: { id: userId } } },
-          ],
+          ...listInSpaceWhere(userId, input.spaceId),
         },
       },
       select: { id: true, key: true, listId: true },
@@ -408,6 +403,7 @@ export async function deleteAttachment(input: {
  */
 export async function getAttachmentUrl(input: {
   attachmentId: string;
+  spaceId: string;
   download?: boolean;
 }): Promise<{ success: boolean; url?: string; error?: string }> {
   try {
@@ -428,10 +424,7 @@ export async function getAttachmentUrl(input: {
         id: result.data.attachmentId,
         status: "UPLOADED",
         list: {
-          OR: [
-            { ownerId: userId },
-            { sharedWith: { some: { id: userId } } },
-          ],
+          ...listInSpaceWhere(userId, input.spaceId),
         },
       },
       select: { key: true, name: true },

@@ -151,5 +151,29 @@
       "deleteFailed": "ファイルを削除できませんでした",
       "downloadFailed": "ファイルを開けませんでした"
     }
+  },
+  "Spaces": {
+    "label": "スペース",
+    "defaultName": "メイン",
+    "create": "スペースを作成（{current}/{max}）",
+    "rename": "名前を変更",
+    "delete": "削除",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "newPlaceholder": "スペース名",
+    "renamePlaceholder": "新しい名前",
+    "deleteTitle": "スペースを削除しますか？",
+    "deleteImpact": "リスト{lists}件、グループ{groups}件、添付ファイル{files}件が削除されます。共有リスト{receivedShares}件へのアクセスが解除され、共同編集者{collaborators}人がアクセスを失う可能性があります。",
+    "deletePrompt": "確認のため「{name}」と入力してください。",
+    "errors": {
+      "unauthorized": "ログインが必要です",
+      "invalidName": "50文字以内の名前を入力してください",
+      "duplicateName": "同じ名前のスペースが既にあります",
+      "limitReached": "追加スペースの上限に達しました",
+      "notFound": "スペースが見つかりません",
+      "defaultSpace": "メインスペースは削除できません",
+      "confirmationMismatch": "名前が一致しません",
+      "unknownError": "操作を完了できませんでした"
+    }
   }
 }

@@ -151,5 +151,29 @@
       "deleteFailed": "Failed to delete the file",
       "downloadFailed": "Failed to open the file"
     }
+  },
+  "Spaces": {
+    "label": "Space",
+    "defaultName": "Main",
+    "create": "Create space ({current}/{max})",
+    "rename": "Rename",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "newPlaceholder": "Space name",
+    "renamePlaceholder": "New name",
+    "deleteTitle": "Delete space?",
+    "deleteImpact": "This will delete {lists} lists, {groups} groups and {files} attachments. Access to {receivedShares} shared lists will be removed; {collaborators} collaborators may lose access.",
+    "deletePrompt": "Enter “{name}” to confirm.",
+    "errors": {
+      "unauthorized": "Sign in is required",
+      "invalidName": "Enter a name up to 50 characters",
+      "duplicateName": "A space with this name already exists",
+      "limitReached": "The additional spaces limit has been reached",
+      "notFound": "Space not found",
+      "defaultSpace": "The main space cannot be deleted",
+      "confirmationMismatch": "The name does not match",
+      "unknownError": "The operation could not be completed"
+    }
   }
 }

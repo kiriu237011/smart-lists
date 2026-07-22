@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import ReactMarkdown from "react-markdown";
 import { getListInsight } from "@/app/actions/insights";
+import { useCurrentSpaceId } from "@/components/spaces/SpaceContext";
 
 /**
  * Вырезает служебный AST-проп `node`, который react-markdown передаёт
@@ -85,6 +86,7 @@ type AiInsightProps = {
  */
 export default function AiInsight({ listId }: AiInsightProps) {
   const t = useTranslations("AiInsight");
+  const spaceId = useCurrentSpaceId();
 
   const [userMessage, setUserMessage] = useState("");
   const [insight, setInsight] = useState<string | null>(null);
@@ -96,7 +98,7 @@ export default function AiInsight({ listId }: AiInsightProps) {
     setError(null);
     setIsLoading(true);
 
-    const result = await getListInsight(listId, userMessage.trim() || undefined);
+    const result = await getListInsight(listId, userMessage.trim() || undefined, spaceId);
 
     setIsLoading(false);
 

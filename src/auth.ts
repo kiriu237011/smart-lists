@@ -29,6 +29,7 @@ import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import prisma from "@/lib/db";
 import { logger, hashId } from "@/lib/logger";
+import { ensureSpaceState } from "@/lib/spaces";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   /**
@@ -55,6 +56,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
 
   events: {
+    async createUser({ user }) {
+      if (!user.id) return;
+      await ensureSpaceState(user.id);
+      logger.info({ uid: hashId(user.id), action: "space.default.created" }, "Создано основное пространство");
+    },
     signOut(event) {
       if ("session" in event && event.session?.userId) {
         logger.info({ uid: hashId(event.session.userId), action: "signOut" }, "Выход из системы");

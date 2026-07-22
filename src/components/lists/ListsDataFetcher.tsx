@@ -1,6 +1,7 @@
 import prisma from "@/lib/db";
 import ListsContainer from "@/components/lists/ListsContainer";
 import ServerListsApiProvider from "@/components/providers/ServerListsApiProvider";
+import { listInSpaceWhere } from "@/lib/spaces";
 
 /**
  * Server Component: загружает все данные для контейнера списков.
@@ -17,10 +18,12 @@ export default async function ListsDataFetcher({
   userId,
   userName,
   userEmail,
+  spaceId,
 }: {
   userId: string;
   userName: string | null;
   userEmail: string;
+  spaceId: string;
 }) {
   const [allLists, userGroups] = await Promise.all([
     // Списки, доступные пользователю (свои + расшаренные), со всеми связями.
@@ -28,12 +31,7 @@ export default async function ListsDataFetcher({
     // один round-trip до БД вместо ~6 последовательных (по одному на связь).
     prisma.list.findMany({
       relationLoadStrategy: "join",
-      where: {
-        OR: [
-          { ownerId: userId },
-          { sharedWith: { some: { id: userId } } },
-        ],
-      },
+      where: listInSpaceWhere(userId, spaceId),
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -54,7 +52,7 @@ export default async function ListsDataFetcher({
         sharedWith: { select: { id: true, name: true, email: true } },
         // Подгружаем только группы, принадлежащие текущему пользователю
         groups: {
-          where: { userId },
+          where: { userId, spaceId },
           select: { id: true, name: true },
         },
         // Вложения: показываем ТОЛЬКО подтверждённые (UPLOADED).
@@ -76,7 +74,7 @@ export default async function ListsDataFetcher({
     }),
     // Группы пользователя для панели фильтрации
     prisma.listGroup.findMany({
-      where: { userId },
+      where: { userId, spaceId },
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true },
     }),
@@ -84,13 +82,14 @@ export default async function ListsDataFetcher({
 
   return (
     // Серверная реализация адаптера ListsApi: операции идут в БД через Server Actions
-    <ServerListsApiProvider>
+    <ServerListsApiProvider spaceId={spaceId}>
       <ListsContainer
         allLists={allLists}
         currentUserId={userId}
         currentUserName={userName}
         currentUserEmail={userEmail}
         userGroups={userGroups}
+        spaceId={spaceId}
       />
     </ServerListsApiProvider>
   );

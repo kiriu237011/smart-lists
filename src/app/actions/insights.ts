@@ -20,6 +20,7 @@
 
 import { auth } from "@/auth";
 import prisma from "@/lib/db";
+import { listInSpaceWhere } from "@/lib/spaces";
 import { logger, hashId } from "@/lib/logger";
 
 /** Максимальная длина пользовательского вопроса (символов). */
@@ -47,10 +48,11 @@ interface InsightResult {
 export async function getListInsight(
   listId: string,
   userMessage?: string,
+  spaceId?: string,
 ): Promise<InsightResult> {
   // Проверяем авторизацию
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.id || !spaceId) {
     return { error: "Unauthorized" };
   }
 
@@ -61,10 +63,7 @@ export async function getListInsight(
   const list = await prisma.list.findFirst({
     where: {
       id: listId,
-      OR: [
-        { ownerId: session.user.id },
-        { sharedWith: { some: { id: session.user.id } } },
-      ],
+      ...listInSpaceWhere(session.user.id, spaceId),
     },
     select: {
       title: true,

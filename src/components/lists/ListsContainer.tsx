@@ -63,6 +63,8 @@ type ListsContainerProps = {
   currentUserEmail: string;
   /** Группы списков текущего пользователя. */
   userGroups: ListGroup[];
+  /** Пространство авторизованного пользователя; у гостя остаётся один default-контекст. */
+  spaceId?: string;
 };
 
 /**
@@ -82,6 +84,7 @@ export default function ListsContainer({
   currentUserName,
   currentUserEmail,
   userGroups: initialGroups,
+  spaceId = "default",
 }: ListsContainerProps) {
   const t = useTranslations("ListsContainer");
   const router = useRouter();
@@ -93,7 +96,9 @@ export default function ListsContainer({
   // Ключи localStorage для UI-настроек: у гостя свои, чтобы значения
   // (например, ID активной группы) не пересекались с аккаунтом в этом браузере
   const tabStorageKey = api.isGuest ? "guest:activeTab" : "activeTab";
-  const groupStorageKey = api.isGuest ? "guest:activeGroupId" : "activeGroupId";
+  const groupStorageKey = api.isGuest
+    ? "guest:activeGroupId"
+    : `activeGroupId:${spaceId}`;
 
   /**
    * Список, ожидающий подтверждения удаления.

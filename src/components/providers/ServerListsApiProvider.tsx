@@ -35,17 +35,24 @@ import { appendSocketId } from "@/lib/pusher-client";
 import { ListsApiProvider, type ListsApi } from "@/components/providers/ListsApiProvider";
 
 /** Собирает FormData из пар «ключ-значение» и добавляет socketId Pusher. */
-function buildFormData(fields: Record<string, string>): FormData {
+function buildFormData(fields: Record<string, string>, spaceId: string): FormData {
   const formData = new FormData();
   for (const [key, value] of Object.entries(fields)) {
     formData.append(key, value);
   }
+  formData.append("spaceId", spaceId);
   appendSocketId(formData);
   return formData;
 }
 
 /** Провайдер серверного адаптера — данные сохраняются в БД через Server Actions. */
-export default function ServerListsApiProvider({ children }: { children: ReactNode }) {
+export default function ServerListsApiProvider({
+  children,
+  spaceId,
+}: {
+  children: ReactNode;
+  spaceId: string;
+}) {
   // Адаптер стабилен между рендерами: все Server Actions — модульные ссылки.
   const api = useMemo<ListsApi>(
     () => ({
@@ -55,29 +62,29 @@ export default function ServerListsApiProvider({ children }: { children: ReactNo
       createList: async ({ title, groupId }) => {
         const fields: Record<string, string> = { title };
         if (groupId) fields.groupId = groupId;
-        return createList(buildFormData(fields));
+        return createList(buildFormData(fields, spaceId));
       },
-      renameList: async (listId, title) => renameList(buildFormData({ listId, title })),
-      deleteList: async (listId) => deleteList(buildFormData({ listId })),
-      leaveSharedList: async (listId) => leaveSharedList(buildFormData({ listId })),
+      renameList: async (listId, title) => renameList(buildFormData({ listId, title }, spaceId)),
+      deleteList: async (listId) => deleteList(buildFormData({ listId }, spaceId)),
+      leaveSharedList: async (listId) => leaveSharedList(buildFormData({ listId }, spaceId)),
 
       // ---- Записи ----
-      addItem: async (listId, itemName) => addItem(buildFormData({ listId, itemName })),
-      renameItem: async (itemId, itemName) => renameItem(buildFormData({ itemId, itemName })),
-      deleteItem: async (itemId) => deleteItem(buildFormData({ itemId })),
+      addItem: async (listId, itemName) => addItem(buildFormData({ listId, itemName }, spaceId)),
+      renameItem: async (itemId, itemName) => renameItem(buildFormData({ itemId, itemName }, spaceId)),
+      deleteItem: async (itemId) => deleteItem(buildFormData({ itemId }, spaceId)),
       toggleItem: async (itemId, isCompleted) =>
-        toggleItem(buildFormData({ itemId, isCompleted: isCompleted.toString() })),
+        toggleItem(buildFormData({ itemId, isCompleted: isCompleted.toString() }, spaceId)),
 
       // ---- Группы ----
-      createGroup: async (name) => createGroup(buildFormData({ name })),
-      renameGroup: async (groupId, name) => renameGroup(buildFormData({ groupId, name })),
-      deleteGroup: async (groupId) => deleteGroup(buildFormData({ groupId })),
+      createGroup: async (name) => createGroup(buildFormData({ name }, spaceId)),
+      renameGroup: async (groupId, name) => renameGroup(buildFormData({ groupId, name }, spaceId)),
+      deleteGroup: async (groupId) => deleteGroup(buildFormData({ groupId }, spaceId)),
       addListToGroup: async (listId, groupId) =>
-        addListToGroup(buildFormData({ groupId, listId })),
+        addListToGroup(buildFormData({ groupId, listId }, spaceId)),
       removeListFromGroup: async (listId, groupId) =>
-        removeListFromGroup(buildFormData({ groupId, listId })),
+        removeListFromGroup(buildFormData({ groupId, listId }, spaceId)),
     }),
-    [],
+    [spaceId],
   );
 
   return <ListsApiProvider api={api}>{children}</ListsApiProvider>;

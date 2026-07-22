@@ -25,6 +25,7 @@ import { removeSharedUser, shareList } from "@/app/actions";
 import { appendSocketId } from "@/lib/pusher-client";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
+import { useCurrentSpaceId } from "@/components/spaces/SpaceContext";
 
 /** Пользователь, имеющий доступ к списку. */
 type SharedUser = {
@@ -120,6 +121,7 @@ export default function ShareListForm({
   sharedWith,
 }: ShareListFormProps) {
   const t = useTranslations("ShareListForm");
+  const spaceId = useCurrentSpaceId();
 
   /**
    * Оптимистичный список пользователей с доступом.
@@ -178,6 +180,7 @@ export default function ShareListForm({
     const formData = new FormData();
     formData.set("listId", listId);
     formData.set("userId", user.id);
+    formData.set("spaceId", spaceId);
     appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
     const result = await removeSharedUser(formData);
 
@@ -189,7 +192,7 @@ export default function ShareListForm({
     }
 
     setIsRemovingUser(false);
-  }, [userToRemove, setOptimisticSharedWith, listId, t]);
+  }, [userToRemove, setOptimisticSharedWith, listId, spaceId, t]);
 
   /**
    * Эффект: подписка на клавиатурные события при открытом модале удаления пользователя.
@@ -246,6 +249,7 @@ export default function ShareListForm({
     setEmail("");
 
     formData.set("email", normalizedEmail);
+    formData.set("spaceId", spaceId);
     appendSocketId(formData); // Исключаем эту вкладку из Pusher-эха
     const result = await shareList(formData);
 

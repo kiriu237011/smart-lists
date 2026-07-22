@@ -36,6 +36,7 @@ import {
   getAttachmentUrl,
 } from "@/app/actions/attachments";
 import { getPusherSocketId } from "@/lib/pusher-client";
+import { useCurrentSpaceId } from "@/components/spaces/SpaceContext";
 
 // ---------------------------------------------------------------------------
 // Кнопка-триггер
@@ -162,6 +163,7 @@ export default function Attachments({
 }: AttachmentsProps) {
   const t = useTranslations("Attachments");
   const router = useRouter();
+  const spaceId = useCurrentSpaceId();
 
   /** Скрытый input для выбора файла. */
   const inputRef = useRef<HTMLInputElement>(null);
@@ -215,6 +217,7 @@ export default function Attachments({
       // Шаг 1 — presigned POST + PENDING-строка
       const req = await requestUpload({
         listId,
+        spaceId,
         fileName: file.name,
         contentType: file.type,
         size: file.size,
@@ -246,6 +249,7 @@ export default function Attachments({
       // Шаг 3 — подтверждение (сервер проверяет факт через HeadObject)
       const confirmed = await confirmUpload({
         attachmentId: req.upload.attachmentId,
+        spaceId,
         // Исключаем эту вкладку из Pusher-эха (данные придут с router.refresh)
         socketId: getPusherSocketId() ?? undefined,
       });
@@ -264,7 +268,7 @@ export default function Attachments({
       // Освобождаем квоту при любом провале: удаляем недозалитую PENDING-строку.
       // Best-effort — если не удалось, её всё равно приберёт крон.
       if (pendingId) {
-        await deleteAttachment({ attachmentId: pendingId }).catch(() => {});
+        await deleteAttachment({ attachmentId: pendingId, spaceId }).catch(() => {});
       }
       setIsUploading(false);
     }
@@ -272,7 +276,7 @@ export default function Attachments({
 
   /** Открывает файл по presigned GET во вкладке. */
   const handleView = async (file: Attachment) => {
-    const res = await getAttachmentUrl({ attachmentId: file.id });
+    const res = await getAttachmentUrl({ attachmentId: file.id, spaceId });
     if (res.success && res.url) {
       window.open(res.url, "_blank", "noopener,noreferrer");
     } else {
@@ -289,6 +293,7 @@ export default function Attachments({
 
     const res = await deleteAttachment({
       attachmentId: file.id,
+      spaceId,
       // Исключаем эту вкладку из Pusher-эха (данные придут с router.refresh)
       socketId: getPusherSocketId() ?? undefined,
     });

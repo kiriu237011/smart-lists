@@ -57,6 +57,12 @@ model User {
   /// Списки, к которым пользователь имеет доступ по приглашению.
   sharedLists   List[]  @relation("Shared")
 
+  /// Персональные пространства пользователя.
+  spaces        Space[]
+
+  /// Явные записи общего доступа к спискам с размещением в пространстве.
+  receivedListShares ListShare[]
+
   /// Записи, добавленные этим пользователем.
   addedItems    Item[]          @relation("AddedItems")
 
@@ -142,6 +148,13 @@ model List {
   /// Объект владельца. Каскадное удаление: при удалении пользователя его списки тоже удаляются.
   owner     User     @relation("Owner", fields: [ownerId], references: [id], onDelete: Cascade)
 
+  /// Пространство владельца. Nullable только на время expand-миграции:
+  /// старые deployment-инстансы ещё могут создать список без spaceId.
+  spaceId   String?
+
+  /// Составная связь не позволяет привязать список к пространству другого пользователя.
+  space     Space?   @relation("SpaceLists", fields: [spaceId, ownerId], references: [id, userId], onDelete: Cascade)
+
   // ---- Связь "Записи" (One-to-Many) ----
 
   /// Записи, входящие в этот список.
@@ -152,6 +165,9 @@ model List {
   /// Пользователи, которые имеют доступ к списку по приглашению (не владельцы).
   /// Prisma автоматически создаёт таблицу-связку для этого отношения.
   sharedWith User[] @relation("Shared")
+
+  /// Новая явная модель общего доступа. Старая M2M-связь остаётся на expand-релиз.
+  shares     ListShare[]
 
   /// Группы, в которые пользователи добавили этот список.
   /// Каждый пользователь имеет свои группы — один список может быть в разных группах разных пользователей.
@@ -169,6 +185,7 @@ model List {
   // Postgres не индексирует FK-колонки автоматически. По ownerId фильтрует
   // главный запрос выборки списков (он выполняется при каждом рендере страницы).
   @@index([ownerId])
+  @@index([spaceId])
 }
 
 /// Группа списков, созданная пользователем для личной организации.
@@ -186,6 +203,12 @@ model ListGroup {
   /// Пользователь-владелец. Каскадное удаление: при удалении пользователя его группы тоже удаляются.
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  /// Пространство группы. Nullable только на время expand-миграции.
+  spaceId   String?
+
+  /// Составная связь гарантирует, что пространство принадлежит владельцу группы.
+  space     Space?   @relation(fields: [spaceId, userId], references: [id, userId], onDelete: Cascade)
+
   /// Списки, входящие в эту группу (Many-to-Many).
   lists     List[]   @relation("ListGroupMembers")
 
@@ -194,6 +217,59 @@ model ListGroup {
 
   // Индекс FK: выборка групп пользователя выполняется при каждом рендере страницы.
   @@index([userId])
+  @@index([spaceId])
+}
+
+/// Персональное пространство пользователя — верхний уровень организации списков.
+/// Default-пространство существует всегда и не учитывается в лимите пяти дополнительных.
+model Space {
+  id             String   @id @default(cuid())
+
+  /// Пользовательское имя. null у непереименованного default-пространства:
+  /// интерфейс показывает локализованное название «Основное».
+  name           String?
+
+  /// Нормализованное имя для регистронезависимой уникальности.
+  normalizedName String?
+
+  isDefault      Boolean  @default(false)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lists          List[]      @relation("SpaceLists")
+  groups         ListGroup[]
+  receivedShares ListShare[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, normalizedName])
+  // Нужен для составных FK: список/группа/share не могут ссылаться на чужое пространство.
+  @@unique([id, userId])
+  @@index([userId, isDefault])
+}
+
+/// Явный общий доступ к списку и его размещение у получателя.
+/// Один список может быть доступен пользователю только в одном его пространстве.
+model ListShare {
+  listId    String
+  userId    String
+  spaceId   String
+  role      ListShareRole @default(EDITOR)
+
+  list      List  @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space     Space @relation(fields: [spaceId, userId], references: [id, userId], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([listId, userId])
+  @@index([userId, spaceId])
+  @@index([spaceId])
+}
+
+enum ListShareRole {
+  EDITOR
 }
 
 /// Запись внутри списка.

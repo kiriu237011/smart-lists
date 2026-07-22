@@ -45,10 +45,22 @@ import { logger, hashId } from "@/lib/logger";
 import { notifyListMembers, notifyUsers } from "@/lib/notify";
 import { deleteObjects } from "@/lib/s3";
 import { ZodError } from "zod";
+import {
+  ensureSpaceState,
+  getUserSpace,
+  listInSpaceWhere,
+} from "@/lib/spaces";
 
 /** Возвращает код ошибки валидации: "tooLong" при превышении длины, иначе "validationError". */
 function getValidationError(error: ZodError): string {
   return error.issues.some((i) => i.code === "too_big") ? "tooLong" : "validationError";
+}
+
+/** Проверяет, что spaceId из формы принадлежит текущему пользователю. */
+async function resolveActionSpace(userId: string, formData: FormData) {
+  const spaceId = formData.get("spaceId");
+  if (typeof spaceId !== "string" || !spaceId) return null;
+  return getUserSpace(userId, spaceId);
 }
 
 // ===========================================================================
@@ -74,6 +86,8 @@ export async function addItem(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     // Собираем объект из FormData: Zod лучше работает с обычными объектами
     const rawData = {
@@ -93,10 +107,7 @@ export async function addItem(formData: FormData) {
     const list = await prisma.list.findFirst({
       where: {
         id: result.data.listId,
-        OR: [
-          { ownerId: session.user.id },
-          { sharedWith: { some: { id: session.user.id } } },
-        ],
+        ...listInSpaceWhere(session.user.id, space.id),
       },
       select: { id: true },
     });
@@ -142,6 +153,8 @@ export async function addItem(formData: FormData) {
 export async function deleteItem(formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) return;
+  const space = await resolveActionSpace(session.user.id, formData);
+  if (!space) return;
 
   const data = { itemId: formData.get("itemId") };
 
@@ -156,12 +169,7 @@ export async function deleteItem(formData: FormData) {
   const item = await prisma.item.findFirst({
     where: {
       id: result.data.itemId,
-      list: {
-        OR: [
-          { ownerId: session.user.id },
-          { sharedWith: { some: { id: session.user.id } } },
-        ],
-      },
+      list: listInSpaceWhere(session.user.id, space.id),
     },
     select: { listId: true },
   });
@@ -197,6 +205,8 @@ export async function deleteItem(formData: FormData) {
 export async function toggleItem(formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) return;
+  const space = await resolveActionSpace(session.user.id, formData);
+  if (!space) return;
 
   const data = {
     itemId: formData.get("itemId"),
@@ -215,12 +225,7 @@ export async function toggleItem(formData: FormData) {
   const item = await prisma.item.findFirst({
     where: {
       id: result.data.itemId,
-      list: {
-        OR: [
-          { ownerId: session.user.id },
-          { sharedWith: { some: { id: session.user.id } } },
-        ],
-      },
+      list: listInSpaceWhere(session.user.id, space.id),
     },
     select: { listId: true },
   });
@@ -257,6 +262,8 @@ export async function renameItem(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = {
       itemId: formData.get("itemId"),
@@ -275,12 +282,7 @@ export async function renameItem(formData: FormData) {
     const renamedItem = await prisma.item.updateMany({
       where: {
         id: result.data.itemId,
-        list: {
-          OR: [
-            { ownerId: session.user.id },
-            { sharedWith: { some: { id: session.user.id } } },
-          ],
-        },
+        list: listInSpaceWhere(session.user.id, space.id),
       },
       data: { name: result.data.itemName },
     });
@@ -332,6 +334,8 @@ export async function createList(formData: FormData) {
     if (!session || !session.user || !session.user.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     // 2. Валидация данных
     const rawData = {
@@ -355,6 +359,7 @@ export async function createList(formData: FormData) {
       data: {
         title: result.data.title,
         ownerId: session.user.id,
+        spaceId: space.id,
       },
       // include подгружает связанные записи одним запросом
       include: {
@@ -386,7 +391,7 @@ export async function createList(formData: FormData) {
     let listGroups: { id: string; name: string }[] = [];
     if (result.data.groupId) {
       const group = await prisma.listGroup.findFirst({
-        where: { id: result.data.groupId, userId: session.user.id },
+        where: { id: result.data.groupId, userId: session.user.id, spaceId: space.id },
         select: { id: true, name: true },
       });
       if (group) {
@@ -456,6 +461,8 @@ export async function deleteList(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = {
       listId: formData.get("listId"),
@@ -469,7 +476,7 @@ export async function deleteList(formData: FormData) {
     // Собираем участников И ключи вложений ДО удаления: каскад снесёт строки
     // Attachment вместе со списком, а ключи для S3-уборки лежат именно в них.
     const listToNotify = await prisma.list.findFirst({
-      where: { id: result.data.listId, ownerId: session.user.id },
+      where: { id: result.data.listId, ownerId: session.user.id, spaceId: space.id },
       select: {
         ownerId: true,
         sharedWith: { select: { id: true } },
@@ -483,6 +490,7 @@ export async function deleteList(formData: FormData) {
       where: {
         id: result.data.listId,
         ownerId: session.user.id, // Только владелец может удалить список
+        spaceId: space.id,
       },
     });
 
@@ -551,6 +559,9 @@ export async function shareList(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const ownerId = session.user.id;
+    const space = await resolveActionSpace(ownerId, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = {
       listId: formData.get("listId"),
@@ -582,18 +593,31 @@ export async function shareList(formData: FormData) {
       };
     }
 
-    // 2. Связываем пользователя со списком через Prisma's `connect`
-    // (Many-to-Many: один список может быть у нескольких пользователей)
-    await prisma.list.update({
-      where: {
-        id: result.data.listId,
-        ownerId: session.user.id, // Только владелец может приглашать
-      },
-      data: {
-        sharedWith: {
-          connect: { id: userToShare.id }, // Prisma сам создаёт запись в таблице-связке
+    // Получатель всегда видит новый общий список в своём default-пространстве.
+    // Старую M2M-связь пишем параллельно до contract-релиза.
+    const recipientSpaceId = await ensureSpaceState(userToShare.id);
+    await prisma.$transaction(async (tx) => {
+      const ownedList = await tx.list.findFirst({
+        where: { id: result.data.listId, ownerId, spaceId: space.id },
+        select: { id: true },
+      });
+      if (!ownedList) throw new Error("LIST_NOT_FOUND");
+
+      await tx.list.update({
+        where: { id: ownedList.id },
+        data: { sharedWith: { connect: { id: userToShare.id } } },
+      });
+      await tx.listShare.upsert({
+        where: {
+          listId_userId: { listId: ownedList.id, userId: userToShare.id },
         },
-      },
+        create: {
+          listId: ownedList.id,
+          userId: userToShare.id,
+          spaceId: recipientSpaceId,
+        },
+        update: {},
+      });
     });
 
     revalidatePath("/", "layout");
@@ -636,6 +660,9 @@ export async function removeSharedUser(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const ownerId = session.user.id;
+    const space = await resolveActionSpace(ownerId, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = {
       listId: formData.get("listId"),
@@ -647,17 +674,18 @@ export async function removeSharedUser(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
-    // `disconnect` убирает связь в Many-to-Many без удаления самого пользователя
-    await prisma.list.update({
-      where: {
-        id: result.data.listId,
-        ownerId: session.user.id, // Только владелец может отзывать доступ
-      },
-      data: {
-        sharedWith: {
-          disconnect: { id: result.data.userId },
+    await prisma.$transaction(async (tx) => {
+      await tx.list.update({
+        where: {
+          id: result.data.listId,
+          ownerId,
+          spaceId: space.id,
         },
-      },
+        data: { sharedWith: { disconnect: { id: result.data.userId } } },
+      });
+      await tx.listShare.deleteMany({
+        where: { listId: result.data.listId, userId: result.data.userId },
+      });
     });
 
     revalidatePath("/", "layout");
@@ -702,24 +730,32 @@ export async function leaveSharedList(formData: FormData) {
     if (!listId || typeof listId !== "string" || !listId.trim()) {
       return { success: false, error: "Неверные данные" };
     }
+    const userId = session.user.id;
+    const space = await resolveActionSpace(userId, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+    const share = await prisma.listShare.findFirst({
+      where: { listId, userId, spaceId: space.id },
+      select: { listId: true },
+    });
+    if (!share) return { success: false, error: "Список не найден" };
 
-    await prisma.list.update({
-      where: {
-        id: listId,
-        sharedWith: { some: { id: session.user.id } }, // Убеждаемся, что пользователь в списке
-      },
-      data: {
-        sharedWith: {
-          disconnect: { id: session.user.id }, // Пользователь удаляет себя сам
+    await prisma.$transaction(async (tx) => {
+      await tx.list.update({
+        where: {
+          id: listId,
+          sharedWith: { some: { id: userId } },
         },
-      },
+        data: { sharedWith: { disconnect: { id: userId } } },
+      });
+      await tx.listShare.deleteMany({
+        where: { listId, userId },
+      });
     });
 
     revalidatePath("/", "layout");
     // Уведомляем самого пользователя отдельно — после disconnect его нет в sharedWith,
     // поэтому notifyListMembers его не затронет (нужно для других вкладок/устройств).
     // after — после ответа; socketId исключает ТЕКУЩУЮ вкладку автора (другие получат).
-    const userId = session.user.id;
     const socketId = formData.get("socketId");
     after(async () => {
       await notifyUsers([userId], socketId);
@@ -750,6 +786,8 @@ export async function renameList(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = {
       listId: formData.get("listId"),
@@ -769,6 +807,7 @@ export async function renameList(formData: FormData) {
       where: {
         id: result.data.listId,
         ownerId: session.user.id, // Только владелец может переименовать список
+        spaceId: space.id,
       },
       data: {
         title: result.data.title,
@@ -811,6 +850,8 @@ export async function createGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = { name: formData.get("name") };
     const result = createGroupSchema.safeParse(rawData);
@@ -825,6 +866,7 @@ export async function createGroup(formData: FormData) {
       data: {
         name: result.data.name,
         userId: session.user.id,
+        spaceId: space.id,
       },
       select: { id: true, name: true },
     });
@@ -852,6 +894,8 @@ export async function deleteGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = { groupId: formData.get("groupId") };
     const result = deleteGroupSchema.safeParse(rawData);
@@ -864,6 +908,7 @@ export async function deleteGroup(formData: FormData) {
       where: {
         id: result.data.groupId,
         userId: session.user.id,
+        spaceId: space.id,
       },
     });
 
@@ -894,6 +939,8 @@ export async function renameGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = {
       groupId: formData.get("groupId"),
@@ -911,6 +958,7 @@ export async function renameGroup(formData: FormData) {
       where: {
         id: result.data.groupId,
         userId: session.user.id,
+        spaceId: space.id,
       },
       data: { name: result.data.name },
     });
@@ -949,6 +997,8 @@ export async function addListToGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = {
       groupId: formData.get("groupId"),
@@ -961,7 +1011,7 @@ export async function addListToGroup(formData: FormData) {
 
     // Проверяем что группа принадлежит пользователю
     const group = await prisma.listGroup.findFirst({
-      where: { id: result.data.groupId, userId: session.user.id },
+      where: { id: result.data.groupId, userId: session.user.id, spaceId: space.id },
     });
     if (!group) {
       return { success: false, error: "Группа не найдена" };
@@ -971,10 +1021,7 @@ export async function addListToGroup(formData: FormData) {
     const list = await prisma.list.findFirst({
       where: {
         id: result.data.listId,
-        OR: [
-          { ownerId: session.user.id },
-          { sharedWith: { some: { id: session.user.id } } },
-        ],
+        ...listInSpaceWhere(session.user.id, space.id),
       },
     });
     if (!list) {
@@ -1013,6 +1060,8 @@ export async function removeListFromGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
 
     const rawData = {
       groupId: formData.get("groupId"),
@@ -1025,7 +1074,7 @@ export async function removeListFromGroup(formData: FormData) {
 
     // Проверяем что группа принадлежит пользователю
     const group = await prisma.listGroup.findFirst({
-      where: { id: result.data.groupId, userId: session.user.id },
+      where: { id: result.data.groupId, userId: session.user.id, spaceId: space.id },
     });
     if (!group) {
       return { success: false, error: "Группа не найдена" };
