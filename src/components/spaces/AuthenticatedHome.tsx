@@ -48,6 +48,16 @@ export default async function AuthenticatedHome({
           </div>
         </div>
 
+        <div className="hidden min-w-0 flex-1 items-center gap-4 px-2 xl:flex">
+          <div className="h-8 w-px shrink-0 bg-gray-200 dark:bg-zinc-700" />
+          <SpaceSwitcher
+            spaces={spaces}
+            currentSpaceId={spaceId}
+            variant="header"
+            rememberCurrentSpace={false}
+          />
+        </div>
+
         <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <div className="flex flex-col items-center flex-shrink-0">
             <span className="text-xl font-bold text-gray-800 dark:text-zinc-100 leading-none">
@@ -97,7 +107,7 @@ export default async function AuthenticatedHome({
       </div>
 
       <SpaceProvider spaceId={spaceId}>
-        <SpaceSwitcher spaces={spaces} currentSpaceId={spaceId} />
+        <SpaceSwitcher spaces={spaces} currentSpaceId={spaceId} variant="page" />
         <Suspense key={spaceId} fallback={<ListsSkeleton />}>
           <ListsDataFetcher
             userId={userId}

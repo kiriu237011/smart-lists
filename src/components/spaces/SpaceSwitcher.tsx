@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Check, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Layers3,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import {
@@ -29,9 +38,13 @@ type DeleteImpact = {
 export default function SpaceSwitcher({
   spaces,
   currentSpaceId,
+  variant = "page",
+  rememberCurrentSpace = true,
 }: {
   spaces: SpaceOption[];
   currentSpaceId: string;
+  variant?: "page" | "header";
+  rememberCurrentSpace?: boolean;
 }) {
   const t = useTranslations("Spaces");
   const router = useRouter();
@@ -41,14 +54,20 @@ export default function SpaceSwitcher({
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [impact, setImpact] = useState<DeleteImpact | null>(null);
+  const [pendingSpace, setPendingSpace] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [isPending, startTransition] = useTransition();
   const current = spaces.find((space) => space.id === currentSpaceId) ?? spaces[0];
   const displayName = (space: SpaceOption) =>
     space.name ?? (space.isDefault ? t("defaultName") : "");
+  const isHeader = variant === "header";
 
   useEffect(() => {
+    if (!rememberCurrentSpace) return;
     void rememberSpace(currentSpaceId);
-  }, [currentSpaceId]);
+  }, [currentSpaceId, rememberCurrentSpace]);
 
   useEffect(() => {
     const close = (event: PointerEvent) => {
@@ -68,6 +87,12 @@ export default function SpaceSwitcher({
   const switchTo = (spaceId: string) => {
     setOpen(false);
     setMode("idle");
+    if (spaceId === currentSpaceId) return;
+
+    const target = spaces.find((space) => space.id === spaceId);
+    if (!target) return;
+    setPendingSpace({ id: target.id, name: displayName(target) });
+
     startTransition(async () => {
       await rememberSpace(spaceId);
       router.push(`/spaces/${spaceId}`);
@@ -75,6 +100,7 @@ export default function SpaceSwitcher({
   };
 
   const submitCreate = () => {
+    setPendingSpace(null);
     startTransition(async () => {
       const result = await createSpace(value);
       if (!result.success || !result.space) {
@@ -89,6 +115,7 @@ export default function SpaceSwitcher({
 
   const submitRename = () => {
     if (!current) return;
+    setPendingSpace(null);
     startTransition(async () => {
       const result = await renameSpace(current.id, value);
       if (!result.success) {
@@ -103,6 +130,7 @@ export default function SpaceSwitcher({
 
   const prepareDelete = () => {
     if (!current || current.isDefault) return;
+    setPendingSpace(null);
     startTransition(async () => {
       const result = await getSpaceDeleteImpact(current.id);
       if (!result.success || !result.impact) {
@@ -117,6 +145,7 @@ export default function SpaceSwitcher({
 
   const submitDelete = () => {
     if (!current) return;
+    setPendingSpace(null);
     startTransition(async () => {
       const result = await deleteSpace(current.id, value);
       if (!result.success) {
@@ -132,7 +161,37 @@ export default function SpaceSwitcher({
   };
 
   return (
-    <div ref={rootRef} className="relative mb-5">
+    <>
+      {isPending && pendingSpace && pendingSpace.id !== currentSpaceId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/10 backdrop-blur-[2px] dark:bg-black/40">
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex flex-col items-center gap-3 rounded-2xl bg-white/90 px-8 py-6 shadow-lg dark:bg-zinc-900/90"
+          >
+            <div className="rounded-xl bg-indigo-50 p-2.5 text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-300">
+              <Layers3 size={32} aria-hidden />
+            </div>
+            <p className="max-w-72 text-center text-sm font-medium text-gray-500 dark:text-zinc-400">
+              {t("switchingTo", { name: pendingSpace.name })}
+            </p>
+            <LoaderCircle
+              size={20}
+              aria-hidden
+              className="animate-spin text-gray-400"
+            />
+          </div>
+        </div>
+      )}
+
+      <div
+        ref={rootRef}
+        className={
+          isHeader
+            ? "relative hidden w-max max-w-64 shrink-0 xl:block"
+            : "relative mb-5 xl:hidden"
+        }
+      >
       <button
         type="button"
         onClick={() => {
@@ -140,7 +199,11 @@ export default function SpaceSwitcher({
           setMode("idle");
           setError(null);
         }}
-        className="flex w-full items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3 text-left shadow-sm transition hover:border-gray-200 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600"
+        className={
+          isHeader
+            ? "inline-flex max-w-64 items-center gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-gray-50 dark:hover:bg-zinc-800"
+            : "flex w-full items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3 text-left shadow-sm transition hover:border-gray-200 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600"
+        }
         aria-expanded={open}
       >
         <span className="min-w-0">
@@ -150,13 +213,20 @@ export default function SpaceSwitcher({
           </span>
         </span>
         <ChevronDown
-          size={18}
+          size={isHeader ? 16 : 18}
+          aria-hidden
           className={`shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
         />
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-xl border border-gray-100 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div
+          className={
+            isHeader
+              ? "absolute left-0 z-30 mt-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-gray-100 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+              : "absolute left-0 right-0 z-30 mt-2 overflow-hidden rounded-xl border border-gray-100 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          }
+        >
           <div className="max-h-64 overflow-y-auto">
             {spaces.map((space) => (
               <button
@@ -278,6 +348,7 @@ export default function SpaceSwitcher({
           {error && <p className="px-3 py-2 text-sm text-red-600">{error}</p>}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

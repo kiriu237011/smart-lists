@@ -186,6 +186,7 @@
   "Spaces": {
     "label": "Space",
     "defaultName": "Main",
+    "switchingTo": "Switching to “{name}”",
     "create": "Create space ({current}/{max})",
     "rename": "Rename",
     "delete": "Delete",

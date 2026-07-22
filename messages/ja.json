@@ -186,6 +186,7 @@
   "Spaces": {
     "label": "スペース",
     "defaultName": "メイン",
+    "switchingTo": "「{name}」に切り替えています",
     "create": "スペースを作成（{current}/{max}）",
     "rename": "名前を変更",
     "delete": "削除",

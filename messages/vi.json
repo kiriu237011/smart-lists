@@ -186,6 +186,7 @@
   "Spaces": {
     "label": "Không gian",
     "defaultName": "Chính",
+    "switchingTo": "Đang chuyển sang “{name}”",
     "create": "Tạo không gian ({current}/{max})",
     "rename": "Đổi tên",
     "delete": "Xóa",

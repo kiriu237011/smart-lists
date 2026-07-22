@@ -186,6 +186,7 @@
   "Spaces": {
     "label": "Пространство",
     "defaultName": "Основное",
+    "switchingTo": "Переключаемся на «{name}»",
     "create": "Создать пространство ({current}/{max})",
     "rename": "Переименовать",
     "delete": "Удалить",
