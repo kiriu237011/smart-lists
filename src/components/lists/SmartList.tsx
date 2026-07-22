@@ -364,6 +364,7 @@ export default function SmartList({
                       {!isPending && editingItemId === item.id ? (
                         <textarea
                           autoFocus
+                          autoComplete="off"
                           value={editItemName}
                           maxLength={200}
                           rows={1}
@@ -527,6 +528,7 @@ export default function SmartList({
         >
           <input
             name="itemName"
+            autoComplete="off"
             placeholder={t("placeholder")}
             className="border dark:border-zinc-700 p-2 rounded-lg w-full text-sm bg-gray-50 dark:bg-zinc-900 focus:bg-white dark:focus:bg-zinc-950 focus:ring-1 ring-gray-800 dark:ring-zinc-500 outline-none transition"
             value={newItemName}
