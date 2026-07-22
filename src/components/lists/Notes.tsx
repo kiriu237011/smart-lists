@@ -9,10 +9,11 @@
 
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useListsApi, type NoteActionResult } from "@/components/providers/ListsApiProvider";
 import Highlight from "@/components/ui/Highlight";
+import ConfirmModal from "@/components/ui/ConfirmModal";
 import { getNoteExcerpt, MAX_NOTE_LENGTH, normalizeNote } from "@/lib/notes";
 
 type Conflict = {
@@ -285,12 +286,69 @@ export function NotePanel({
   const t = useTranslations("Notes");
   const [isEditing, setIsEditing] = useState(!note);
   const [displayed, setDisplayed] = useState({ note, version });
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Обновляем режим чтения и базовую версию редактора при внешнем изменении заметки.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDisplayed({ note, version });
   }, [note, version]);
+
+  const deleteNote = useCallback(async () => {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    const result = await onSave("", displayed.version);
+    setIsDeleting(false);
+
+    if (result.success) {
+      setIsDeleteConfirmOpen(false);
+      setDisplayed({
+        note: null,
+        version: result.noteVersion ?? displayed.version,
+      });
+      onClose();
+      return;
+    }
+
+    setIsDeleteConfirmOpen(false);
+    if (result.error === "noteConflict") {
+      const currentNote = result.currentNote ?? null;
+      setDisplayed({
+        note: currentNote,
+        version: result.currentVersion ?? displayed.version,
+      });
+      if (currentNote) {
+        setDeleteError(t("deleteConflict"));
+      } else {
+        onClose();
+      }
+      return;
+    }
+
+    setDeleteError(t("deleteFailed"));
+  }, [displayed.version, isDeleting, onClose, onSave, t]);
+
+  useEffect(() => {
+    if (!isDeleteConfirmOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isDeleting) {
+        event.preventDefault();
+        setIsDeleteConfirmOpen(false);
+      }
+      if (event.key === "Enter" && !isDeleting) {
+        event.preventDefault();
+        void deleteNote();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteNote, isDeleteConfirmOpen, isDeleting]);
 
   if (isEditing) {
     return (
@@ -319,41 +377,96 @@ export function NotePanel({
   }
 
   return (
-    <div className={`${compact ? "mt-2" : "mt-3"} space-y-2`}>
-      <p className="whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-        <Highlight text={displayed.note ?? ""} query={searchQuery.trim()} />
-      </p>
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-        >
-          {t("close")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setIsEditing(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="13"
-            height="13"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
+    <>
+      <div className={`${compact ? "mt-2" : "mt-3"} space-y-2`}>
+        <p className="whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+          <Highlight text={displayed.note ?? ""} query={searchQuery.trim()} />
+        </p>
+
+        {deleteError && (
+          <p className="text-xs text-red-500 dark:text-red-400">{deleteError}</p>
+        )}
+
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteError(null);
+              setIsDeleteConfirmOpen(true);
+            }}
+            aria-label={t("deleteNote")}
+            title={t("deleteNote")}
+            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
           >
-            <path d="M12 20h9" />
-            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
-          </svg>
-          {t("edit")}
-        </button>
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14H6L5 6" />
+              <path d="M8 6V4h8v2" />
+              <line x1="10" y1="11" x2="10" y2="17" />
+              <line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+          </button>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              {t("close")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteError(null);
+                setIsEditing(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+              </svg>
+              {t("edit")}
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+
+      {isDeleteConfirmOpen && (
+        <ConfirmModal
+          title={t("deleteNoteModal.title")}
+          body={t("deleteNoteModal.body")}
+          confirmLabel={t("deleteNoteModal.confirm")}
+          cancelLabel={t("deleteNoteModal.cancel")}
+          isConfirming={isDeleting}
+          onConfirm={() => void deleteNote()}
+          onCancel={() => {
+            if (!isDeleting) setIsDeleteConfirmOpen(false);
+          }}
+        />
+      )}
+    </>
   );
 }
 

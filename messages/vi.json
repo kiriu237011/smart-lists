@@ -110,6 +110,15 @@
     "cancel": "Hủy",
     "close": "Đóng",
     "edit": "Chỉnh sửa",
+    "deleteNote": "Xóa ghi chú",
+    "deleteNoteModal": {
+      "title": "Xóa ghi chú?",
+      "body": "Bạn có chắc muốn xóa ghi chú này không? Danh sách hoặc mục sẽ không bị xóa.",
+      "cancel": "Hủy",
+      "confirm": "Xóa"
+    },
+    "deleteConflict": "Ghi chú đã được thay đổi ở nơi khác. Phiên bản mới nhất đã được tải — hãy xác nhận xóa lại.",
+    "deleteFailed": "Không thể xóa ghi chú",
     "conflict": "Ghi chú đã được thay đổi ở nơi khác. Bản nháp của bạn vẫn được giữ.",
     "loadLatest": "Tải bản mới nhất",
     "overwrite": "Lưu phiên bản của tôi",

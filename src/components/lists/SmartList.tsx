@@ -495,25 +495,25 @@ export default function SmartList({
                       </>
                     ) : (
                       <>
-                        {/* Заметка записи доступна независимо от статуса выполнения. */}
-                        <button
-                          type="button"
-                          disabled={isPending}
-                          onClick={() => {
-                            setEditingItemId(null);
-                            setOpenItemActionsId(null);
-                            setOpenNoteItemId((current) => current === item.id ? null : item.id);
-                          }}
-                          aria-label={item.note ? notesT("editItemNote") : notesT("addItemNote")}
-                          title={item.note ? notesT("editItemNote") : notesT("addItemNote")}
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded transition-colors ${
-                            item.note
-                              ? "text-indigo-500 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
-                              : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                          }`}
-                        >
-                          <NoteIcon filled={Boolean(item.note)} />
-                        </button>
+                        {/* Заполненная заметка остаётся доступна отдельной кнопкой. */}
+                        {item.note && (
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            onClick={() => {
+                              setEditingItemId(null);
+                              setOpenItemActionsId(null);
+                              setOpenNoteItemId((current) =>
+                                current === item.id ? null : item.id,
+                              );
+                            }}
+                            aria-label={notesT("editItemNote")}
+                            title={notesT("editItemNote")}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded text-indigo-500 transition-colors hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+                          >
+                            <NoteIcon filled />
+                          </button>
+                        )}
                         {/* Меню действий записи: безопасное место для удаления и будущих команд. */}
                         <div
                           ref={openItemActionsId === item.id ? itemActionsMenuRef : undefined}
@@ -560,6 +560,21 @@ export default function SmartList({
                               role="menu"
                               className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
                             >
+                              {!item.note && (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setOpenItemActionsId(null);
+                                    setOpenNoteItemId(item.id);
+                                  }}
+                                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                                >
+                                  <NoteIcon size={17} />
+                                  {notesT("addItemNote")}
+                                </button>
+                              )}
+
                               <button
                                 type="button"
                                 role="menuitem"

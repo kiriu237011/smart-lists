@@ -110,6 +110,15 @@
     "cancel": "Cancel",
     "close": "Close",
     "edit": "Edit",
+    "deleteNote": "Delete note",
+    "deleteNoteModal": {
+      "title": "Delete note?",
+      "body": "Are you sure you want to delete this note? The list or item itself will not be deleted.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "deleteConflict": "The note was changed elsewhere. The latest version has been loaded — confirm deletion again.",
+    "deleteFailed": "Failed to delete the note",
     "conflict": "This note was changed elsewhere. Your draft is still preserved.",
     "loadLatest": "Load latest",
     "overwrite": "Save my version",

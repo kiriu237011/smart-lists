@@ -25,7 +25,7 @@ import Highlight from "@/components/ui/Highlight";
 import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
 import AiInsight, { AiInsightButton } from "@/components/lists/AiInsight";
 import Attachments, { AttachmentsButton } from "@/components/lists/Attachments";
-import { ListNote, ListNoteButton } from "@/components/lists/Notes";
+import { ListNote, ListNoteButton, NoteIcon } from "@/components/lists/Notes";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -138,6 +138,7 @@ const ListCard = memo(function ListCard({
   onToggleListGroup,
 }: ListCardProps) {
   const t = useTranslations("ListsContainer");
+  const notesT = useTranslations("Notes");
 
   // Гостевой режим: шаринг, AI-инсайты и вложения требуют аккаунта/сервера —
   // соответствующий блок кнопок не рендерится вовсе
@@ -271,10 +272,10 @@ const ListCard = memo(function ListCard({
           )}
         </div>
 
-        {/* Заметка доступна всем EDITOR-участникам; меню действий — только владельцу. */}
+        {/* Заполненная заметка видна отдельно; создание пустой заметки находится в меню. */}
         {!isTemp && (
           <div className="flex items-center gap-1 flex-shrink-0">
-            {!isEditing && (
+            {!isEditing && list.note && (
               <ListNoteButton
                 note={list.note}
                 isOpen={isListNoteOpen}
@@ -282,8 +283,7 @@ const ListCard = memo(function ListCard({
               />
             )}
 
-            {isOwner && (
-              isEditing ? (
+            {isOwner && isEditing ? (
                 <>
                   <button
                     type="button"
@@ -304,7 +304,7 @@ const ListCard = memo(function ListCard({
                     ✗
                   </button>
                 </>
-              ) : (
+              ) : (!list.note || isOwner) && (
                 <div ref={actionsMenuRef} className="relative">
                   <button
                     ref={actionsMenuButtonRef}
@@ -342,40 +342,58 @@ const ListCard = memo(function ListCard({
                       role="menu"
                       className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
                     >
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={isDeleting}
-                        onClick={() => {
-                          setIsActionsMenuOpen(false);
-                          onDelete(list);
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="17"
-                          height="17"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
+                      {!list.note && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            setActivePanel(null);
+                            setIsListNoteOpen(true);
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
                         >
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M8 6V4h8v2" />
-                          <line x1="10" y1="11" x2="10" y2="17" />
-                          <line x1="14" y1="11" x2="14" y2="17" />
-                        </svg>
-                        {t("deleteListAction")}
-                      </button>
+                          <NoteIcon size={17} />
+                          {notesT("addListNote")}
+                        </button>
+                      )}
+
+                      {isOwner && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={isDeleting}
+                          onClick={() => {
+                            setIsActionsMenuOpen(false);
+                            onDelete(list);
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="17"
+                            height="17"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden
+                          >
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                            <path d="M8 6V4h8v2" />
+                            <line x1="10" y1="11" x2="10" y2="17" />
+                            <line x1="14" y1="11" x2="14" y2="17" />
+                          </svg>
+                          {t("deleteListAction")}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
               )
-            )}
+            }
           </div>
         )}
       </div>
