@@ -103,7 +103,7 @@
     "listNote": "Ghi chú của danh sách",
     "addListNote": "Thêm ghi chú cho danh sách",
     "addItemNote": "Thêm ghi chú cho mục",
-    "editItemNote": "Sửa ghi chú của mục",
+    "itemNote": "Ghi chú của mục",
     "placeholder": "Bối cảnh, chi tiết hoặc điều kiện bổ sung...",
     "save": "Lưu",
     "saving": "Đang lưu...",

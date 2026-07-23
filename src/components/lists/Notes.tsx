@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import toast from "react-hot-toast";
 import { useListsApi, type NoteActionResult } from "@/components/providers/ListsApiProvider";
 import Highlight from "@/components/ui/Highlight";
 import ConfirmModal from "@/components/ui/ConfirmModal";
@@ -44,6 +45,16 @@ type NotePanelProps = {
   onClose: () => void;
   compact?: boolean;
   searchQuery?: string;
+};
+
+type DeleteNoteModalProps = {
+  /** Актуальная версия заметки: приходит из props владельца и обновляется по realtime. */
+  version: number;
+  onSave: (note: string, expectedVersion: number) => Promise<NoteActionResult>;
+  /** Заметка удалена — владелец закрывает модал и панель заметки. */
+  onDeleted: () => void;
+  /** Отмена или неуспешное удаление — владелец закрывает только модал. */
+  onCancel: () => void;
 };
 
 /** Иконка заметки; заполненная версия показывает, что текст уже существует. */
@@ -286,69 +297,12 @@ export function NotePanel({
   const t = useTranslations("Notes");
   const [isEditing, setIsEditing] = useState(!note);
   const [displayed, setDisplayed] = useState({ note, version });
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Обновляем режим чтения и базовую версию редактора при внешнем изменении заметки.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDisplayed({ note, version });
   }, [note, version]);
-
-  const deleteNote = useCallback(async () => {
-    if (isDeleting) return;
-    setIsDeleting(true);
-    setDeleteError(null);
-
-    const result = await onSave("", displayed.version);
-    setIsDeleting(false);
-
-    if (result.success) {
-      setIsDeleteConfirmOpen(false);
-      setDisplayed({
-        note: null,
-        version: result.noteVersion ?? displayed.version,
-      });
-      onClose();
-      return;
-    }
-
-    setIsDeleteConfirmOpen(false);
-    if (result.error === "noteConflict") {
-      const currentNote = result.currentNote ?? null;
-      setDisplayed({
-        note: currentNote,
-        version: result.currentVersion ?? displayed.version,
-      });
-      if (currentNote) {
-        setDeleteError(t("deleteConflict"));
-      } else {
-        onClose();
-      }
-      return;
-    }
-
-    setDeleteError(t("deleteFailed"));
-  }, [displayed.version, isDeleting, onClose, onSave, t]);
-
-  useEffect(() => {
-    if (!isDeleteConfirmOpen) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isDeleting) {
-        event.preventDefault();
-        setIsDeleteConfirmOpen(false);
-      }
-      if (event.key === "Enter" && !isDeleting) {
-        event.preventDefault();
-        void deleteNote();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deleteNote, isDeleteConfirmOpen, isDeleting]);
 
   if (isEditing) {
     return (
@@ -377,96 +331,169 @@ export function NotePanel({
   }
 
   return (
-    <>
-      <div className={`${compact ? "mt-2" : "mt-3"} space-y-2`}>
-        <p className="whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-          <Highlight text={displayed.note ?? ""} query={searchQuery.trim()} />
-        </p>
+    <div className={`${compact ? "mt-2" : "mt-3"} space-y-2`}>
+      <p className="whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+        <Highlight text={displayed.note ?? ""} query={searchQuery.trim()} />
+      </p>
 
-        {deleteError && (
-          <p className="text-xs text-red-500 dark:text-red-400">{deleteError}</p>
-        )}
-
-        <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setDeleteError(null);
-              setIsDeleteConfirmOpen(true);
-            }}
-            aria-label={t("deleteNote")}
-            title={t("deleteNote")}
-            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+      {/* Удаление заметки живёт в меню действий списка или записи. */}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          {t("close")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setIsEditing(true)}
+          className="inline-flex items-center gap-1.5 rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6l-1 14H6L5 6" />
-              <path d="M8 6V4h8v2" />
-              <line x1="10" y1="11" x2="10" y2="17" />
-              <line x1="14" y1="11" x2="14" y2="17" />
-            </svg>
-          </button>
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-            >
-              {t("close")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setDeleteError(null);
-                setIsEditing(true);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="13"
-                height="13"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M12 20h9" />
-                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
-              </svg>
-              {t("edit")}
-            </button>
-          </div>
-        </div>
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+          </svg>
+          {t("edit")}
+        </button>
       </div>
+    </div>
+  );
+}
 
-      {isDeleteConfirmOpen && (
-        <ConfirmModal
-          title={t("deleteNoteModal.title")}
-          body={t("deleteNoteModal.body")}
-          confirmLabel={t("deleteNoteModal.confirm")}
-          cancelLabel={t("deleteNoteModal.cancel")}
-          isConfirming={isDeleting}
-          onConfirm={() => void deleteNote()}
-          onCancel={() => {
-            if (!isDeleting) setIsDeleteConfirmOpen(false);
-          }}
-        />
-      )}
-    </>
+/** Иконка корзины для пунктов меню и кнопок удаления. */
+export function TrashIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M8 6V4h8v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
+  );
+}
+
+/**
+ * Иконка удаления заметки: тот же лист, что и у `NoteIcon`, но с перечёркнутым
+ * содержимым. Отличается от корзины, чтобы пункт меню не путали с удалением
+ * самого списка или записи.
+ */
+export function NoteRemoveIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="9.5" y1="13" x2="14.5" y2="18" />
+      <line x1="14.5" y1="13" x2="9.5" y2="18" />
+    </svg>
+  );
+}
+
+/**
+ * Подтверждение удаления заметки. Вызывается из меню действий списка или записи,
+ * поэтому рендерится вне выпадающего меню — иначе закрытие меню сняло бы модал.
+ *
+ * Удаление — это сохранение пустого текста с ожидаемой версией, поэтому здесь
+ * действует та же проверка optimistic concurrency, что и в редакторе.
+ */
+export function DeleteNoteModal({
+  version,
+  onSave,
+  onDeleted,
+  onCancel,
+}: DeleteNoteModalProps) {
+  const t = useTranslations("Notes");
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const deleteNote = useCallback(async () => {
+    if (isDeleting) return;
+    setIsDeleting(true);
+
+    const result = await onSave("", version);
+    setIsDeleting(false);
+
+    if (result.success) {
+      onDeleted();
+      return;
+    }
+
+    if (result.error === "noteConflict") {
+      // Заметку уже удалили в другом месте — цель достигнута.
+      if (!result.currentNote) {
+        onDeleted();
+        return;
+      }
+      // Актуальный текст и версия придут через realtime; повтор удалит свежую заметку.
+      toast.error(t("deleteConflict"));
+      onCancel();
+      return;
+    }
+
+    toast.error(t("deleteFailed"));
+    onCancel();
+  }, [isDeleting, onCancel, onDeleted, onSave, t, version]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isDeleting) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void deleteNote();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteNote, isDeleting, onCancel]);
+
+  return (
+    <ConfirmModal
+      title={t("deleteNoteModal.title")}
+      body={t("deleteNoteModal.body")}
+      confirmLabel={t("deleteNoteModal.confirm")}
+      cancelLabel={t("deleteNoteModal.cancel")}
+      isConfirming={isDeleting}
+      onConfirm={() => void deleteNote()}
+      onCancel={() => {
+        if (!isDeleting) onCancel();
+      }}
+    />
   );
 }
 

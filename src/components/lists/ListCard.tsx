@@ -25,7 +25,14 @@ import Highlight from "@/components/ui/Highlight";
 import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
 import AiInsight, { AiInsightButton } from "@/components/lists/AiInsight";
 import Attachments, { AttachmentsButton } from "@/components/lists/Attachments";
-import { ListNote, ListNoteButton, NoteIcon } from "@/components/lists/Notes";
+import {
+  DeleteNoteModal,
+  ListNote,
+  ListNoteButton,
+  NoteIcon,
+  NoteRemoveIcon,
+  TrashIcon,
+} from "@/components/lists/Notes";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -142,7 +149,8 @@ const ListCard = memo(function ListCard({
 
   // Гостевой режим: шаринг, AI-инсайты и вложения требуют аккаунта/сервера —
   // соответствующий блок кнопок не рендерится вовсе
-  const { isGuest } = useListsApi();
+  const api = useListsApi();
+  const { isGuest } = api;
 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -153,6 +161,8 @@ const ListCard = memo(function ListCard({
   const [activePanel, setActivePanel] = useState<"ai" | "share" | "files" | null>(null);
   const [isListNoteOpen, setIsListNoteOpen] = useState(false);
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  // Подтверждение удаления заметки списка вызывается из меню действий.
+  const [isNoteDeleteOpen, setIsNoteDeleteOpen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const actionsMenuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -304,7 +314,7 @@ const ListCard = memo(function ListCard({
                     ✗
                   </button>
                 </>
-              ) : (!list.note || isOwner) && (
+              ) : (
                 <div ref={actionsMenuRef} className="relative">
                   <button
                     ref={actionsMenuButtonRef}
@@ -358,36 +368,44 @@ const ListCard = memo(function ListCard({
                         </button>
                       )}
 
-                      {isOwner && (
+                      {/* Удаление заметки доступно всем, кто может её редактировать.
+                          Пункт нейтральный: он затрагивает только заметку, а красный
+                          акцент оставлен удалению самого списка. */}
+                      {list.note && (
                         <button
                           type="button"
                           role="menuitem"
-                          disabled={isDeleting}
                           onClick={() => {
                             setIsActionsMenuOpen(false);
-                            onDelete(list);
+                            setIsNoteDeleteOpen(true);
                           }}
-                          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
                         >
-                          <svg
-                            viewBox="0 0 24 24"
-                            width="17"
-                            height="17"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden
-                          >
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14H6L5 6" />
-                            <path d="M8 6V4h8v2" />
-                            <line x1="10" y1="11" x2="10" y2="17" />
-                            <line x1="14" y1="11" x2="14" y2="17" />
-                          </svg>
-                          {t("deleteListAction")}
+                          <NoteRemoveIcon />
+                          {notesT("deleteNote")}
                         </button>
+                      )}
+
+                      {isOwner && (
+                        <>
+                          <div
+                            role="separator"
+                            className="my-1 h-px bg-gray-100 dark:bg-zinc-700"
+                          />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={isDeleting}
+                            onClick={() => {
+                              setIsActionsMenuOpen(false);
+                              onDelete(list);
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                          >
+                            <TrashIcon />
+                            {t("deleteListAction")}
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
@@ -602,6 +620,20 @@ const ListCard = memo(function ListCard({
             {t("unsubscribe")}
           </button>
         </div>
+      )}
+
+      {isNoteDeleteOpen && (
+        <DeleteNoteModal
+          version={list.noteVersion}
+          onSave={(draft, expectedVersion) =>
+            api.updateListNote(list.id, draft, expectedVersion)
+          }
+          onDeleted={() => {
+            setIsNoteDeleteOpen(false);
+            setIsListNoteOpen(false);
+          }}
+          onCancel={() => setIsNoteDeleteOpen(false)}
+        />
       )}
     </div>
   );

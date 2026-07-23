@@ -103,7 +103,7 @@
     "listNote": "リストのメモ",
     "addListNote": "リストにメモを追加",
     "addItemNote": "項目にメモを追加",
-    "editItemNote": "項目のメモを編集",
+    "itemNote": "項目のメモ",
     "placeholder": "補足情報、詳細、条件など...",
     "save": "保存",
     "saving": "保存中...",

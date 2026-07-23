@@ -103,7 +103,7 @@
     "listNote": "List note",
     "addListNote": "Add a list note",
     "addItemNote": "Add an item note",
-    "editItemNote": "Edit item note",
+    "itemNote": "Item note",
     "placeholder": "Additional context, details, or conditions...",
     "save": "Save",
     "saving": "Saving...",

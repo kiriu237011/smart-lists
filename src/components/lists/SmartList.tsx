@@ -36,7 +36,13 @@ import { useListsApi } from "@/components/providers/ListsApiProvider";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
 import Highlight from "@/components/ui/Highlight";
-import { NoteIcon, NotePanel } from "@/components/lists/Notes";
+import {
+  DeleteNoteModal,
+  NoteIcon,
+  NotePanel,
+  NoteRemoveIcon,
+  TrashIcon,
+} from "@/components/lists/Notes";
 import { getNoteExcerpt } from "@/lib/notes";
 
 // ---------------------------------------------------------------------------
@@ -182,6 +188,9 @@ export default function SmartList({
   /** ID записи с раскрытой заметкой. */
   const [openNoteItemId, setOpenNoteItemId] = useState<string | null>(null);
 
+  /** ID записи, заметку которой подтверждают к удалению из меню действий. */
+  const [noteToDeleteItemId, setNoteToDeleteItemId] = useState<string | null>(null);
+
   /** ID записи с открытым меню действий. */
   const [openItemActionsId, setOpenItemActionsId] = useState<string | null>(null);
   const itemActionsMenuRef = useRef<HTMLDivElement>(null);
@@ -307,6 +316,13 @@ export default function SmartList({
       processingItemRenameRef.current = false;
     }
   };
+
+  /**
+   * Запись, заметку которой подтверждают к удалению.
+   * Берём её из актуального массива, чтобы удалять с последней известной версией.
+   */
+  const noteDeleteItem =
+    optimisticItems.find((item) => item.id === noteToDeleteItemId) ?? null;
 
   return (
     <>
@@ -507,8 +523,9 @@ export default function SmartList({
                                 current === item.id ? null : item.id,
                               );
                             }}
-                            aria-label={notesT("editItemNote")}
-                            title={notesT("editItemNote")}
+                            aria-label={notesT("itemNote")}
+                            title={notesT("itemNote")}
+                            aria-expanded={openNoteItemId === item.id}
                             className="inline-flex h-7 w-7 items-center justify-center rounded text-indigo-500 transition-colors hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
                           >
                             <NoteIcon filled />
@@ -575,6 +592,28 @@ export default function SmartList({
                                 </button>
                               )}
 
+                              {/* Удаление заметки записи — без удаления самой записи,
+                                  поэтому пункт нейтральный, а не красный. */}
+                              {item.note && (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setOpenItemActionsId(null);
+                                    setNoteToDeleteItemId(item.id);
+                                  }}
+                                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                                >
+                                  <NoteRemoveIcon />
+                                  {notesT("deleteNote")}
+                                </button>
+                              )}
+
+                              <div
+                                role="separator"
+                                className="my-1 h-px bg-gray-100 dark:bg-zinc-700"
+                              />
+
                               <button
                                 type="button"
                                 role="menuitem"
@@ -584,23 +623,7 @@ export default function SmartList({
                                 }}
                                 className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                               >
-                                <svg
-                                  viewBox="0 0 24 24"
-                                  width="17"
-                                  height="17"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden
-                                >
-                                  <polyline points="3 6 5 6 21 6" />
-                                  <path d="M19 6l-1 14H6L5 6" />
-                                  <path d="M8 6V4h8v2" />
-                                  <line x1="10" y1="11" x2="10" y2="17" />
-                                  <line x1="14" y1="11" x2="14" y2="17" />
-                                </svg>
+                                <TrashIcon />
                                 {t("deleteItemAction")}
                               </button>
                             </div>
@@ -753,6 +776,23 @@ export default function SmartList({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Подтверждение удаления заметки записи: вызывается из меню действий. */}
+      {noteDeleteItem && (
+        <DeleteNoteModal
+          version={noteDeleteItem.noteVersion}
+          onSave={(draft, expectedVersion) =>
+            api.updateItemNote(noteDeleteItem.id, draft, expectedVersion)
+          }
+          onDeleted={() => {
+            setNoteToDeleteItemId(null);
+            setOpenNoteItemId((current) =>
+              current === noteDeleteItem.id ? null : current,
+            );
+          }}
+          onCancel={() => setNoteToDeleteItemId(null)}
+        />
       )}
     </>
   );
