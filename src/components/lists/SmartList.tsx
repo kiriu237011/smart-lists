@@ -165,12 +165,15 @@ function GripIcon({ size = 16 }: { size?: number }) {
 function DraggableItemRow({
   item,
   className,
+  isDragActive,
   onDragStart,
   onDragEnd,
   children,
 }: {
   item: Item;
   className: string;
+  /** Идёт ли перетаскивание хоть какой-нибудь записи в этом списке. */
+  isDragActive: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   children: (dragControls: DragControls) => ReactNode;
@@ -181,6 +184,31 @@ function DraggableItemRow({
     <Reorder.Item
       as="li"
       value={item}
+      // Только позиция, без размеров. По умолчанию Reorder.Item ставит
+      // layout={true} и анимирует в том числе высоту — а высота строки меняется
+      // при раскрытии заметки. Framer анимирует размер через scale, поэтому
+      // содержимое строки на время анимации сплющивалось и растягивалось.
+      // "position" оставляет плавным переезд строк при перетаскивании и убирает
+      // искажение: изменение высоты происходит мгновенно.
+      layout="position"
+      // Анимация переезда строк нужна ТОЛЬКО во время перетаскивания.
+      //
+      // Вне жеста высота строк меняется сама по себе: раскрылась заметка,
+      // название перенеслось на вторую строку, показался сниппет поиска.
+      // `layout="position"` применяет новую высоту мгновенно, а позицию соседей
+      // тянет анимацией — и пока она идёт, соседняя строка стоит на старом
+      // месте и налезает на выросшую. Никакая длительность это не лечит,
+      // короткая пружина лишь укорачивает окно наложения.
+      //
+      // Поэтому вне жеста layout отрабатывает мгновенно (duration: 0) — список
+      // перестраивается ровно так же, как обычный ul без анимаций. Во время
+      // жеста включается пружина: там высоты не меняются, накладываться нечему,
+      // а плавный разъезд соседей как раз и показывает, куда встанет запись.
+      transition={{
+        layout: isDragActive
+          ? { type: "spring", stiffness: 700, damping: 50, mass: 0.5 }
+          : { duration: 0 },
+      }}
       dragListener={false}
       dragControls={dragControls}
       onDragStart={onDragStart}
@@ -1125,6 +1153,7 @@ export default function SmartList({
                 key={item.id}
                 item={item}
                 className={rowClassName(item)}
+                isDragActive={draggingItemId !== null}
                 onDragStart={() => handleDragStart(item)}
                 onDragEnd={() => handleDragEnd(item)}
               >
