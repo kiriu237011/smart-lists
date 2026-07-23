@@ -8,12 +8,24 @@ import { useTranslations } from "next-intl";
  * Используется внутри HeaderSettings (и на мобильном, и на десктопе).
  */
 export default function SettingsToggles() {
-  const { showAuthors, toggleShowAuthors, showScrollToTop, toggleShowScrollToTop } = useSettings();
+  const {
+    showAuthors,
+    toggleShowAuthors,
+    showScrollToTop,
+    toggleShowScrollToTop,
+    showItemNumbers,
+    toggleShowItemNumbers,
+  } = useSettings();
   const t = useTranslations("Settings");
 
   return (
     <div className="flex flex-col gap-3">
       <SettingToggle label={t("showAuthors")} checked={showAuthors} onChange={toggleShowAuthors} />
+      <SettingToggle
+        label={t("showItemNumbers")}
+        checked={showItemNumbers}
+        onChange={toggleShowItemNumbers}
+      />
       <SettingToggle label={t("scrollToTop")} checked={showScrollToTop} onChange={toggleShowScrollToTop} />
     </div>
   );

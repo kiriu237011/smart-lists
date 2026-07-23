@@ -30,6 +30,7 @@ import { ZodError } from "zod";
 import {
   createItemSchema,
   renameItemSchema,
+  moveItemSchema,
   createListSchema,
   renameListSchema,
   createGroupSchema,
@@ -69,7 +70,13 @@ const storedListSchema = z.object({
   noteVersion: z.number().int().nonnegative().optional(),
   /** ID групп, к которым привязан список. */
   groupIds: z.array(z.string()),
-  /** Записи в порядке добавления (как orderBy createdAt asc на сервере). */
+  /**
+   * Записи в порядке отображения. У гостя порядок задаёт сам массив, поле
+   * position не нужно: сервер хранит дробную позицию только потому, что там
+   * порядок нужно восстанавливать из реляционной выборки и защищать от гонок
+   * между участниками. Контракт с компонентами при этом одинаковый —
+   * в `SmartList` массив записей всегда приходит уже упорядоченным.
+   */
   items: z.array(storedItemSchema),
 });
 
@@ -368,6 +375,51 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         for (const list of data.lists) {
           list.items = list.items.filter((i) => i.id !== itemId);
         }
+        return { success: true };
+      });
+    },
+
+    /**
+     * Перемещение записи у гостя — это перестановка в массиве: порядок
+     * элементов и есть порядок отображения, отдельного поля position тут нет.
+     * Контракт с UI тот же, что у серверной реализации.
+     */
+    moveItem: async (itemId, previousItemId, nextItemId) => {
+      const parsed = moveItemSchema.safeParse({ itemId, previousItemId, nextItemId });
+      if (!parsed.success) {
+        return { success: false, error: getValidationError(parsed.error) };
+      }
+      return mutate((data) => {
+        const list = data.lists.find((l) =>
+          l.items.some((i) => i.id === parsed.data.itemId),
+        );
+        if (!list) return { success: false, error: "Запись не найдена" };
+
+        // Сначала изымаем запись: соседи ищутся уже в массиве без неё, иначе
+        // индекс вставки съедет на единицу при движении вниз.
+        const currentIndex = list.items.findIndex((i) => i.id === parsed.data.itemId);
+        const [moved] = list.items.splice(currentIndex, 1);
+
+        let insertAt: number;
+        if (parsed.data.previousItemId) {
+          const previousIndex = list.items.findIndex(
+            (i) => i.id === parsed.data.previousItemId,
+          );
+          // Сосед пропал — представление UI устарело. mutate не сохранит
+          // изменения при ошибке, поэтому восстанавливать массив не нужно.
+          if (previousIndex === -1) return { success: false, error: "stale" };
+          insertAt = previousIndex + 1;
+        } else if (parsed.data.nextItemId) {
+          const nextIndex = list.items.findIndex(
+            (i) => i.id === parsed.data.nextItemId,
+          );
+          if (nextIndex === -1) return { success: false, error: "stale" };
+          insertAt = nextIndex;
+        } else {
+          insertAt = list.items.length;
+        }
+
+        list.items.splice(insertAt, 0, moved);
         return { success: true };
       });
     },

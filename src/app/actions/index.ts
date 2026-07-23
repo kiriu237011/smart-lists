@@ -32,6 +32,7 @@ import {
   removeSharedUserSchema,
   renameListSchema,
   renameItemSchema,
+  moveItemSchema,
   createGroupSchema,
   deleteGroupSchema,
   renameGroupSchema,
@@ -53,6 +54,12 @@ import {
   listInSpaceWhere,
 } from "@/lib/spaces";
 import { normalizeNote } from "@/lib/notes";
+
+/**
+ * Шаг между позициями записей при добавлении в конец списка.
+ * Величина произвольна: значимо только сравнение позиций между собой.
+ */
+const POSITION_STEP = 1;
 
 /** Возвращает код ошибки валидации: "tooLong" при превышении длины, иначе "validationError". */
 function getValidationError(error: ZodError): string {
@@ -106,18 +113,33 @@ export async function addItem(formData: FormData) {
       return { success: false, error: getValidationError(result.error) };
     }
 
-    // Проверяем, что пользователь является владельцем или участником списка
+    // Проверяем, что пользователь является владельцем или участником списка.
+    // Заодно забираем максимальную позицию в списке: новая запись встаёт в
+    // конец. Отдельным запросом это стоило бы лишнего round-trip до БД,
+    // поэтому берём его тем же запросом, что и проверку доступа.
     const list = await prisma.list.findFirst({
       where: {
         id: result.data.listId,
         ...listInSpaceWhere(session.user.id, space.id),
       },
-      select: { id: true },
+      select: {
+        id: true,
+        items: {
+          orderBy: { position: "desc" },
+          take: 1,
+          select: { position: true },
+        },
+      },
     });
 
     if (!list) {
       return { success: false, error: "Список не найден" };
     }
+
+    // Два одновременных добавления могут прочитать один и тот же максимум и
+    // получить равные позиции. Это допустимо: порядок доопределяет тайбрейк по
+    // createdAt и id при выборке, список не ломается.
+    const position = (list.items[0]?.position ?? 0) + POSITION_STEP;
 
     // После safeParse TypeScript точно знает, что result.data.itemName — string
     await prisma.item.create({
@@ -125,6 +147,7 @@ export async function addItem(formData: FormData) {
         name: result.data.itemName,
         listId: result.data.listId,
         addedById: session.user.id,
+        position,
       },
     });
 
@@ -311,6 +334,150 @@ export async function renameItem(formData: FormData) {
   } catch (error) {
     logger.error({ error: error }, "Ошибка при переименовании записи:");
     return { success: false, error: "Не удалось переименовать запись" };
+  }
+}
+
+/**
+ * Перемещает запись внутри списка.
+ *
+ * Клиент присылает ID новых соседей, а не целевой индекс: индекс мог устареть,
+ * пока другой участник добавлял или удалял записи. Позиции соседей читаются
+ * из БД — присланным клиентом значениям доверять нельзя.
+ *
+ * Обычный путь пишет ОДНУ строку: новая позиция это середина между позициями
+ * соседей. Перенумерация всего списка выполняется только в вырожденном случае,
+ * когда дробное деление исчерпало точность double (см. ниже).
+ *
+ * @param formData - FormData с полями:
+ *   - `itemId`         {string} — ID перемещаемой записи.
+ *   - `previousItemId` {string} — ID записи, после которой встать ("" — в начало).
+ *   - `nextItemId`     {string} — ID записи, перед которой встать ("" — в конец).
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function moveItem(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+
+    const result = moveItemSchema.safeParse({
+      itemId: formData.get("itemId"),
+      // FormData не умеет передавать null: пустая строка означает край списка.
+      previousItemId: formData.get("previousItemId") || null,
+      nextItemId: formData.get("nextItemId") || null,
+    });
+
+    if (!result.success) {
+      logger.error({ error: result.error }, "Validation Error:");
+      return { success: false, error: getValidationError(result.error) };
+    }
+
+    const { itemId, previousItemId, nextItemId } = result.data;
+
+    // Один запрос закрывает сразу три задачи: проверку доступа к списку,
+    // проверку принадлежности соседей ЭТОМУ ЖЕ списку и получение позиций.
+    // Условие items.some гарантирует, что перемещаемая запись лежит здесь же.
+    const list = await prisma.list.findFirst({
+      where: {
+        items: { some: { id: itemId } },
+        ...listInSpaceWhere(session.user.id, space.id),
+      },
+      select: {
+        id: true,
+        items: {
+          orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+          select: { id: true, position: true },
+        },
+      },
+    });
+
+    if (!list) {
+      return { success: false, error: "Запись не найдена" };
+    }
+
+    // `?? null` приводит «сосед не запрошен» и «сосед не найден» к одному типу:
+    // различает их проверка ниже, а дальше по коду null означает край списка.
+    const previous = previousItemId
+      ? (list.items.find((item) => item.id === previousItemId) ?? null)
+      : null;
+    const next = nextItemId
+      ? (list.items.find((item) => item.id === nextItemId) ?? null)
+      : null;
+
+    // Сосед не найден — другой участник успел удалить запись, и представление
+    // клиента устарело. Переставить «примерно куда просили» хуже, чем отказать:
+    // клиент откатит оптимистичное перемещение и покажет актуальный порядок.
+    if ((previousItemId && !previous) || (nextItemId && !next)) {
+      return { success: false, error: "stale" };
+    }
+
+    // Записи уже отсортированы по позиции, поэтому края берутся без обхода.
+    const lowestPosition = list.items[0].position;
+    const highestPosition = list.items[list.items.length - 1].position;
+
+    let newPosition: number;
+    if (previous && next) {
+      newPosition = (previous.position + next.position) / 2;
+    } else if (previous) {
+      newPosition = highestPosition + POSITION_STEP;
+    } else if (next) {
+      newPosition = lowestPosition - POSITION_STEP;
+    } else {
+      // Соседей нет вовсе: в списке одна запись, двигать её некуда.
+      return { success: true };
+    }
+
+    // Середина не легла строго между соседями — double исчерпал мантиссу.
+    // Практически недостижимо (нужно ~50 вставок подряд между одной и той же
+    // парой), но молча получить одинаковые позиции нельзя, поэтому здесь
+    // список перенумеровывается целиком. Проверка идёт по факту, а не по
+    // произвольному эпсилону: так она верна при любых значениях позиций.
+    const needsRebalance =
+      previous !== null &&
+      next !== null &&
+      (newPosition <= previous.position || newPosition >= next.position);
+
+    if (needsRebalance) {
+      const reordered = list.items.filter((item) => item.id !== itemId);
+      const insertAt = previous
+        ? reordered.findIndex((item) => item.id === previous.id) + 1
+        : 0;
+      reordered.splice(insertAt, 0, { id: itemId, position: newPosition });
+
+      await prisma.$transaction(
+        reordered.map((item, index) =>
+          prisma.item.update({
+            where: { id: item.id },
+            data: { position: (index + 1) * POSITION_STEP },
+          }),
+        ),
+      );
+      logger.info(
+        { uid: hashId(session.user.id), listId: list.id, action: "moveItem" },
+        "Позиции записей перенумерованы: исчерпана точность дробной позиции",
+      );
+    } else {
+      await prisma.item.update({
+        where: { id: itemId },
+        data: { position: newPosition },
+      });
+    }
+
+    revalidatePath("/", "layout");
+    // Уведомление после ответа (after), без эха вкладке автора (socketId)
+    const socketId = formData.get("socketId");
+    after(() => notifyListMembers(list.id, socketId));
+    logger.info(
+      { uid: hashId(session.user.id), listId: list.id, action: "moveItem" },
+      "Запись перемещена",
+    );
+    return { success: true };
+  } catch (error) {
+    logger.error({ error: error }, "Ошибка при перемещении записи:");
+    return { success: false, error: "Не удалось переместить запись" };
   }
 }
 

@@ -21,6 +21,7 @@ import {
   deleteItem,
   toggleItem,
   renameItem,
+  moveItem,
   updateItemNote,
   createList,
   deleteList,
@@ -80,6 +81,18 @@ export default function ServerListsApiProvider({
       deleteItem: async (itemId) => deleteItem(buildFormData({ itemId }, spaceId)),
       toggleItem: async (itemId, isCompleted) =>
         toggleItem(buildFormData({ itemId, isCompleted: isCompleted.toString() }, spaceId)),
+      moveItem: async (itemId, previousItemId, nextItemId) =>
+        // FormData не умеет null: край списка передаётся пустой строкой.
+        moveItem(
+          buildFormData(
+            {
+              itemId,
+              previousItemId: previousItemId ?? "",
+              nextItemId: nextItemId ?? "",
+            },
+            spaceId,
+          ),
+        ),
 
       // ---- Группы ----
       createGroup: async (name) => createGroup(buildFormData({ name }, spaceId)),

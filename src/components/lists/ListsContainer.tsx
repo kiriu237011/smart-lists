@@ -45,6 +45,7 @@ import { useTranslations } from "next-intl";
 import { useSettings } from "@/components/providers/SettingsProvider";
 import { useRouter } from "next/navigation";
 import { getPusherClient } from "@/lib/pusher-client";
+import { deferRefreshWhileDragging } from "@/lib/drag-gate";
 import { randomUUID } from "@/lib/uuid";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
 import ListsTopPanel from "@/components/lists/ListsTopPanel";
@@ -88,7 +89,7 @@ export default function ListsContainer({
 }: ListsContainerProps) {
   const t = useTranslations("ListsContainer");
   const router = useRouter();
-  const { showAuthors } = useSettings();
+  const { showAuthors, showItemNumbers } = useSettings();
 
   // Адаптер операций: Server Actions (авторизованный) или localStorage (гость)
   const api = useListsApi();
@@ -186,6 +187,9 @@ export default function ListsContainer({
     const channel = client.subscribe(`private-user-${currentUserId}`);
 
     channel.bind("refresh", () => {
+      // Во время перетаскивания записи обновление откладывается до отпускания:
+      // перерисовка дерева посреди жеста сорвала бы его (см. drag-gate.ts).
+      if (deferRefreshWhileDragging(() => router.refresh())) return;
       router.refresh();
     });
 
@@ -297,8 +301,15 @@ export default function ListsContainer({
 
   /**
    * Отфильтрованные списки: сначала по группе, затем по поисковому запросу.
+   *
+   * Важно: при совпадении по записям список отдаётся с ПОЛНЫМ набором записей,
+   * а совпавшие ID возвращаются отдельной картой `matchedItemIds`. Раньше здесь
+   * подменялся сам массив `items`, но тогда `SmartList` не может посчитать
+   * настоящий номер записи: под поиском пункт №7 показался бы как №1.
+   * Скрытием несовпавших записей занимается `SmartList`, а нумерует он их
+   * по полному списку.
    */
-  const filteredLists = useMemo(() => {
+  const { lists: filteredLists, matchedItemIds } = useMemo(() => {
     // Шаг 1: фильтр по активной группе
     const groupFiltered = activeGroupId
       ? uniqueLists.filter((list) =>
@@ -308,9 +319,13 @@ export default function ListsContainer({
 
     // Шаг 2: фильтр по поисковому запросу
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return groupFiltered;
+    if (!q) return { lists: groupFiltered, matchedItemIds: null };
 
-    return groupFiltered.reduce<typeof groupFiltered>((acc, list) => {
+    // Список отсутствует в карте => показываем все его записи (совпало
+    // название или общая заметка). Есть в карте => показываем только совпавшие.
+    const matches = new Map<string, Set<string>>();
+
+    const lists = groupFiltered.reduce<typeof groupFiltered>((acc, list) => {
       const titleMatches = list.title.toLocaleLowerCase().includes(q);
       const listNoteMatches = list.note?.toLocaleLowerCase().includes(q) ?? false;
 
@@ -325,11 +340,14 @@ export default function ListsContainer({
             (item.note?.toLocaleLowerCase().includes(q) ?? false),
         );
         if (matchedItems.length > 0) {
-          acc.push({ ...list, items: matchedItems });
+          matches.set(list.id, new Set(matchedItems.map((item) => item.id)));
+          acc.push(list);
         }
       }
       return acc;
     }, []);
+
+    return { lists, matchedItemIds: matches };
   }, [uniqueLists, searchQuery, activeGroupId]);
 
   // -------------------------------------------------------------------------
@@ -782,6 +800,8 @@ export default function ListsContainer({
                     currentUserName={currentUserName}
                     currentUserEmail={currentUserEmail}
                     showAuthors={showAuthors}
+                    showItemNumbers={showItemNumbers}
+                    visibleItemIds={matchedItemIds?.get(list.id) ?? null}
                     isDeleting={isDeleting}
                     isLeaving={isLeaving}
                     onRename={handleRename}

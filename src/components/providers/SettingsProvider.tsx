@@ -7,6 +7,8 @@ type SettingsContextType = {
   toggleShowAuthors: () => void;
   showScrollToTop: boolean;
   toggleShowScrollToTop: () => void;
+  showItemNumbers: boolean;
+  toggleShowItemNumbers: () => void;
 };
 
 export const SettingsContext = createContext<SettingsContextType>({
@@ -14,6 +16,8 @@ export const SettingsContext = createContext<SettingsContextType>({
   toggleShowAuthors: () => {},
   showScrollToTop: true,
   toggleShowScrollToTop: () => {},
+  showItemNumbers: false,
+  toggleShowItemNumbers: () => {},
 });
 
 /**
@@ -23,12 +27,16 @@ export const SettingsContext = createContext<SettingsContextType>({
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [showAuthors, setShowAuthors] = useState(false);
   const [showScrollToTop, setShowScrollToTop] = useState(true);
+  // Нумерация записей выключена по умолчанию: сам порядок хранится всегда,
+  // а цифры — опциональное отображение.
+  const [showItemNumbers, setShowItemNumbers] = useState(false);
 
   // Читаем из localStorage только после гидрации, чтобы избежать расхождения SSR/CSR.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setShowAuthors(localStorage.getItem("showAuthors") === "true");
     setShowScrollToTop(localStorage.getItem("showScrollToTop") !== "false");
+    setShowItemNumbers(localStorage.getItem("showItemNumbers") === "true");
   }, []);
 
   const toggleShowAuthors = () => {
@@ -47,9 +55,24 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const toggleShowItemNumbers = () => {
+    setShowItemNumbers((prev) => {
+      const next = !prev;
+      localStorage.setItem("showItemNumbers", String(next));
+      return next;
+    });
+  };
+
   return (
     <SettingsContext.Provider
-      value={{ showAuthors, toggleShowAuthors, showScrollToTop, toggleShowScrollToTop }}
+      value={{
+        showAuthors,
+        toggleShowAuthors,
+        showScrollToTop,
+        toggleShowScrollToTop,
+        showItemNumbers,
+        toggleShowItemNumbers,
+      }}
     >
       {children}
     </SettingsContext.Provider>

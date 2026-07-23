@@ -70,6 +70,7 @@
   },
   "Settings": {
     "showAuthors": "Hiển thị tác giả",
+    "showItemNumbers": "Đánh số mục",
     "scrollToTop": "Nút «Lên đầu»"
   },
   "GroupFilter": {
@@ -86,6 +87,8 @@
     "ariaRename": "Đổi tên ghi chú {name}",
     "ariaDelete": "Xóa ghi chú {name}",
     "ariaItemActions": "Thao tác cho mục {name}",
+    "moveUp": "Di chuyển lên",
+    "moveDown": "Di chuyển xuống",
     "deleteItemAction": "Xóa mục",
     "deleteModal": {
       "title": "Xóa ghi chú?",
@@ -96,7 +99,8 @@
     "errors": {
       "renameFailed": "Không thể đổi tên ghi chú",
       "addFailed": "Không thể thêm ghi chú",
-      "tooLong": "Tên quá dài (tối đa 200 ký tự)"
+      "tooLong": "Tên quá dài (tối đa 200 ký tự)",
+      "moveFailed": "Không thể di chuyển mục"
     }
   },
   "Notes": {

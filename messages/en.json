@@ -70,6 +70,7 @@
   },
   "Settings": {
     "showAuthors": "Item authors",
+    "showItemNumbers": "Item numbering",
     "scrollToTop": "\"Back to top\" button"
   },
   "GroupFilter": {
@@ -86,6 +87,8 @@
     "ariaRename": "Rename item {name}",
     "ariaDelete": "Delete item {name}",
     "ariaItemActions": "Actions for item {name}",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
     "deleteItemAction": "Delete item",
     "deleteModal": {
       "title": "Delete item?",
@@ -96,7 +99,8 @@
     "errors": {
       "renameFailed": "Failed to rename the item",
       "addFailed": "Failed to add the item",
-      "tooLong": "The name is too long (200 characters max)"
+      "tooLong": "The name is too long (200 characters max)",
+      "moveFailed": "Failed to move the item"
     }
   },
   "Notes": {

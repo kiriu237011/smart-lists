@@ -98,6 +98,14 @@ export type ListCardProps = {
   currentUserName: string | null;
   currentUserEmail: string;
   showAuthors: boolean;
+  /** Показывать ли порядковые номера записей (тумблер в настройках). */
+  showItemNumbers: boolean;
+  /**
+   * ID записей, совпавших с поиском. null — показывать все записи списка.
+   * Фильтрацией занимается `SmartList`, чтобы нумеровать записи по полному
+   * списку, а не по совпавшему подмножеству.
+   */
+  visibleItemIds: Set<string> | null;
   isDeleting: boolean;
   isLeaving: boolean;
   onRename: (listId: string, newTitle: string, originalList: ListData) => Promise<void>;
@@ -135,6 +143,8 @@ const ListCard = memo(function ListCard({
   currentUserName,
   currentUserEmail,
   showAuthors,
+  showItemNumbers,
+  visibleItemIds,
   isDeleting,
   isLeaving,
   onRename,
@@ -446,6 +456,8 @@ const ListCard = memo(function ListCard({
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail}
           showAuthors={showAuthors}
+          showItemNumbers={showItemNumbers}
+          visibleItemIds={visibleItemIds}
           searchQuery={searchQuery}
         />
       )}

@@ -41,7 +41,10 @@ export default async function ListsDataFetcher({
         ownerId: true,
         owner: { select: { name: true, email: true } },
         items: {
-          orderBy: { createdAt: "asc" },
+          // Порядок задаёт position. createdAt и id — тайбрейк на случай, когда
+          // две записи получили одинаковую позицию (конкурентное добавление):
+          // порядок остаётся детерминированным, а не «как ляжет».
+          orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
           select: {
             id: true,
             name: true,

@@ -69,6 +69,19 @@ export type ListsApi = {
   updateItemNote: (itemId: string, note: string, expectedVersion: number) => Promise<NoteActionResult>;
   deleteItem: (itemId: string) => Promise<void>;
   toggleItem: (itemId: string, isCompleted: boolean) => Promise<void>;
+  /**
+   * Перемещает запись между двумя соседями. null означает край списка:
+   * previousItemId = null — в начало, nextItemId = null — в конец.
+   *
+   * Соседи, а не индекс: индекс мог устареть, пока другой участник менял
+   * список. У гостя порядок задаёт сам массив в localStorage, на сервере —
+   * дробная позиция в БД; для вызывающего кода разницы нет.
+   */
+  moveItem: (
+    itemId: string,
+    previousItemId: string | null,
+    nextItemId: string | null,
+  ) => Promise<ActionResult>;
 
   // ---- Группы ----
   createGroup: (name: string) => Promise<CreateGroupResult>;

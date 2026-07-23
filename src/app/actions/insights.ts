@@ -102,7 +102,9 @@ export async function getListInsight(
   const [baseItems, noteCandidates, totalItemNotes] = await Promise.all([
     prisma.item.findMany({
       where: { listId },
-      orderBy: [{ isCompleted: "asc" }, { createdAt: "asc" }],
+      // Тот же порядок, что видит пользователь: невыполненные сверху,
+      // внутри группы — по позиции.
+      orderBy: [{ isCompleted: "asc" }, { position: "asc" }, { createdAt: "asc" }],
       take: MAX_INSIGHT_ITEMS,
       select: { id: true, name: true, isCompleted: true },
     }),
@@ -111,6 +113,7 @@ export async function getListInsight(
       orderBy: [
         { isCompleted: "asc" },
         { noteUpdatedAt: "desc" },
+        { position: "asc" },
         { createdAt: "asc" },
       ],
       take: MAX_INSIGHT_ITEM_NOTES,
