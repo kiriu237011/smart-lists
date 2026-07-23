@@ -1216,6 +1216,7 @@ export default function SmartList({
               <NotePanel
                 note={item.note}
                 version={item.noteVersion}
+                title={item.name}
                 compact
                 searchQuery={searchQuery}
                 onSave={(draft, expectedVersion) =>

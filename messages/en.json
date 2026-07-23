@@ -131,6 +131,8 @@
     "cancel": "Cancel",
     "close": "Close",
     "edit": "Edit",
+    "expand": "Expand",
+    "showFull": "Show full note",
     "deleteNote": "Delete note",
     "deleteNoteModal": {
       "title": "Delete note?",

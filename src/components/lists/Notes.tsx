@@ -5,17 +5,45 @@
  * Редактор сохраняет текст только по явному действию пользователя. Версия,
  * полученная при открытии, передаётся в API: если заметку уже изменили в другой
  * вкладке или другой участник, черновик остаётся на экране и показывается выбор.
+ *
+ * Заметка до нескольких строк живёт прямо в карточке. Более длинная обрезается
+ * и открывается в диалоге: карточка узкая, и 4000 символов дают больше двух
+ * экранов текста, из-за чего одна запись вытесняет весь остальной список.
+ * Решение принимается по фактическому переполнению, а не по длине текста —
+ * на узком экране та же заметка занимает втрое больше строк.
  */
 
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import toast from "react-hot-toast";
 import { useListsApi, type NoteActionResult } from "@/components/providers/ListsApiProvider";
 import Highlight from "@/components/ui/Highlight";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { getNoteExcerpt, MAX_NOTE_LENGTH, normalizeNote } from "@/lib/notes";
+
+/** Высота свёрнутой заметки в режиме чтения, px. Дальше текст обрезается. */
+const COLLAPSED_NOTE_HEIGHT = 176;
+
+/** Предел автоподбора высоты textarea во встроенном редакторе, px. */
+const INLINE_EDITOR_HEIGHT = 240;
+
+/** Второстепенная кнопка панели заметки: закрыть, отменить, развернуть. */
+const SECONDARY_BUTTON_CLASS =
+  "rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800";
+
+/** Основное действие панели заметки: сохранить, перейти к редактированию. */
+const PRIMARY_BUTTON_CLASS =
+  "rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white";
 
 type Conflict = {
   note: string;
@@ -29,19 +57,27 @@ type EditorState = {
   conflict: Conflict | null;
 };
 
+type NoteSaveHandler = (note: string, expectedVersion: number) => Promise<NoteActionResult>;
+
+type NoteEditorController = ReturnType<typeof useNoteEditor>;
+
 type NoteEditorProps = {
-  note: string | null;
-  version: number;
-  onSave: (note: string, expectedVersion: number) => Promise<NoteActionResult>;
+  /** Общее состояние черновика: живёт выше редактора и переживает его пересоздание. */
+  controller: NoteEditorController;
   onCancel: () => void;
-  onSaved?: (note: string | null, version: number) => void;
+  /** Редактор внутри диалога: textarea занимает всю высоту и не подстраивается под текст. */
+  expanded?: boolean;
+  /** Открыть тот же черновик в диалоге. Не передаётся, когда диалог уже открыт. */
+  onExpand?: () => void;
   compact?: boolean;
 };
 
 type NotePanelProps = {
   note: string | null;
   version: number;
-  onSave: (note: string, expectedVersion: number) => Promise<NoteActionResult>;
+  /** Название списка или записи — заголовок диалога развёрнутой заметки. */
+  title: string;
+  onSave: NoteSaveHandler;
   onClose: () => void;
   compact?: boolean;
   searchQuery?: string;
@@ -50,7 +86,7 @@ type NotePanelProps = {
 type DeleteNoteModalProps = {
   /** Актуальная версия заметки: приходит из props владельца и обновляется по realtime. */
   version: number;
-  onSave: (note: string, expectedVersion: number) => Promise<NoteActionResult>;
+  onSave: NoteSaveHandler;
   /** Заметка удалена — владелец закрывает модал и панель заметки. */
   onDeleted: () => void;
   /** Отмена или неуспешное удаление — владелец закрывает только модал. */
@@ -86,6 +122,28 @@ export function NoteIcon({
   );
 }
 
+/** Иконка «раскрыть на весь экран» для перехода к диалогу заметки. */
+function ExpandIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </svg>
+  );
+}
+
 /** Компактная кнопка заметки списка для правой части шапки карточки. */
 export function ListNoteButton({
   note,
@@ -117,15 +175,57 @@ export function ListNoteButton({
   );
 }
 
-/** Универсальный редактор заметки списка или записи. */
-export function NoteEditor({
+/**
+ * Сообщает, поместился ли текст в отведённую высоту.
+ *
+ * Проверяется фактическое переполнение, а не длина текста: короткая заметка из
+ * множества переносов бывает выше длинной сплошной, а на узком экране границу
+ * пересекает вдвое меньший текст. `ResizeObserver` ловит смену ширины карточки,
+ * изменения самого текста приходят через `content`.
+ */
+function useOverflowRef<T extends HTMLElement>(enabled: boolean, content: unknown) {
+  const ref = useRef<T>(null);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!enabled || !element) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsOverflowing(false);
+      return;
+    }
+
+    const measure = () => {
+      setIsOverflowing(element.scrollHeight > element.clientHeight + 1);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [enabled, content]);
+
+  return [ref, isOverflowing] as const;
+}
+
+/**
+ * Состояние черновика заметки: текст, ожидаемая версия, конфликт и сохранение.
+ *
+ * Состояние живёт выше самого редактора, потому что редактор показывается то
+ * встроенно, то внутри диалога. Это разные места дерева, и при переключении
+ * React пересоздаёт компонент — набранный текст пропал бы вместе с ним.
+ */
+function useNoteEditor({
   note,
   version,
   onSave,
-  onCancel,
   onSaved,
-  compact = false,
-}: NoteEditorProps) {
+}: {
+  note: string | null;
+  version: number;
+  onSave: NoteSaveHandler;
+  onSaved: (note: string | null, version: number) => void;
+}) {
   const t = useTranslations("Notes");
   const [state, setState] = useState<EditorState>({
     draft: note ?? "",
@@ -135,18 +235,6 @@ export function NoteEditor({
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const isDirty = state.draft !== state.baseNote;
-
-  // При открытии и каждом изменении текста textarea занимает ровно столько
-  // высоты, сколько нужно всему содержимому — без внутреннего скролла.
-  useLayoutEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [state.draft]);
 
   // Свежие props приходят через Pusher/RSC. Чистый редактор синхронизируем,
   // а при наличии черновика сохраняем его и лишь отмечаем конфликт.
@@ -169,63 +257,219 @@ export function NoteEditor({
     });
   }, [note, version, state.baseVersion]);
 
-  const save = async (expectedVersion: number) => {
-    if (isSaving) return;
-    setIsSaving(true);
+  const setDraft = useCallback((draft: string) => {
+    setState((current) => ({ ...current, draft }));
+  }, []);
+
+  /** Выход из редактора без применения правок возвращает сохранённый текст. */
+  const resetDraft = useCallback(() => {
+    setState((current) => ({ ...current, draft: current.baseNote, conflict: null }));
     setError(null);
+  }, []);
 
-    const result = await onSave(state.draft, expectedVersion);
-    setIsSaving(false);
+  /** Принять чужую версию, отказавшись от собственного черновика. */
+  const takeConflictVersion = useCallback(() => {
+    setState((current) =>
+      current.conflict
+        ? {
+            draft: current.conflict.note,
+            baseNote: current.conflict.note,
+            baseVersion: current.conflict.version,
+            conflict: null,
+          }
+        : current,
+    );
+  }, []);
 
-    if (result.success) {
-      const savedNote = result.note === undefined ? normalizeNote(state.draft) : result.note;
-      const savedVersion = result.noteVersion ?? expectedVersion;
-      setState({
-        draft: savedNote ?? "",
-        baseNote: savedNote ?? "",
-        baseVersion: savedVersion,
-        conflict: null,
-      });
-      onSaved?.(savedNote ?? null, savedVersion);
-      return;
-    }
+  const save = useCallback(
+    async (expectedVersion: number) => {
+      if (isSaving) return;
+      setIsSaving(true);
+      setError(null);
 
-    if (result.error === "noteConflict") {
-      setState((current) => ({
-        ...current,
-        conflict: {
-          note: result.currentNote ?? "",
-          version: result.currentVersion ?? expectedVersion,
-        },
-      }));
-      return;
-    }
+      const result = await onSave(state.draft, expectedVersion);
+      setIsSaving(false);
 
-    setError(result.error === "tooLong" ? t("tooLong") : t("saveFailed"));
+      if (result.success) {
+        const savedNote = result.note === undefined ? normalizeNote(state.draft) : result.note;
+        const savedVersion = result.noteVersion ?? expectedVersion;
+        setState({
+          draft: savedNote ?? "",
+          baseNote: savedNote ?? "",
+          baseVersion: savedVersion,
+          conflict: null,
+        });
+        onSaved(savedNote ?? null, savedVersion);
+        return;
+      }
+
+      if (result.error === "noteConflict") {
+        setState((current) => ({
+          ...current,
+          conflict: {
+            note: result.currentNote ?? "",
+            version: result.currentVersion ?? expectedVersion,
+          },
+        }));
+        return;
+      }
+
+      setError(result.error === "tooLong" ? t("tooLong") : t("saveFailed"));
+    },
+    [isSaving, onSave, onSaved, state.draft, t],
+  );
+
+  return {
+    state,
+    isDirty: state.draft !== state.baseNote,
+    isSaving,
+    error,
+    setDraft,
+    resetDraft,
+    takeConflictVersion,
+    save,
   };
+}
+
+/**
+ * Диалог развёрнутой заметки.
+ *
+ * Рендерится порталом в `document.body`. Панель заметки живёт внутри строки
+ * записи и карточки списка, а у обеих есть анимируемый framer-motion предок с
+ * `transform`. Такой предок становится содержащим блоком для `position: fixed`,
+ * и диалог позиционировался бы по карточке, а не по экрану.
+ */
+function NoteModal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const t = useTranslations("Notes");
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 dark:bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl bg-white p-4 shadow-lg dark:border dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-2xl dark:shadow-black/70"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center gap-2">
+          <span className="shrink-0 text-indigo-500 dark:text-indigo-400">
+            <NoteIcon filled size={16} />
+          </span>
+          <h3 className="min-w-0 truncate text-sm font-semibold">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close")}
+            className="-mr-1 ml-auto shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
+          >
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Универсальный редактор заметки списка или записи. */
+export function NoteEditor({
+  controller,
+  onCancel,
+  onExpand,
+  expanded = false,
+  compact = false,
+}: NoteEditorProps) {
+  const t = useTranslations("Notes");
+  const { state, isDirty, isSaving, error, setDraft, save, takeConflictVersion } = controller;
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  /** Текст упёрся в предел высоты — есть смысл предлагать диалог. */
+  const [isCapped, setIsCapped] = useState(false);
+
+  // Встроенный редактор растёт по содержимому, но не выше предела: дальше
+  // textarea прокручивается сама, иначе длинная заметка растягивает карточку.
+  // В диалоге высоту задаёт flex-раскладка, подстраивать её под текст не нужно.
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || expanded) return;
+    textarea.style.height = "auto";
+    const fullHeight = textarea.scrollHeight;
+    textarea.style.height = `${Math.min(fullHeight, INLINE_EDITOR_HEIGHT)}px`;
+    setIsCapped(fullHeight > INLINE_EDITOR_HEIGHT);
+  }, [state.draft, expanded]);
+
+  // Переход между встроенным редактором и диалогом создаёт новую textarea,
+  // поэтому каретку возвращаем в конец текста, а не в начало нового элемента.
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+  }, []);
 
   return (
-    <div className={`${compact ? "mt-2" : "mt-3"} space-y-2`}>
-      <div className="relative">
-        <textarea
-          ref={textareaRef}
-          autoFocus
-          value={state.draft}
-          onChange={(event) => setState((current) => ({ ...current, draft: event.target.value }))}
-          rows={compact ? 3 : 5}
-          maxLength={MAX_NOTE_LENGTH}
-          placeholder={t("placeholder")}
-          className="w-full resize-none overflow-hidden rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 pb-7 text-sm text-gray-700 outline-none transition focus:bg-white focus:ring-1 ring-gray-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:focus:bg-zinc-900 dark:ring-zinc-500"
-        />
-        <span
-          className={`absolute bottom-2 right-2 text-[10px] ${
-            state.draft.length >= MAX_NOTE_LENGTH
-              ? "font-medium text-red-500 dark:text-red-400"
-              : "text-gray-400 dark:text-zinc-500"
-          }`}
-        >
-          {state.draft.length}/{MAX_NOTE_LENGTH}
-        </span>
+    <div
+      className={`space-y-2 ${
+        expanded ? "flex min-h-0 flex-1 flex-col" : compact ? "mt-2" : "mt-3"
+      }`}
+    >
+      {/* Рамка и фокусное кольцо живут на обёртке, а не на textarea: внутрь
+          рамки попадает и полоса перехода к диалогу. */}
+      <div
+        className={`rounded-lg border border-gray-200 bg-gray-50 transition focus-within:bg-white focus-within:ring-1 ring-gray-500 dark:border-zinc-700 dark:bg-zinc-800 dark:focus-within:bg-zinc-900 dark:ring-zinc-500 ${
+          expanded ? "flex min-h-0 flex-1 flex-col" : ""
+        }`}
+      >
+        <div className={`relative ${expanded ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+          <textarea
+            ref={textareaRef}
+            autoFocus
+            value={state.draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={compact ? 3 : 5}
+            maxLength={MAX_NOTE_LENGTH}
+            placeholder={t("placeholder")}
+            className={`w-full resize-none overflow-y-auto bg-transparent px-3 py-2 pb-7 text-sm text-gray-700 outline-none dark:text-zinc-200 ${
+              expanded ? "min-h-[30vh] flex-1" : ""
+            }`}
+          />
+          <span
+            className={`absolute bottom-2 right-2 text-[10px] ${
+              state.draft.length >= MAX_NOTE_LENGTH
+                ? "font-medium text-red-500 dark:text-red-400"
+                : "text-gray-400 dark:text-zinc-500"
+            }`}
+          >
+            {state.draft.length}/{MAX_NOTE_LENGTH}
+          </span>
+        </div>
+
+        {onExpand && isCapped && <ExpandRow label={t("expand")} onClick={onExpand} />}
       </div>
 
       {state.conflict && (
@@ -234,14 +478,7 @@ export function NoteEditor({
           <div className="mt-2 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() =>
-                setState({
-                  draft: state.conflict?.note ?? "",
-                  baseNote: state.conflict?.note ?? "",
-                  baseVersion: state.conflict?.version ?? state.baseVersion,
-                  conflict: null,
-                })
-              }
+              onClick={takeConflictVersion}
               className="rounded-md border border-amber-300 px-2 py-1 hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/40"
             >
               {t("loadLatest")}
@@ -265,7 +502,7 @@ export function NoteEditor({
           type="button"
           onClick={onCancel}
           disabled={isSaving}
-          className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          className={`disabled:opacity-50 ${SECONDARY_BUTTON_CLASS}`}
         >
           {t("cancel")}
         </button>
@@ -273,7 +510,7 @@ export function NoteEditor({
           type="button"
           onClick={() => void save(state.baseVersion)}
           disabled={isSaving || (!isDirty && !state.conflict)}
-          className="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
+          className={`disabled:cursor-not-allowed disabled:opacity-50 ${PRIMARY_BUTTON_CLASS}`}
         >
           {isSaving ? t("saving") : t("save")}
         </button>
@@ -283,12 +520,72 @@ export function NoteEditor({
 }
 
 /**
+ * Переход к диалогу — нижняя полоса внутри рамки заметки.
+ *
+ * Не отдельная кнопка снаружи: третья кнопка не помещается в ряд действий узкой
+ * карточки, а вынесенная над ним центрированная строка спорит с выключкой
+ * действий вправо. Внутри рамки полоса читается как продолжение текста, и
+ * снаружи остаётся ровно один ряд кнопок.
+ */
+function ExpandRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center justify-center gap-1.5 rounded-b-lg border-t border-gray-200 py-1.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+    >
+      <ExpandIcon />
+      {label}
+    </button>
+  );
+}
+
+/** Действия режима чтения. Набор одинаков во встроенной панели и в диалоге. */
+function NoteReadActions({ onClose, onEdit }: { onClose: () => void; onEdit: () => void }) {
+  const t = useTranslations("Notes");
+
+  return (
+    <div className="flex justify-end gap-2">
+      <button type="button" onClick={onClose} className={SECONDARY_BUTTON_CLASS}>
+        {t("close")}
+      </button>
+      <button
+        type="button"
+        onClick={onEdit}
+        className={`inline-flex items-center gap-1.5 ${PRIMARY_BUTTON_CLASS}`}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="13"
+          height="13"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+        </svg>
+        {t("edit")}
+      </button>
+    </div>
+  );
+}
+
+/**
  * Заметка с отдельными режимами чтения и редактирования.
  * Существующий текст открывается без фокуса, а новая заметка — сразу в редакторе.
+ *
+ * Каждый режим показывается либо встроенно, либо в диалоге. Черновик и версия
+ * общие для обоих мест, поэтому закрытие диалога с несохранённым текстом
+ * возвращает его во встроенный редактор, а не теряет.
  */
 export function NotePanel({
   note,
   version,
+  title,
   onSave,
   onClose,
   compact = false,
@@ -296,6 +593,7 @@ export function NotePanel({
 }: NotePanelProps) {
   const t = useTranslations("Notes");
   const [isEditing, setIsEditing] = useState(!note);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [displayed, setDisplayed] = useState({ note, version });
 
   // Обновляем режим чтения и базовую версию редактора при внешнем изменении заметки.
@@ -304,70 +602,96 @@ export function NotePanel({
     setDisplayed({ note, version });
   }, [note, version]);
 
-  if (isEditing) {
-    return (
-      <NoteEditor
-        note={displayed.note}
-        version={displayed.version}
-        compact={compact}
-        onSave={onSave}
-        onCancel={() => {
-          if (displayed.note) {
-            setIsEditing(false);
-          } else {
-            onClose();
-          }
-        }}
-        onSaved={(savedNote, savedVersion) => {
-          setDisplayed({ note: savedNote, version: savedVersion });
-          if (savedNote) {
-            setIsEditing(false);
-          } else {
-            onClose();
-          }
-        }}
-      />
-    );
-  }
+  const controller = useNoteEditor({
+    note: displayed.note,
+    version: displayed.version,
+    onSave,
+    onSaved: (savedNote, savedVersion) => {
+      setDisplayed({ note: savedNote, version: savedVersion });
+      if (savedNote) {
+        setIsEditing(false);
+        return;
+      }
+      // Пустой текст удаляет заметку — показывать больше нечего.
+      setIsExpanded(false);
+      onClose();
+    },
+  });
+
+  const [readRef, isClamped] = useOverflowRef<HTMLDivElement>(!isEditing, displayed.note);
+
+  const cancelEdit = () => {
+    controller.resetDraft();
+    if (displayed.note) {
+      setIsEditing(false);
+      return;
+    }
+    setIsExpanded(false);
+    onClose();
+  };
+
+  const noteText = (
+    <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-700 dark:text-zinc-200">
+      <Highlight text={displayed.note ?? ""} query={searchQuery.trim()} />
+    </div>
+  );
 
   return (
-    <div className={`${compact ? "mt-2" : "mt-3"} space-y-2`}>
-      <p className="whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm leading-relaxed text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-        <Highlight text={displayed.note ?? ""} query={searchQuery.trim()} />
-      </p>
+    <>
+      {isEditing
+        ? !isExpanded && (
+            <NoteEditor
+              controller={controller}
+              compact={compact}
+              onCancel={cancelEdit}
+              onExpand={() => setIsExpanded(true)}
+            />
+          )
+        : (
+          <div className={`${compact ? "mt-2" : "mt-3"} space-y-2`}>
+            <div className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="relative">
+                <div
+                  ref={readRef}
+                  style={{ maxHeight: COLLAPSED_NOTE_HEIGHT }}
+                  className="overflow-hidden px-3 py-2"
+                >
+                  {noteText}
+                </div>
+                {/* Затухание вместо резкого обрыва: видно, что текст продолжается. */}
+                {isClamped && (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-white to-transparent dark:from-zinc-900" />
+                )}
+              </div>
 
-      {/* Удаление заметки живёт в меню действий списка или записи. */}
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-        >
-          {t("close")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setIsEditing(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="13"
-            height="13"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M12 20h9" />
-            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
-          </svg>
-          {t("edit")}
-        </button>
-      </div>
-    </div>
+              {isClamped && (
+                <ExpandRow label={t("showFull")} onClick={() => setIsExpanded(true)} />
+              )}
+            </div>
+
+            {/* Удаление заметки живёт в меню действий списка или записи. */}
+            <NoteReadActions onClose={onClose} onEdit={() => setIsEditing(true)} />
+          </div>
+        )}
+
+      {isExpanded && (
+        <NoteModal title={title} onClose={() => setIsExpanded(false)}>
+          {isEditing ? (
+            <NoteEditor controller={controller} expanded onCancel={cancelEdit} />
+          ) : (
+            <>
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">{noteText}</div>
+              <div className="mt-3">
+                <NoteReadActions
+                  onClose={() => setIsExpanded(false)}
+                  onEdit={() => setIsEditing(true)}
+                />
+              </div>
+            </>
+          )}
+        </NoteModal>
+      )}
+    </>
   );
 }
 
@@ -500,6 +824,7 @@ export function DeleteNoteModal({
 /** Раскрывающаяся заметка всего списка. Доступна также в гостевом режиме. */
 export function ListNote({
   listId,
+  listTitle,
   note,
   noteVersion,
   searchQuery,
@@ -507,6 +832,8 @@ export function ListNote({
   onClose,
 }: {
   listId: string;
+  /** Название списка — заголовок диалога развёрнутой заметки. */
+  listTitle: string;
   note: string | null;
   noteVersion: number;
   searchQuery: string;
@@ -533,6 +860,7 @@ export function ListNote({
         <NotePanel
           note={note}
           version={noteVersion}
+          title={listTitle}
           onSave={(draft, expectedVersion) => api.updateListNote(listId, draft, expectedVersion)}
           onClose={onClose}
           searchQuery={query}

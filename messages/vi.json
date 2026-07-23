@@ -131,6 +131,8 @@
     "cancel": "Hủy",
     "close": "Đóng",
     "edit": "Chỉnh sửa",
+    "expand": "Mở rộng",
+    "showFull": "Xem toàn bộ",
     "deleteNote": "Xóa ghi chú",
     "deleteNoteModal": {
       "title": "Xóa ghi chú?",

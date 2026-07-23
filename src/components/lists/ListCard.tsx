@@ -430,6 +430,7 @@ const ListCard = memo(function ListCard({
       {!isTemp && (
         <ListNote
           listId={list.id}
+          listTitle={list.title}
           note={list.note}
           noteVersion={list.noteVersion}
           searchQuery={searchQuery}

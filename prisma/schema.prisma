@@ -399,7 +399,7 @@ enum FileCategory {
 
 /// Статус вложения в two-phase-загрузке (PENDING → UPLOADED).
 /// Недозалитый файл (PENDING) не виден в UI, но считается в квоту;
-/// зависшие PENDING-строки периодически чистит крон.
+/// зависшие PENDING-строки убирает ленивая уборка в `requestUpload`.
 enum AttachmentStatus {
   PENDING // строка создана, файл ещё не подтверждён через HeadObject
   UPLOADED // файл залит в S3 и проверен на сервере

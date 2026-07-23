@@ -211,7 +211,7 @@ export default function Attachments({
 
     setIsUploading(true);
     // ID созданной PENDING-строки. Если загрузка сорвётся на любом шаге —
-    // сразу удаляем её, чтобы не держать квоту до крона (best-effort).
+    // сразу удаляем её, чтобы не держать квоту до ленивой уборки (best-effort).
     let pendingId: string | null = null;
     try {
       // Шаг 1 — presigned POST + PENDING-строка
@@ -266,7 +266,7 @@ export default function Attachments({
       toast.error(t("errors.uploadFailed"));
     } finally {
       // Освобождаем квоту при любом провале: удаляем недозалитую PENDING-строку.
-      // Best-effort — если не удалось, её всё равно приберёт крон.
+      // Best-effort — если не удалось, её всё равно уберёт ленивая уборка.
       if (pendingId) {
         await deleteAttachment({ attachmentId: pendingId, spaceId }).catch(() => {});
       }

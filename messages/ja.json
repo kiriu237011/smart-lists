@@ -131,6 +131,8 @@
     "cancel": "キャンセル",
     "close": "閉じる",
     "edit": "編集",
+    "expand": "拡大表示",
+    "showFull": "全文を表示",
     "deleteNote": "メモを削除",
     "deleteNoteModal": {
       "title": "メモを削除しますか？",
