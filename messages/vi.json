@@ -90,6 +90,22 @@
     "moveUp": "Di chuyển lên",
     "moveDown": "Di chuyển xuống",
     "deleteItemAction": "Xóa mục",
+    "moveToListAction": "Chuyển sang danh sách…",
+    "moveToList": {
+      "groupsTitle": "Chọn nhóm",
+      "searchPlaceholder": "Tìm danh sách",
+      "back": "Quay lại",
+      "noGroup": "Không có nhóm",
+      "shared": "chia sẻ",
+      "current": "hiện tại",
+      "currentGroup": "nhóm hiện tại của mục",
+      "copyMode": "Sao chép thay vì chuyển",
+      "noResults": "Không tìm thấy danh sách",
+      "empty": "Không có danh sách nào khác trong không gian này",
+      "close": "Đóng",
+      "moved": "Đã chuyển mục sang «{title}»",
+      "copied": "Đã sao chép mục sang «{title}»"
+    },
     "deleteModal": {
       "title": "Xóa ghi chú?",
       "body": "Bạn có chắc muốn xóa ghi chú «{name}»?",
@@ -100,7 +116,8 @@
       "renameFailed": "Không thể đổi tên ghi chú",
       "addFailed": "Không thể thêm ghi chú",
       "tooLong": "Tên quá dài (tối đa 200 ký tự)",
-      "moveFailed": "Không thể di chuyển mục"
+      "moveFailed": "Không thể di chuyển mục",
+      "moveToListFailed": "Không thể chuyển mục sang danh sách khác"
     }
   },
   "Notes": {

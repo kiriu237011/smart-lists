@@ -36,9 +36,11 @@ import {
 import { Reorder, useDragControls, type DragControls } from "framer-motion";
 import { beginItemDrag, endItemDrag } from "@/lib/drag-gate";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
+import { useListsDirectory } from "@/components/providers/ListsDirectoryProvider";
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
 import Highlight from "@/components/ui/Highlight";
+import MoveItemModal from "@/components/lists/MoveItemModal";
 import {
   DeleteNoteModal,
   NoteIcon,
@@ -129,6 +131,27 @@ function MoveDownIcon({ size = 17 }: { size?: number }) {
     >
       <line x1="12" y1="5" x2="12" y2="19" />
       <polyline points="19 12 12 19 5 12" />
+    </svg>
+  );
+}
+
+/** Стрелка в рамку — «переместить в другой список». */
+function MoveToListIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 4h6a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4" />
+      <line x1="10" y1="12" x2="21" y2="12" />
+      <polyline points="17 8 21 12 17 16" />
     </svg>
   );
 }
@@ -255,6 +278,12 @@ export default function SmartList({
 
   // Адаптер операций: Server Actions (авторизованный) или localStorage (гость)
   const api = useListsApi();
+
+  // Справочник списков пространства — цели переноса записи.
+  const { lists: directoryLists } = useListsDirectory();
+
+  /** Есть ли куда переносить: единственный список не даёт целей. */
+  const hasMoveTargets = directoryLists.some((list) => list.id !== listId);
 
   /**
    * Оптимистичный массив записей.
@@ -617,6 +646,53 @@ export default function SmartList({
         });
         toast.error(t("errors.moveFailed"));
       }
+    });
+  };
+
+  /** Запись, для которой открыт выбор списка-получателя. null — модал закрыт. */
+  const [itemToMove, setItemToMove] = useState<Item | null>(null);
+
+  /**
+   * Переносит или копирует запись в другой список.
+   *
+   * Оптимистика здесь асимметрична, и иначе не выходит: состояние записей живёт
+   * в `useOptimistic` каждого `SmartList` по отдельности, а операция затрагивает
+   * два списка. Из исходного запись убирается сразу, в целевом появится вместе
+   * со свежими данными (revalidatePath на сервере, refresh у гостя). Копия
+   * оптимистичного отображения не получает вовсе — оригинал остаётся на месте,
+   * и без тоста действие выглядело бы как «ничего не произошло».
+   *
+   * Запрос идёт ВНУТРИ transition — по той же причине, что и в `handleMoveItem`:
+   * оптимистичное состояние живёт, пока transition не завершится.
+   */
+  const handleMoveItemToList = (
+    item: Item,
+    targetListId: string,
+    mode: "move" | "copy",
+  ) => {
+    setItemToMove(null);
+
+    const targetTitle =
+      directoryLists.find((list) => list.id === targetListId)?.title ?? "";
+
+    startTransition(async () => {
+      if (mode === "move") {
+        setOptimisticItems({ action: "delete", itemId: item.id });
+      }
+
+      const result = await api.moveItemToList(item.id, targetListId, mode);
+
+      if (!result.success) {
+        // Оптимистичное удаление откатится само по завершении transition.
+        toast.error(t("errors.moveToListFailed"));
+        return;
+      }
+
+      toast.success(
+        mode === "move"
+          ? t("moveToList.moved", { title: targetTitle })
+          : t("moveToList.copied", { title: targetTitle }),
+      );
     });
   };
 
@@ -1048,6 +1124,30 @@ export default function SmartList({
                         </>
                       )}
 
+                      {/* Перенос в другой список показывается, только когда
+                          в пространстве есть куда переносить. */}
+                      {hasMoveTargets && (
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenItemActionsId(null);
+                              setItemToMove(item);
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                          >
+                            <MoveToListIcon />
+                            {t("moveToListAction")}
+                          </button>
+
+                          <div
+                            role="separator"
+                            className="my-1 h-px bg-gray-100 dark:bg-zinc-700"
+                          />
+                        </>
+                      )}
+
                       {!item.note && (
                         <button
                           type="button"
@@ -1310,6 +1410,17 @@ export default function SmartList({
             );
           }}
           onCancel={() => setNoteToDeleteItemId(null)}
+        />
+      )}
+
+      {/* Выбор списка-получателя: клик по строке сразу выполняет действие. */}
+      {itemToMove && (
+        <MoveItemModal
+          sourceListId={listId}
+          onSelect={(targetListId, mode) =>
+            handleMoveItemToList(itemToMove, targetListId, mode)
+          }
+          onClose={() => setItemToMove(null)}
         />
       )}
     </>

@@ -22,6 +22,7 @@ import {
   toggleItem,
   renameItem,
   moveItem,
+  moveItemToList,
   updateItemNote,
   createList,
   deleteList,
@@ -93,6 +94,8 @@ export default function ServerListsApiProvider({
             spaceId,
           ),
         ),
+      moveItemToList: async (itemId, targetListId, mode) =>
+        moveItemToList(buildFormData({ itemId, targetListId, mode }, spaceId)),
 
       // ---- Группы ----
       createGroup: async (name) => createGroup(buildFormData({ name }, spaceId)),

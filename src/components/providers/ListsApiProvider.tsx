@@ -82,6 +82,18 @@ export type ListsApi = {
     previousItemId: string | null,
     nextItemId: string | null,
   ) => Promise<ActionResult>;
+  /**
+   * Переносит (`move`) или копирует (`copy`) запись в другой список того же
+   * пространства. Запись встаёт в конец списка-получателя.
+   *
+   * Целевой список проверяется на стороне реализации: перенос в тот же список
+   * отклоняется, как и список, недоступный пользователю в текущем пространстве.
+   */
+  moveItemToList: (
+    itemId: string,
+    targetListId: string,
+    mode: "move" | "copy",
+  ) => Promise<ActionResult>;
 
   // ---- Группы ----
   createGroup: (name: string) => Promise<CreateGroupResult>;

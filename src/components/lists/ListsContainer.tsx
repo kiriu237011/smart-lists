@@ -39,6 +39,7 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
+import { ListsDirectoryProvider } from "@/components/providers/ListsDirectoryProvider";
 import toast from "react-hot-toast";
 import CreateListForm from "@/components/lists/CreateListForm";
 import { useTranslations } from "next-intl";
@@ -298,6 +299,28 @@ export default function ListsContainer({
       return true;
     });
   }, [optimisticLists]);
+
+  /**
+   * Справочник списков для переноса записей между списками.
+   *
+   * Строится по `uniqueLists`, а НЕ по `filteredLists`: активный фильтр группы
+   * или поиск сужают то, что видно на экране, но не то, куда можно перенести
+   * запись. Иначе цель переноса пропадала бы из выбора вместе с фильтром.
+   */
+  const directory = useMemo(
+    () => ({
+      lists: uniqueLists.map((list) => ({
+        id: list.id,
+        title: list.title,
+        groupIds: list.groups.map((group) => group.id),
+        // Расшарен мной или получен от другого пользователя — в обоих случаях
+        // список видит кто-то ещё.
+        isShared: list.sharedWith.length > 0 || list.ownerId !== currentUserId,
+      })),
+      groups,
+    }),
+    [uniqueLists, groups, currentUserId],
+  );
 
   /**
    * Отфильтрованные списки: сначала по группе, затем по поисковому запросу.
@@ -717,7 +740,7 @@ export default function ListsContainer({
   }, [handleConfirmDeleteGroup, isDeletingGroup, groupToDelete]);
 
   return (
-    <>
+    <ListsDirectoryProvider directory={directory}>
       {/* Фильтр по группам */}
       <GroupFilter
         groups={groups}
@@ -869,6 +892,6 @@ export default function ListsContainer({
           onCancel={() => setGroupToDelete(null)}
         />
       )}
-    </>
+    </ListsDirectoryProvider>
   );
 }

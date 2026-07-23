@@ -33,6 +33,7 @@ import {
   renameListSchema,
   renameItemSchema,
   moveItemSchema,
+  moveItemToListSchema,
   createGroupSchema,
   deleteGroupSchema,
   renameGroupSchema,
@@ -45,7 +46,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { auth } from "@/auth";
 import { logger, hashId } from "@/lib/logger";
-import { notifyListMembers, notifyUsers } from "@/lib/notify";
+import { notifyListMembers, notifyListsMembers, notifyUsers } from "@/lib/notify";
 import { deleteObjects } from "@/lib/s3";
 import { ZodError } from "zod";
 import {
@@ -478,6 +479,135 @@ export async function moveItem(formData: FormData) {
   } catch (error) {
     logger.error({ error: error }, "Ошибка при перемещении записи:");
     return { success: false, error: "Не удалось переместить запись" };
+  }
+}
+
+/**
+ * Переносит или копирует запись в другой список ТОГО ЖЕ пространства.
+ *
+ * Ограничение «в рамках пространства» не требует отдельного кода: оба списка
+ * ищутся через `listInSpaceWhere` с одним и тем же `spaceId`, поэтому список
+ * из другого пространства просто не найдётся.
+ *
+ * Перенос — это одна запись в БД: у существующей строки меняются `listId` и
+ * `position`. Заметка, её версия, автор и `createdAt` едут со строкой сами.
+ * Копирование создаёт новую строку: `noteVersion` начинается с нуля (у новой
+ * строки свой счётчик optimistic concurrency), автором становится тот, кто
+ * копировал, а отметка о выполнении сбрасывается — копию заводят, чтобы
+ * сделать дело заново в другом списке.
+ *
+ * Запись встаёт в конец целевого списка, как при обычном добавлении.
+ *
+ * @param formData - FormData с полями:
+ *   - `itemId`       {string} — ID переносимой записи.
+ *   - `targetListId` {string} — ID списка-получателя.
+ *   - `mode`         {string} — "move" | "copy".
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function moveItemToList(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+
+    const result = moveItemToListSchema.safeParse({
+      itemId: formData.get("itemId"),
+      targetListId: formData.get("targetListId"),
+      mode: formData.get("mode"),
+    });
+
+    if (!result.success) {
+      logger.error({ error: result.error }, "Validation Error:");
+      return { success: false, error: getValidationError(result.error) };
+    }
+
+    const { itemId, targetListId, mode } = result.data;
+
+    // Доступ к записи проверяется через её список: право менять содержимое
+    // есть и у владельца, и у редактора (ListShare).
+    const item = await prisma.item.findFirst({
+      where: {
+        id: itemId,
+        list: listInSpaceWhere(session.user.id, space.id),
+      },
+      select: { id: true, name: true, note: true, listId: true },
+    });
+
+    if (!item) {
+      return { success: false, error: "Запись не найдена" };
+    }
+
+    // Клиент такой пункт и не показывает, но присланному ID доверять нельзя.
+    if (item.listId === targetListId) {
+      return { success: false, error: "sameList" };
+    }
+
+    // Тем же запросом, что и проверку доступа к целевому списку, забираем его
+    // максимальную позицию: запись встаёт в конец (см. addItem).
+    const targetList = await prisma.list.findFirst({
+      where: {
+        id: targetListId,
+        ...listInSpaceWhere(session.user.id, space.id),
+      },
+      select: {
+        id: true,
+        items: {
+          orderBy: { position: "desc" },
+          take: 1,
+          select: { position: true },
+        },
+      },
+    });
+
+    if (!targetList) {
+      return { success: false, error: "Список не найден" };
+    }
+
+    const position = (targetList.items[0]?.position ?? 0) + POSITION_STEP;
+
+    if (mode === "move") {
+      await prisma.item.update({
+        where: { id: itemId },
+        data: { listId: targetListId, position },
+      });
+    } else {
+      await prisma.item.create({
+        data: {
+          name: item.name,
+          note: item.note,
+          // У копии своя история заметки: версия начинается с нуля, а отметка
+          // времени ставится по факту создания — по ней AI отбирает контекст.
+          noteUpdatedAt: item.note ? new Date() : null,
+          listId: targetListId,
+          addedById: session.user.id,
+          position,
+        },
+      });
+    }
+
+    revalidatePath("/", "layout");
+    // Затронуты ДВА списка с разными наборами участников. При копировании
+    // исходный список не менялся — его участников дёргать незачем.
+    const socketId = formData.get("socketId");
+    const affectedListIds =
+      mode === "move" ? [item.listId, targetListId] : [targetListId];
+    after(() => notifyListsMembers(affectedListIds, socketId));
+    logger.info(
+      {
+        uid: hashId(session.user.id),
+        listId: item.listId,
+        targetListId,
+        action: mode === "move" ? "moveItemToList" : "copyItemToList",
+      },
+      "Запись перенесена в другой список",
+    );
+    return { success: true };
+  } catch (error) {
+    logger.error({ error: error }, "Ошибка при переносе записи в другой список:");
+    return { success: false, error: "Не удалось перенести запись" };
   }
 }
 

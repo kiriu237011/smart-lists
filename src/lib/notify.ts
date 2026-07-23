@@ -65,6 +65,45 @@ export async function notifyListMembers(listId: string, excludeSocketId?: unknow
 }
 
 /**
+ * Уведомляет участников СРАЗУ НЕСКОЛЬКИХ списков одной рассылкой.
+ *
+ * Нужно операциям, которые затрагивают два списка одновременно — например,
+ * переносу записи между списками. Наборы участников у списков разные, и
+ * отдельный `notifyListMembers` на каждый из них не годится: пользователь,
+ * имеющий доступ к обоим, получил бы два одинаковых `refresh` подряд.
+ * Здесь получатели объединяются в один Set до отправки.
+ *
+ * @param listIds - ID затронутых списков (дубликаты допустимы).
+ * @param excludeSocketId - socket_id вкладки-автора действия (исключается из рассылки).
+ */
+export async function notifyListsMembers(listIds: string[], excludeSocketId?: unknown) {
+  try {
+    const lists = await prisma.list.findMany({
+      where: { id: { in: [...new Set(listIds)] } },
+      select: {
+        ownerId: true,
+        shares: { select: { userId: true } },
+      },
+    });
+
+    const userIds = [
+      ...new Set(
+        lists.flatMap((list) => [
+          list.ownerId,
+          ...list.shares.map((share) => share.userId),
+        ]),
+      ),
+    ];
+
+    if (userIds.length === 0) return;
+
+    await notifyUsers(userIds, excludeSocketId);
+  } catch (err) {
+    logger.error({ error: err }, "notifyListsMembers failed:");
+  }
+}
+
+/**
  * Отправляет refresh в личные private-каналы пользователей.
  * Ошибка Pusher логируется, но не ломает уже завершённую мутацию.
  *

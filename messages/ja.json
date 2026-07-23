@@ -90,6 +90,22 @@
     "moveUp": "上へ移動",
     "moveDown": "下へ移動",
     "deleteItemAction": "項目を削除",
+    "moveToListAction": "別のリストへ移動…",
+    "moveToList": {
+      "groupsTitle": "グループを選択",
+      "searchPlaceholder": "リストを検索",
+      "back": "戻る",
+      "noGroup": "グループなし",
+      "shared": "共有",
+      "current": "現在",
+      "currentGroup": "項目の現在のグループ",
+      "copyMode": "移動せずにコピーする",
+      "noResults": "リストが見つかりません",
+      "empty": "このスペースに他のリストはありません",
+      "close": "閉じる",
+      "moved": "項目を「{title}」へ移動しました",
+      "copied": "項目を「{title}」へコピーしました"
+    },
     "deleteModal": {
       "title": "項目を削除しますか？",
       "body": "項目「{name}」を本当に削除しますか？",
@@ -100,7 +116,8 @@
       "renameFailed": "項目の名前を変更できませんでした",
       "addFailed": "項目を追加できませんでした",
       "tooLong": "名前が長すぎます（最大200文字）",
-      "moveFailed": "項目を移動できませんでした"
+      "moveFailed": "項目を移動できませんでした",
+      "moveToListFailed": "項目を別のリストへ移動できませんでした"
     }
   },
   "Notes": {

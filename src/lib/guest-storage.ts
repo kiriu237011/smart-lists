@@ -31,6 +31,7 @@ import {
   createItemSchema,
   renameItemSchema,
   moveItemSchema,
+  moveItemToListSchema,
   createListSchema,
   renameListSchema,
   createGroupSchema,
@@ -420,6 +421,51 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         }
 
         list.items.splice(insertAt, 0, moved);
+        return { success: true };
+      });
+    },
+
+    /**
+     * Перенос и копирование записи между списками. У гостя все списки лежат
+     * в одном ключе localStorage, поэтому обе операции — работа с двумя
+     * массивами: изъять и вставить либо склонировать и вставить.
+     *
+     * Как и на сервере, запись встаёт в конец списка-получателя, копия теряет
+     * отметку о выполнении и начинает историю заметки с нулевой версии.
+     */
+    moveItemToList: async (itemId, targetListId, mode) => {
+      const parsed = moveItemToListSchema.safeParse({ itemId, targetListId, mode });
+      if (!parsed.success) {
+        return { success: false, error: getValidationError(parsed.error) };
+      }
+      return mutate((data) => {
+        const source = data.lists.find((l) =>
+          l.items.some((i) => i.id === parsed.data.itemId),
+        );
+        if (!source) return { success: false, error: "Запись не найдена" };
+
+        if (source.id === parsed.data.targetListId) {
+          return { success: false, error: "sameList" };
+        }
+
+        const target = data.lists.find((l) => l.id === parsed.data.targetListId);
+        if (!target) return { success: false, error: "Список не найден" };
+
+        const index = source.items.findIndex((i) => i.id === parsed.data.itemId);
+        const item = source.items[index];
+
+        if (parsed.data.mode === "move") {
+          source.items.splice(index, 1);
+          target.items.push(item);
+        } else {
+          target.items.push({
+            id: guestId(),
+            name: item.name,
+            isCompleted: false,
+            note: item.note ?? null,
+            noteVersion: 0,
+          });
+        }
         return { success: true };
       });
     },

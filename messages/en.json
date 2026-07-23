@@ -90,6 +90,22 @@
     "moveUp": "Move up",
     "moveDown": "Move down",
     "deleteItemAction": "Delete item",
+    "moveToListAction": "Move to list…",
+    "moveToList": {
+      "groupsTitle": "Select a group",
+      "searchPlaceholder": "Search lists",
+      "back": "Back",
+      "noGroup": "No group",
+      "shared": "shared",
+      "current": "current",
+      "currentGroup": "current group of the item",
+      "copyMode": "Copy instead of moving",
+      "noResults": "No lists found",
+      "empty": "There are no other lists in this space",
+      "close": "Close",
+      "moved": "Item moved to “{title}”",
+      "copied": "Item copied to “{title}”"
+    },
     "deleteModal": {
       "title": "Delete item?",
       "body": "Are you sure you want to delete the item \"{name}\"?",
@@ -100,7 +116,8 @@
       "renameFailed": "Failed to rename the item",
       "addFailed": "Failed to add the item",
       "tooLong": "The name is too long (200 characters max)",
-      "moveFailed": "Failed to move the item"
+      "moveFailed": "Failed to move the item",
+      "moveToListFailed": "Failed to move the item to another list"
     }
   },
   "Notes": {
