@@ -361,11 +361,31 @@ function NoteModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  // Пока диалог открыт, фон не должен прокручиваться. Ширину исчезающего
+  // скроллбара компенсируем padding-ом, иначе страница дёргается по горизонтали.
+  useEffect(() => {
+    const { body, documentElement } = document;
+    const previousOverflow = body.style.overflow;
+    const previousPaddingRight = body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - documentElement.clientWidth;
+
+    body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      const currentPaddingRight = parseFloat(getComputedStyle(body).paddingRight) || 0;
+      body.style.paddingRight = `${currentPaddingRight + scrollbarWidth}px`;
+    }
+
+    return () => {
+      body.style.overflow = previousOverflow;
+      body.style.paddingRight = previousPaddingRight;
+    };
+  }, []);
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 dark:bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px] dark:bg-black/80"
       onClick={onClose}
     >
       <div
