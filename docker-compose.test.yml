@@ -1,0 +1,20 @@
+# Postgres для интеграционных тестов. Отдельный инстанс на нестандартном порту
+# 5433, чтобы не пересекаться с локальным dev-Postgres на 5432. Данные живут
+# только в tmpfs (память): база эфемерна, каждый up начинается с чистого листа,
+# и тесты не зависят от остатков прошлого прогона.
+services:
+  postgres-test:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: smartlists_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d smartlists_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

@@ -8,7 +8,7 @@
  */
 
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 const srcPath = fileURLToPath(new URL("./src", import.meta.url));
 const serverOnlyStub = fileURLToPath(
@@ -27,5 +27,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "test/**/*.test.ts"],
+    // Интеграционные тесты (`*.int.test.ts`) требуют БД и своего конфига
+    // (`vitest.integration.config.ts`); паттерн include их иначе захватывает,
+    // потому что они тоже оканчиваются на `.test.ts`.
+    exclude: [...configDefaults.exclude, "**/*.int.test.ts"],
   },
 });
