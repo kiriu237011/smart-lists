@@ -37,13 +37,19 @@ const COLLAPSED_NOTE_HEIGHT = 176;
 /** Предел автоподбора высоты textarea во встроенном редакторе, px. */
 const INLINE_EDITOR_HEIGHT = 240;
 
-/** Второстепенная кнопка панели заметки: закрыть, отменить, развернуть. */
+/**
+ * Второстепенная кнопка панели заметки: закрыть, отменить, развернуть.
+ *
+ * Ховер меняет фон, рамку и цвет текста сразу: одного фона мало, потому что
+ * подложка диалога светлее карточки в светлой теме и совпадает с `zinc-800`
+ * в тёмной, и подсветка только фоном там незаметна.
+ */
 const SECONDARY_BUTTON_CLASS =
-  "rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800";
+  "rounded-md border border-gray-200 px-3 py-1.5 text-xs text-gray-500 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:text-gray-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-200";
 
 /** Основное действие панели заметки: сохранить, перейти к редактированию. */
 const PRIMARY_BUTTON_CLASS =
-  "rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white";
+  "rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-700 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white";
 
 type Conflict = {
   note: string;
@@ -338,17 +344,26 @@ function useNoteEditor({
  * записи и карточки списка, а у обеих есть анимируемый framer-motion предок с
  * `transform`. Такой предок становится содержащим блоком для `position: fixed`,
  * и диалог позиционировался бы по карточке, а не по экрану.
+ *
+ * `closeOnBackdrop` выключается на время редактирования: случайный клик мимо
+ * диалога не должен прерывать набор текста. Явные способы закрытия — крестик,
+ * кнопки действий и Escape — остаются доступны всегда.
  */
 function NoteModal({
   title,
   onClose,
+  closeOnBackdrop = true,
   children,
 }: {
   title: string;
   onClose: () => void;
+  closeOnBackdrop?: boolean;
   children: ReactNode;
 }) {
   const t = useTranslations("Notes");
+  // Клик засчитываем только если нажатие тоже началось на подложке. Иначе
+  // выделение текста мышью, законченное за пределами диалога, закрывало бы его.
+  const pressStartedOnBackdrop = useRef(false);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -386,14 +401,21 @@ function NoteModal({
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px] dark:bg-black/80"
-      onClick={onClose}
+      onMouseDown={(event) => {
+        pressStartedOnBackdrop.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (!closeOnBackdrop) return;
+        if (event.target !== event.currentTarget) return;
+        if (!pressStartedOnBackdrop.current) return;
+        onClose();
+      }}
     >
       <div
         className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl bg-white p-4 shadow-lg dark:border dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-2xl dark:shadow-black/70"
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-3 flex items-center gap-2">
           <span className="shrink-0 text-indigo-500 dark:text-indigo-400">
@@ -695,7 +717,11 @@ export function NotePanel({
         )}
 
       {isExpanded && (
-        <NoteModal title={title} onClose={() => setIsExpanded(false)}>
+        <NoteModal
+          title={title}
+          onClose={() => setIsExpanded(false)}
+          closeOnBackdrop={!isEditing}
+        >
           {isEditing ? (
             <NoteEditor controller={controller} expanded onCancel={cancelEdit} />
           ) : (
