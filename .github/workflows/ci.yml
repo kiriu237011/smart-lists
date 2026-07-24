@@ -1,0 +1,59 @@
+name: CI
+
+# Проверка каждой ветки и каждого PR. Ничего не деплоит и не трогает боевые
+# ресурсы: миграции применяет только `build:deploy`, назначенный buildCommand
+# в vercel.json, а он здесь не вызывается.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# Новый пуш в ту же ветку отменяет предыдущий незавершённый прогон.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    # Заведомо нерабочие значения. Нужны, потому что `prisma generate` читает
+    # datasource из схемы, а Next при сборке подставляет NEXT_PUBLIC_* в бандл.
+    # Реальные секреты сюда не попадают намеренно: сборка в БД не ходит, и
+    # подключение по этому адресу в раннере невозможно.
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+      DIRECT_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+      AUTH_SECRET: ci-placeholder-not-a-real-secret
+      NEXT_PUBLIC_PUSHER_KEY: ci-placeholder
+      NEXT_PUBLIC_PUSHER_CLUSTER: ap1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # postinstall выполняет `prisma generate` — без него не соберутся типы.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # Идёт последним: дольше всех и повторно проверяет типы вместе с
+      # сгенерированными типами маршрутов, которых нет на шаге typecheck.
+      - name: Build
+        run: npm run build

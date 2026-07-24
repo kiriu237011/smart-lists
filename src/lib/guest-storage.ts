@@ -100,7 +100,19 @@ type StoredList = z.infer<typeof storedListSchema>;
 // Чтение / запись localStorage
 // ---------------------------------------------------------------------------
 
-const EMPTY_DATA: GuestData = { lists: [], groups: [] };
+/**
+ * Пустое состояние создаётся заново на каждый вызов.
+ *
+ * Раньше здесь была общая константа, и `loadGuestData` возвращал ссылку на
+ * неё. Мутации идут прямо в результат (`data.lists.unshift(...)`), поэтому
+ * при пустом хранилище они накапливались в общем объекте на весь срок жизни
+ * вкладки: если запись в localStorage не удавалась (приватный режим, квота),
+ * пользователь получал ошибку, но список оставался в памяти и всплывал при
+ * следующем чтении как несуществующий.
+ */
+function emptyData(): GuestData {
+  return { lists: [], groups: [] };
+}
 
 /**
  * Читает гостевые данные из localStorage.
@@ -110,13 +122,13 @@ const EMPTY_DATA: GuestData = { lists: [], groups: [] };
 export function loadGuestData(): GuestData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY_DATA;
+    if (!raw) return emptyData();
 
     const result = guestDataSchema.safeParse(JSON.parse(raw));
-    return result.success ? result.data : EMPTY_DATA;
+    return result.success ? result.data : emptyData();
   } catch {
     // JSON.parse упал или localStorage недоступен (privacy mode)
-    return EMPTY_DATA;
+    return emptyData();
   }
 }
 

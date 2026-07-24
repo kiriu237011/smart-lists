@@ -55,9 +55,16 @@ export const ALLOWED_TYPES: Record<
  */
 export const ACCEPT_ATTRIBUTE = Object.keys(ALLOWED_TYPES).join(",");
 
-/** Разрешён ли данный MIME-тип к загрузке. */
+/**
+ * Разрешён ли данный MIME-тип к загрузке.
+ *
+ * Именно `Object.hasOwn`, а не оператор `in`: `in` видит прототипную цепочку,
+ * поэтому `contentType` вида "constructor" или "toString" проходил проверку.
+ * Дальше по потоку `getCategory` возвращал для такого типа null, который
+ * приведением `as FileCategory` выдавался за валидную категорию.
+ */
 export function isAllowedType(contentType: string): boolean {
-  return contentType in ALLOWED_TYPES;
+  return Object.hasOwn(ALLOWED_TYPES, contentType);
 }
 
 /** Категория файла по MIME-типу (или null, если тип не разрешён). */
