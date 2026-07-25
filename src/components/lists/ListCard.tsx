@@ -17,8 +17,17 @@
 
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { useTranslations } from "next-intl";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
 import SmartList from "@/components/lists/SmartList";
 import Highlight from "@/components/ui/Highlight";
@@ -100,12 +109,21 @@ export type ListCardProps = {
   showAuthors: boolean;
   /** Показывать ли порядковые номера записей (тумблер в настройках). */
   showItemNumbers: boolean;
+  /** Показывать ли счётчик «выполнено / всего» в шапке (тумблер в настройках). */
+  showItemsCounter: boolean;
   /**
    * ID записей, совпавших с поиском. null — показывать все записи списка.
    * Фильтрацией занимается `SmartList`, чтобы нумеровать записи по полному
    * списку, а не по совпавшему подмножеству.
    */
   visibleItemIds: Set<string> | null;
+  /**
+   * Свёрнута ли карточка. Персональная настройка отображения: хранится в
+   * localStorage, в БД её нет и другим участникам списка она не видна.
+   */
+  isCollapsed: boolean;
+  /** Колбэк сворачивания/разворачивания карточки. */
+  onToggleCollapse: (listId: string) => void;
   isDeleting: boolean;
   isLeaving: boolean;
   onRename: (listId: string, newTitle: string, originalList: ListData) => Promise<void>;
@@ -118,6 +136,42 @@ export type ListCardProps = {
   /** Колбэк добавления/удаления списка из группы. */
   onToggleListGroup: (listId: string, groupId: string, inGroup: boolean) => Promise<void>;
 };
+
+/**
+ * Шеврон сворачивания: вниз у раскрытой карточки, вправо у свёрнутой.
+ * Поворот делается CSS-трансформом, а не второй иконкой, — так переход между
+ * состояниями читается как одно движение.
+ */
+/** Зазор между кнопкой и её меню. */
+const MENU_GAP = 4;
+
+/**
+ * Отступ от края окна, ниже которого меню считается не поместившимся.
+ * Больше зазора у кнопки: меню, прижатое к самому краю экрана, выглядит
+ * обрезанным даже когда влезло целиком.
+ */
+const MENU_EDGE_GAP = 12;
+
+function CollapseChevron({ isCollapsed }: { isCollapsed: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={`transition-transform duration-150 ${
+        isCollapsed ? "-rotate-90" : ""
+      }`}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
 
 /**
  * Мемоизированная карточка одного списка.
@@ -144,7 +198,10 @@ const ListCard = memo(function ListCard({
   currentUserEmail,
   showAuthors,
   showItemNumbers,
+  showItemsCounter,
   visibleItemIds,
+  isCollapsed,
+  onToggleCollapse,
   isDeleting,
   isLeaving,
   onRename,
@@ -176,6 +233,25 @@ const ListCard = memo(function ListCard({
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const actionsMenuButtonRef = useRef<HTMLButtonElement>(null);
 
+  const actionsMenuPanelRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Координаты открытого меню действий в координатах окна.
+   *
+   * Меню позиционируется `fixed`, а не `absolute`: изначально — чтобы не влиять
+   * на раскладку карточек (в прежней `columns`-раскладке абсолютный потомок
+   * участвовал в балансировке колонок), а теперь ещё и затем, чтобы уметь
+   * раскрываться вверх, не завися от переполнения карточки.
+   *
+   * Задаётся либо `top`, либо `bottom` — вторая координата остаётся `undefined`,
+   * и React её не выставляет.
+   */
+  const [actionsMenuAnchor, setActionsMenuAnchor] = useState<{
+    right: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+
   const togglePanel = (panel: "ai" | "share" | "files") => {
     setIsListNoteOpen(false);
     setActivePanel((prev) => (prev === panel ? null : panel));
@@ -186,6 +262,67 @@ const ListCard = memo(function ListCard({
     setIsActionsMenuOpen(false);
     setIsListNoteOpen((current) => !current);
   };
+
+  /**
+   * Координаты меню от его кнопки, выровненные по её правому краю.
+   *
+   * Если снизу не хватает места, меню раскрывается вверх. Вверх — только когда
+   * оно там действительно помещается: у карточки внизу короткого экрана может не
+   * хватать места ни снизу, ни сверху, и переворот сделал бы хуже, уведя меню за
+   * верхнюю границу окна.
+   *
+   * Высота меню известна лишь после отрисовки, поэтому при первом открытии её
+   * ещё нет и меню раскрывается вниз. Поправляет это layout-эффект ниже —
+   * до того, как браузер нарисует кадр.
+   */
+  const anchorFor = useCallback((button: HTMLButtonElement) => {
+    const rect = button.getBoundingClientRect();
+    const right = window.innerWidth - rect.right;
+    const menuHeight = actionsMenuPanelRef.current?.offsetHeight ?? 0;
+    const spaceBelow = window.innerHeight - rect.bottom - MENU_EDGE_GAP;
+    const spaceAbove = rect.top - MENU_EDGE_GAP;
+
+    if (menuHeight > spaceBelow && menuHeight <= spaceAbove) {
+      return { right, bottom: window.innerHeight - rect.top + MENU_GAP };
+    }
+    return { right, top: rect.bottom + MENU_GAP };
+  }, []);
+
+  /**
+   * Пересчёт координат меню: сначала по факту отрисовки — тогда становится
+   * известна его высота и решается вопрос переворота, — затем при прокрутке и
+   * изменении размера окна, иначе закреплённое меню отрывается от своей кнопки.
+   *
+   * Слушатель прокрутки с capture: карточка может лежать в прокручиваемом
+   * контейнере, а не только в окне.
+   */
+  useLayoutEffect(() => {
+    if (!isActionsMenuOpen) return;
+
+    const reposition = () => {
+      const button = actionsMenuButtonRef.current;
+      if (!button) return;
+      const next = anchorFor(button);
+      // Возврат прежнего объекта отменяет лишний ререндер: перерисовка карточки
+      // стоит дорого, а координаты чаще всего не меняются.
+      setActionsMenuAnchor((current) =>
+        current &&
+        current.right === next.right &&
+        current.top === next.top &&
+        current.bottom === next.bottom
+          ? current
+          : next,
+      );
+    };
+
+    reposition();
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [isActionsMenuOpen, anchorFor]);
 
   // Закрываем меню действий по клику снаружи или по Escape.
   useEffect(() => {
@@ -243,16 +380,141 @@ const ListCard = memo(function ListCard({
   const isOwner = list.ownerId === currentUserId;
   const isTemp = list.id.startsWith("temp-");
 
+  /**
+   * Скрыто ли тело карточки.
+   *
+   * При активном поиске свёрнутость игнорируется, а сохранённое состояние не
+   * меняется: карточка вообще отрисована только если совпадение в ней есть
+   * (`ListsContainer` отдаёт лишь подошедшие списки), и оставить её закрытой
+   * значило бы показать результат, на который нельзя посмотреть. Закончился
+   * поиск — карточка снова свёрнута.
+   */
+  const isBodyHidden = isCollapsed && !isTemp && !searchQuery.trim();
+
+  /**
+   * Выполненные записи: сводка в шапке свёрнутой карточки.
+   *
+   * Считаются именно выполненные, а не оставшиеся: «N / M» в списке задач
+   * читается как прогресс, и обратный счёт сбивал бы с толку — отметка записи
+   * уменьшала бы первое число.
+   */
+  const completedItemsCount = list.items.filter((item) => item.isCompleted).length;
+
+  const bodyId = `list-body-${list.id}`;
+
+  /**
+   * Сворачивает или разворачивает карточку, закрывая заметку.
+   *
+   * Заметка живёт выше тела и сворачивание переживает, поэтому свёрнутая
+   * карточка с открытой заметкой осталась бы высокой — и выглядело бы это как
+   * сбой сворачивания. Свернул — компактно; понадобилась заметка — открыл
+   * кнопкой уже в свёрнутом виде.
+   */
+  const handleToggleCollapse = useCallback(() => {
+    if (!isBodyHidden) setIsListNoteOpen(false);
+    onToggleCollapse(list.id);
+  }, [isBodyHidden, onToggleCollapse, list.id]);
+
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Идёт ли анимация сворачивания.
+   *
+   * Ref, а не состояние, и стили ниже пишутся прямо в DOM. Через состояние это
+   * стоило непозволительно дорого: `setState` в момент старта анимации
+   * перерисовывал всё тело карточки вместе со `SmartList`, и первый кадр
+   * растягивался до 90 мс — клик, пауза, рывок. Ни одно из этих свойств не
+   * влияет на разметку React, поэтому ререндер тут не нужен вовсе.
+   */
+  const isAnimatingBodyRef = useRef(false);
+
+  /**
+   * Стиль покоя: у свёрнутой карточки тело скрыто и обрезано, у раскрытой не
+   * тронуто.
+   *
+   * `visibility` обязателен: нулевая высота с обрезкой прячет содержимое лишь
+   * визуально, оставляя его в порядке обхода и в поиске по странице.
+   * `overflow` в покое снимается — у раскрытой карточки он срезал бы меню
+   * записи, выходящее за нижний край короткого списка.
+   */
+  const applyRestingBodyStyle = useCallback(() => {
+    const node = bodyRef.current;
+    if (!node) return;
+    node.style.overflow = isBodyHidden ? "hidden" : "";
+    node.style.visibility = isBodyHidden ? "hidden" : "";
+  }, [isBodyHidden]);
+
+  // Начальное состояние и переходы без анимации: свёрнутая карточка после
+  // перезагрузки, раскрытие поиском. Пока анимация идёт, стилями управляют её
+  // колбэки — эффект в это время не вмешивается.
+  useEffect(() => {
+    if (!isAnimatingBodyRef.current) applyRestingBodyStyle();
+  }, [applyRestingBodyStyle]);
+
+  const prefersReducedMotion = useReducedMotion();
+
+  /**
+   * Тач-устройство. Анимация высоты заставляет браузер пересчитывать раскладку
+   * каждый кадр, и на телефоне этого бюджета не хватает — переход виден как
+   * рывок. Мгновенное сворачивание там выглядит лучше плохой анимации, тем
+   * более что на узком экране карточка занимает всю ширину и прыжок заметен
+   * сам по себе.
+   */
+  const isCoarsePointer = useMediaQuery("(pointer: coarse)");
+
+  /**
+   * Переход сворачивания.
+   *
+   * Короткий и без пружины: меняется высота, а значит браузер пересчитывает
+   * раскладку на каждом кадре. Чем дольше переход, тем дольше эта работа.
+   */
+  const collapseTransition =
+    prefersReducedMotion || isCoarsePointer
+      ? { duration: 0 }
+      : { duration: 0.18, ease: [0.4, 0, 0.2, 1] as const };
+
   return (
     <div
       data-testid="list-card"
       data-list-id={list.id}
       data-list-role={isOwner ? "owner" : "editor"}
-      className="break-inside-avoid mb-6 border border-gray-100 dark:border-transparent p-6 rounded-xl shadow-sm dark:shadow-lg dark:shadow-black/50 bg-white dark:bg-zinc-900"
+      data-collapsed={isBodyHidden}
+      className="border border-gray-100 dark:border-transparent p-6 rounded-xl shadow-sm dark:shadow-lg dark:shadow-black/50 bg-white dark:bg-zinc-900"
     >
-      {/* Заголовок и кнопки управления */}
-      <div className="mb-4 border-b dark:border-zinc-700 pb-2 flex items-center justify-between gap-3">
+      {/* Заголовок и кнопки управления. Разделительная черта и отступ под ней
+          нужны, только если ниже что-то есть: у свёрнутой карточки без открытой
+          заметки шапка — это вся карточка, и черта висела бы над пустотой. */}
+      <div
+        className={`flex items-center justify-between gap-3 ${
+          isBodyHidden && !isListNoteOpen
+            ? ""
+            : "mb-4 border-b dark:border-zinc-700 pb-2"
+        }`}
+      >
         <div className="flex items-center gap-2 flex-1 min-w-0">
+          {/* Шеврон — основной способ свернуть карточку. Клик по заголовку
+              занят переименованием, поэтому нужна отдельная кнопка. */}
+          {!isTemp && !isEditing && (
+            <button
+              type="button"
+              data-testid="list-collapse-toggle"
+              onClick={handleToggleCollapse}
+              aria-label={isBodyHidden ? t("expandAction") : t("collapseAction")}
+              title={isBodyHidden ? t("expandAction") : t("collapseAction")}
+              aria-expanded={!isBodyHidden}
+              aria-controls={bodyId}
+              /* Зона нажатия расширена невидимым `::after`, а не размером самой
+                 кнопки: 24px пальцем не поймать, но растить видимую кнопку
+                 незачем — рядом иконки того же масштаба. Прямоугольник растёт
+                 во все стороны, однако вправо его перекрывает заголовок, идущий
+                 дальше в потоке: тап по названию должен по-прежнему открывать
+                 переименование, а не сворачивать список. */
+              className="relative inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-gray-500 transition-colors after:absolute after:-inset-2.5 after:content-[''] hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+            >
+              <CollapseChevron isCollapsed={isBodyHidden} />
+            </button>
+          )}
+
           {isEditing ? (
             <input
               autoFocus
@@ -301,6 +563,29 @@ const ListCard = memo(function ListCard({
         {/* Заполненная заметка видна отдельно; создание пустой заметки находится в меню. */}
         {!isTemp && (
           <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Сводка «выполнено / всего». Стоит в шапке независимо от
+                свёрнутости и на том же месте, чтобы не прыгать при
+                сворачивании. Скрывается на время переименования: заголовок
+                становится полем ввода, и ему нужна вся ширина. Числа со
+                слэшем переводить нечего, локали получает только подпись для
+                скринридера. */}
+            {showItemsCounter && !isEditing && list.items.length > 0 && (
+              <span
+                data-testid="list-items-counter"
+                aria-label={t("ariaItemsCounter", {
+                  done: completedItemsCount,
+                  total: list.items.length,
+                })}
+                className="mr-1 text-xs tabular-nums text-gray-400 dark:text-zinc-500"
+              >
+                {completedItemsCount} / {list.items.length}
+              </span>
+            )}
+
+            {/* Заметка доступна и у свёрнутой карточки: она свойство списка
+                целиком, как заголовок, и живёт выше скрытого тела. Пустую
+                заметку по-прежнему создают из меню, поэтому кнопка появляется
+                только когда текст есть. */}
             {!isEditing && list.note && (
               <ListNoteButton
                 note={list.note}
@@ -340,8 +625,11 @@ const ListCard = memo(function ListCard({
                     aria-haspopup="menu"
                     aria-expanded={isActionsMenuOpen}
                     aria-controls={`list-actions-${list.id}`}
-                    onClick={() => {
+                    onClick={(event) => {
                       setIsListNoteOpen(false);
+                      // Координаты берём из самой кнопки: на момент клика меню
+                      // ещё не отрисовано, измерять по нему нечего.
+                      setActionsMenuAnchor(anchorFor(event.currentTarget));
                       setIsActionsMenuOpen((current) => !current);
                     }}
                     className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
@@ -363,13 +651,41 @@ const ListCard = memo(function ListCard({
                     </svg>
                   </button>
 
-                  {isActionsMenuOpen && (
+                  {isActionsMenuOpen && actionsMenuAnchor && (
                     <div
+                      ref={actionsMenuPanelRef}
                       id={`list-actions-${list.id}`}
                       role="menu"
                       data-testid="list-menu"
-                      className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
+                      style={{
+                        top: actionsMenuAnchor.top,
+                        bottom: actionsMenuAnchor.bottom,
+                        right: actionsMenuAnchor.right,
+                      }}
+                      className="fixed z-40 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
                     >
+                      {/* Дубль шеврона: меню — доступная с клавиатуры точка
+                          входа ко всем действиям списка, и сворачивание не
+                          должно быть исключением. */}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        data-testid="list-collapse-menu-item"
+                        onClick={() => {
+                          setIsActionsMenuOpen(false);
+                          handleToggleCollapse();
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                      >
+                        <CollapseChevron isCollapsed={isBodyHidden} />
+                        {isBodyHidden ? t("expandAction") : t("collapseAction")}
+                      </button>
+
+                      <div
+                        role="separator"
+                        className="my-1 h-px bg-gray-100 dark:bg-zinc-700"
+                      />
+
                       {!list.note && (
                         <button
                           type="button"
@@ -437,7 +753,11 @@ const ListCard = memo(function ListCard({
         )}
       </div>
 
-      {/* Общая заметка доступна владельцу, EDITOR-участникам и гостю. */}
+      {/* Общая заметка доступна владельцу, EDITOR-участникам и гостю.
+          Стоит выше тела и потому видна у свёрнутой карточки: заметка относится
+          к списку целиком, как заголовок, а не к его содержимому. Полный текст
+          и редактор открываются диалогом изнутри `NotePanel` — если бы блок
+          лежал в теле, `visibility: hidden` наследовался бы и в диалог. */}
       {!isTemp && (
         <ListNote
           listId={list.id}
@@ -447,209 +767,240 @@ const ListCard = memo(function ListCard({
           searchQuery={searchQuery}
           isOpen={isListNoteOpen}
           onClose={() => setIsListNoteOpen(false)}
+          isLastBlock={isBodyHidden}
         />
       )}
 
-      {/* Skeleton-заглушка для temp-списка */}
-      {isTemp && (
-        <div className="space-y-2 animate-pulse" aria-hidden>
-          <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-3/4" />
-          <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-1/2" />
-          <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-2/3" />
-        </div>
-      )}
+      {/* Тело карточки. Скрывается классом, а не размонтированием: открытая
+          панель и черновик заметки переживают сворачивание, как и панели
+          шаринга внутри. */}
+      <motion.div
+        id={bodyId}
+        ref={bodyRef}
+        // Содержимое остаётся смонтированным, поэтому его нужно убирать из
+        // фокуса и дерева доступности вручную: без `inert` Tab уходил бы в
+        // невидимую часть свёрнутой карточки.
+        inert={isBodyHidden}
+        // initial={false} обязателен: иначе каждая карточка проигрывала бы
+        // разворачивание при первом рендере и после каждого realtime-обновления.
+        initial={false}
+        animate={{ height: isBodyHidden ? 0 : "auto", opacity: isBodyHidden ? 0 : 1 }}
+        transition={collapseTransition}
+        onAnimationStart={() => {
+          isAnimatingBodyRef.current = true;
+          const node = bodyRef.current;
+          if (!node) return;
+          // Пока высота меняется, содержимое обязано быть видно — иначе
+          // сворачивать нечего, — но не должно вылезать за пределы тела.
+          node.style.overflow = "hidden";
+          node.style.visibility = "";
+        }}
+        onAnimationComplete={() => {
+          isAnimatingBodyRef.current = false;
+          applyRestingBodyStyle();
+        }}
+      >
+        {/* Skeleton-заглушка для temp-списка */}
+        {isTemp && (
+          <div className="space-y-2 animate-pulse" aria-hidden>
+            <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-3/4" />
+            <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-1/2" />
+            <div className="h-4 bg-gray-100 dark:bg-zinc-800 rounded w-2/3" />
+          </div>
+        )}
 
-      {/* Список записей */}
-      {!isTemp && (
-        <SmartList
-          items={list.items}
-          listId={list.id}
-          currentUserId={currentUserId}
-          currentUserName={currentUserName}
-          currentUserEmail={currentUserEmail}
-          showAuthors={showAuthors}
-          showItemNumbers={showItemNumbers}
-          visibleItemIds={visibleItemIds}
-          searchQuery={searchQuery}
-        />
-      )}
+        {/* Список записей */}
+        {!isTemp && (
+          <SmartList
+            items={list.items}
+            listId={list.id}
+            currentUserId={currentUserId}
+            currentUserName={currentUserName}
+            currentUserEmail={currentUserEmail}
+            showAuthors={showAuthors}
+            showItemNumbers={showItemNumbers}
+            visibleItemIds={visibleItemIds}
+            searchQuery={searchQuery}
+          />
+        )}
 
-      {/* AI инсайт и форма совместного доступа — недоступны в гостевом режиме */}
-      {!isTemp && !isGuest && (
-        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-700">
-          {/* Если есть участники — кнопки вертикально (каждая над своей панелью).
-              Иначе — на одной строке, панель полной шириной под ними. */}
-          {isOwner && list.sharedWith.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              <div>
-                <ShareListButton
-                  isOpen={activePanel === "share"}
-                  onToggle={() => togglePanel("share")}
-                  sharedCount={list.sharedWith.length}
-                />
-                <div className={activePanel === "share" ? "block" : "hidden"}>
-                  <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+        {/* AI инсайт и форма совместного доступа — недоступны в гостевом режиме */}
+        {!isTemp && !isGuest && (
+          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-700">
+            {/* Если есть участники — кнопки вертикально (каждая над своей панелью).
+                Иначе — на одной строке, панель полной шириной под ними. */}
+            {isOwner && list.sharedWith.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                <div>
+                  <ShareListButton
+                    isOpen={activePanel === "share"}
+                    onToggle={() => togglePanel("share")}
+                    sharedCount={list.sharedWith.length}
+                  />
+                  <div className={activePanel === "share" ? "block" : "hidden"}>
+                    <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+                  </div>
+                </div>
+                <div>
+                  <AiInsightButton
+                    isOpen={activePanel === "ai"}
+                    onToggle={() => togglePanel("ai")}
+                  />
+                  <div className={activePanel === "ai" ? "block" : "hidden"}>
+                    <AiInsight listId={list.id} />
+                  </div>
                 </div>
               </div>
+            ) : (
               <div>
-                <AiInsightButton
-                  isOpen={activePanel === "ai"}
-                  onToggle={() => togglePanel("ai")}
-                />
+                <div className="flex gap-2 flex-wrap">
+                  {isOwner && (
+                    <ShareListButton
+                      isOpen={activePanel === "share"}
+                      onToggle={() => togglePanel("share")}
+                      sharedCount={0}
+                    />
+                  )}
+                  <AiInsightButton
+                    isOpen={activePanel === "ai"}
+                    onToggle={() => togglePanel("ai")}
+                  />
+                </div>
+                {isOwner && (
+                  <div className={activePanel === "share" ? "block" : "hidden"}>
+                    <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+                  </div>
+                )}
                 <div className={activePanel === "ai" ? "block" : "hidden"}>
                   <AiInsight listId={list.id} />
                 </div>
               </div>
-            </div>
-          ) : (
-            <div>
-              <div className="flex gap-2 flex-wrap">
-                {isOwner && (
-                  <ShareListButton
-                    isOpen={activePanel === "share"}
-                    onToggle={() => togglePanel("share")}
-                    sharedCount={0}
-                  />
-                )}
-                <AiInsightButton
-                  isOpen={activePanel === "ai"}
-                  onToggle={() => togglePanel("ai")}
+            )}
+
+            {/* Вложения — доступны любому участнику списка (владелец + sharedWith) */}
+            <div className="mt-2">
+              <AttachmentsButton
+                isOpen={activePanel === "files"}
+                onToggle={() => togglePanel("files")}
+                count={list.files.length}
+              />
+              <div className={activePanel === "files" ? "block" : "hidden"}>
+                <Attachments
+                  listId={list.id}
+                  files={list.files}
+                  currentUserId={currentUserId}
                 />
               </div>
-              {isOwner && (
-                <div className={activePanel === "share" ? "block" : "hidden"}>
-                  <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
+            </div>
+          </div>
+        )}
+
+        {/* Меню назначения в группу */}
+        {!isTemp && (
+          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-zinc-700 flex items-center justify-between">
+            <div className="relative" ref={groupMenuRef}>
+              <button
+                type="button"
+                data-testid="list-group-trigger"
+                onClick={() => setIsGroupMenuOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
+                aria-label={t("ariaGroupMenu")}
+              >
+                {list.groups.length > 0 ? (
+                  /* Бейджи групп — список состоит в группе */
+                  <span className="flex items-center gap-1 flex-wrap">
+                    {list.groups.map((g) => (
+                      <span
+                        key={g.id}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                      >
+                        {g.name}
+                      </span>
+                    ))}
+                    {/* Кнопка добавления в ещё одну группу — тот же стиль что "+" в GroupFilter */}
+                    <span className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors text-sm leading-none">
+                      +
+                    </span>
+                  </span>
+                ) : (
+                  /* Иконка папки с плюсом — группа не назначена */
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                      <line x1="12" y1="11" x2="12" y2="17" />
+                      <line x1="9" y1="14" x2="15" y2="14" />
+                    </svg>
+                    {t("noGroup")}
+                  </>
+                )}
+              </button>
+
+              {/* Дропдаун со списком групп */}
+              {isGroupMenuOpen && (
+                <div className="absolute bottom-full left-0 mb-1 z-20 min-w-44 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-lg py-1">
+                  {userGroups.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-gray-400 dark:text-zinc-500">
+                      {t("noGroupsHint")}
+                    </p>
+                  ) : (
+                    userGroups.map((group) => {
+                      const inGroup = list.groups.some((g) => g.id === group.id);
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          data-testid="list-group-option"
+                          data-group-id={group.id}
+                          data-in-group={inGroup}
+                          onClick={() => {
+                            void onToggleListGroup(list.id, group.id, inGroup);
+                            setIsGroupMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700 transition-colors text-left"
+                        >
+                          <span className={`w-4 h-4 flex-shrink-0 flex items-center justify-center rounded text-xs ${
+                            inGroup
+                              ? "bg-gray-800 dark:bg-zinc-200 text-white dark:text-zinc-900"
+                              : "border border-gray-300 dark:border-zinc-600"
+                          }`}>
+                            {inGroup && "✓"}
+                          </span>
+                          <span className="truncate">{group.name}</span>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
               )}
-              <div className={activePanel === "ai" ? "block" : "hidden"}>
-                <AiInsight listId={list.id} />
-              </div>
-            </div>
-          )}
-
-          {/* Вложения — доступны любому участнику списка (владелец + sharedWith) */}
-          <div className="mt-2">
-            <AttachmentsButton
-              isOpen={activePanel === "files"}
-              onToggle={() => togglePanel("files")}
-              count={list.files.length}
-            />
-            <div className={activePanel === "files" ? "block" : "hidden"}>
-              <Attachments
-                listId={list.id}
-                files={list.files}
-                currentUserId={currentUserId}
-              />
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Меню назначения в группу */}
-      {!isTemp && (
-        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-zinc-700 flex items-center justify-between">
-          <div className="relative" ref={groupMenuRef}>
+        {/* Подпись владельца + кнопка Отписаться */}
+        {!isOwner && (
+          <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-700 flex items-center justify-between">
+            <span className="text-xs text-gray-400">
+              {t("owner", { name: list.owner.name || list.owner.email })}
+            </span>
             <button
               type="button"
-              data-testid="list-group-trigger"
-              onClick={() => setIsGroupMenuOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
-              aria-label={t("ariaGroupMenu")}
+              data-testid="list-leave"
+              disabled={isLeaving}
+              onClick={() => onLeave(list)}
+              className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
-              {list.groups.length > 0 ? (
-                /* Бейджи групп — список состоит в группе */
-                <span className="flex items-center gap-1 flex-wrap">
-                  {list.groups.map((g) => (
-                    <span
-                      key={g.id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                    >
-                      {g.name}
-                    </span>
-                  ))}
-                  {/* Кнопка добавления в ещё одну группу — тот же стиль что "+" в GroupFilter */}
-                  <span className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors text-sm leading-none">
-                    +
-                  </span>
-                </span>
-              ) : (
-                /* Иконка папки с плюсом — группа не назначена */
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    <line x1="12" y1="11" x2="12" y2="17" />
-                    <line x1="9" y1="14" x2="15" y2="14" />
-                  </svg>
-                  {t("noGroup")}
-                </>
-              )}
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 4h3a2 2 0 0 1 2 2v14" />
+                <path d="M2 20h3" />
+                <path d="M13 20h9" />
+                <path d="M10 12v.01" />
+                <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" />
+              </svg>
+              {t("unsubscribe")}
             </button>
-
-            {/* Дропдаун со списком групп */}
-            {isGroupMenuOpen && (
-              <div className="absolute bottom-full left-0 mb-1 z-20 min-w-44 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-lg py-1">
-                {userGroups.length === 0 ? (
-                  <p className="px-3 py-2 text-xs text-gray-400 dark:text-zinc-500">
-                    {t("noGroupsHint")}
-                  </p>
-                ) : (
-                  userGroups.map((group) => {
-                    const inGroup = list.groups.some((g) => g.id === group.id);
-                    return (
-                      <button
-                        key={group.id}
-                        type="button"
-                        data-testid="list-group-option"
-                        data-group-id={group.id}
-                        data-in-group={inGroup}
-                        onClick={() => {
-                          void onToggleListGroup(list.id, group.id, inGroup);
-                          setIsGroupMenuOpen(false);
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700 transition-colors text-left"
-                      >
-                        <span className={`w-4 h-4 flex-shrink-0 flex items-center justify-center rounded text-xs ${
-                          inGroup
-                            ? "bg-gray-800 dark:bg-zinc-200 text-white dark:text-zinc-900"
-                            : "border border-gray-300 dark:border-zinc-600"
-                        }`}>
-                          {inGroup && "✓"}
-                        </span>
-                        <span className="truncate">{group.name}</span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            )}
           </div>
-        </div>
-      )}
-
-      {/* Подпись владельца + кнопка Отписаться */}
-      {!isOwner && (
-        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-zinc-700 flex items-center justify-between">
-          <span className="text-xs text-gray-400">
-            {t("owner", { name: list.owner.name || list.owner.email })}
-          </span>
-          <button
-            type="button"
-            data-testid="list-leave"
-            disabled={isLeaving}
-            onClick={() => onLeave(list)}
-            className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13 4h3a2 2 0 0 1 2 2v14" />
-              <path d="M2 20h3" />
-              <path d="M13 20h9" />
-              <path d="M10 12v.01" />
-              <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" />
-            </svg>
-            {t("unsubscribe")}
-          </button>
-        </div>
-      )}
+        )}
+      </motion.div>
 
       {isNoteDeleteOpen && (
         <DeleteNoteModal

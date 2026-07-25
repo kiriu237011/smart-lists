@@ -4,12 +4,13 @@ export default function ListsSkeleton() {
       {/* Скелетон для ListsTopPanel */}
       <div className="flex items-center gap-4 mb-8 bg-gray-100 h-14 rounded-2xl w-full"></div>
 
-      {/* Скелетон для grid со списками */}
-      <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
+      {/* Скелетон повторяет раскладку списков: три колонки от xl и один поток
+          ниже — те же брейкпоинт и зазор. */}
+      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
         {[1, 2, 3].map((i) => (
           <div
             key={i}
-            className="bg-white border border-gray-100 rounded-3xl p-5 mb-6 shadow-sm h-64"
+            className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm h-64 xl:min-w-0 xl:flex-1"
           >
             {/* Header карточки */}
             <div className="flex justify-between items-center mb-4">

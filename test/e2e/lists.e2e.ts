@@ -9,9 +9,10 @@
  */
 
 import { expect, test } from "./fixtures";
-import { makeList } from "./factories";
+import { makeItems, makeList } from "./factories";
 import {
   createList,
+  itemRow,
   listCard,
   onlyListCard,
   openListMenu,
@@ -99,6 +100,80 @@ test("удаление списка требует подтверждения", 
   await expect(visible(page, "lists-empty")).toBeVisible();
 
   expect(await db.list.count({ where: { id: list.id } })).toBe(0);
+});
+
+test("счётчик выполненных виден по умолчанию и выключается в настройках", async ({
+  page,
+  user,
+  db,
+}) => {
+  // Свёрнутая карточка проверяется здесь же: тумблер один на оба состояния, и
+  // разъехаться они могут только вместе с этой проверкой.
+  const list = await makeList(db, user.id, user.defaultSpaceId);
+  const [first] = await makeItems(db, list.id, ["Раз", "Два", "Три"]);
+  await openSpace(page, user);
+
+  const card = listCard(page, list.id);
+  await expect(card.getByTestId("list-items-counter")).toHaveText("0 / 3");
+
+  // Отметка записи двигает счётчик, не дожидаясь перезагрузки.
+  await itemRow(card, first.id).getByTestId("item-toggle").click();
+  await expect(card.getByTestId("list-items-counter")).toHaveText("1 / 3");
+
+  await visible(page, "settings-trigger-desktop").click();
+  await visible(page, "setting-show-items-counter").click();
+  await expect(card.getByTestId("list-items-counter")).toHaveCount(0);
+
+  // У свёрнутой карточки счётчика тоже нет: настройка одна на всё приложение.
+  await card.getByTestId("list-collapse-toggle").click();
+  await expect(card).toHaveAttribute("data-collapsed", "true");
+  await expect(card.getByTestId("list-items-counter")).toHaveCount(0);
+
+  // Настройка живёт в localStorage и переживает перезагрузку.
+  await page.reload();
+  await expect(listCard(page, list.id).getByTestId("list-items-counter")).toHaveCount(0);
+});
+
+test("раскладка даёт три колонки на десктопе, две на среднем экране и одну на телефоне", async ({
+  page,
+  user,
+  db,
+}) => {
+  // Колонки собраны вручную: три куска в разметке, а число видимых колонок
+  // задаёт CSS через `display: contents`. Две колонки — единственный случай,
+  // который включается уже после гидрации, поэтому проверяются все три ширины.
+  const lists = await Promise.all(
+    Array.from({ length: 6 }, (_, index) => index).map((index) =>
+      makeList(db, user.id, user.defaultSpaceId, { title: `Список ${index}` }),
+    ),
+  );
+
+  /** Число различных левых границ карточек — столько колонок и видно. */
+  const visibleColumns = async () => {
+    const positions = await Promise.all(
+      lists.map(async (list) => {
+        const box = await listCard(page, list.id).boundingBox();
+        return box ? Math.round(box.x) : -1;
+      }),
+    );
+    return new Set(positions).size;
+  };
+
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openSpace(page, user);
+  await expect.poll(visibleColumns).toBe(3);
+
+  // Середина: CSS сам собрать две колонки из трёх кусков не может, их включает
+  // подписка на медиа-запрос после гидрации.
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expect.poll(visibleColumns).toBe(2);
+
+  await page.setViewportSize({ width: 500, height: 900 });
+  await expect.poll(visibleColumns).toBe(1);
+
+  // Возврат на десктоп восстанавливает три колонки: подписка живёт всё время.
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await expect.poll(visibleColumns).toBe(3);
 });
 
 test("списки другого пространства не видны", async ({ page, user, db }) => {

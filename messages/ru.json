@@ -34,6 +34,9 @@
     "ariaDelete": "Удалить список {title}",
     "ariaListActions": "Действия со списком {title}",
     "deleteListAction": "Удалить список",
+    "collapseAction": "Свернуть список",
+    "expandAction": "Развернуть список",
+    "ariaItemsCounter": "Выполнено записей: {done} из {total}",
     "leaveModal": {
       "title": "Отписаться от списка?",
       "body": "Вы хотите отписаться от списка «{title}»? Чтобы снова получить доступ, попросите владельца поделиться им заново.",
@@ -71,6 +74,7 @@
   "Settings": {
     "showAuthors": "Авторы записей",
     "showItemNumbers": "Нумерация записей",
+    "showItemsCounter": "Счётчик выполненных",
     "scrollToTop": "Кнопка «Наверх»"
   },
   "GroupFilter": {

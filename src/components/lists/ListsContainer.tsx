@@ -48,10 +48,28 @@ import { useRouter } from "next/navigation";
 import { getPusherClient } from "@/lib/pusher-client";
 import { deferRefreshWhileDragging } from "@/lib/drag-gate";
 import { randomUUID } from "@/lib/uuid";
+import {
+  parseCollapsedLists,
+  pruneCollapsedLists,
+  serializeCollapsedLists,
+  toggleCollapsedList,
+} from "@/lib/collapsed-lists";
+import { splitIntoColumns } from "@/lib/list-columns";
+import { useMediaQuery } from "@/lib/use-media-query";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
 import ListsTopPanel from "@/components/lists/ListsTopPanel";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import GroupFilter from "@/components/lists/GroupFilter";
+
+/**
+ * Промежуток между `md` и `xl` из Tailwind.
+ *
+ * Единственное место, где брейкпоинт продублирован в коде, — и он существует
+ * только ради двух колонок на средних экранах. Значения в `rem`, потому что
+ * Tailwind 4 задаёт брейкпоинты в них же: в пикселях они разъедутся при
+ * нестандартном размере шрифта.
+ */
+const MEDIUM_SCREEN_QUERY = "(min-width: 48rem) and (max-width: 79.999rem)";
 
 /** Пропсы компонента `ListsContainer`. */
 type ListsContainerProps = {
@@ -90,7 +108,7 @@ export default function ListsContainer({
 }: ListsContainerProps) {
   const t = useTranslations("ListsContainer");
   const router = useRouter();
-  const { showAuthors, showItemNumbers } = useSettings();
+  const { showAuthors, showItemNumbers, showItemsCounter } = useSettings();
 
   // Адаптер операций: Server Actions (авторизованный) или localStorage (гость)
   const api = useListsApi();
@@ -101,6 +119,9 @@ export default function ListsContainer({
   const groupStorageKey = api.isGuest
     ? "guest:activeGroupId"
     : `activeGroupId:${spaceId}`;
+  const collapsedStorageKey = api.isGuest
+    ? "guest:collapsedLists"
+    : `collapsedLists:${spaceId}`;
 
   /**
    * Список, ожидающий подтверждения удаления.
@@ -131,6 +152,18 @@ export default function ListsContainer({
 
   /** Активный фильтр группы. null = показывать все списки. Сохраняется в localStorage. */
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+
+  /**
+   * ID свёрнутых карточек.
+   *
+   * Свёрнутость — персональная настройка отображения на устройство: в БД её
+   * нет, участникам расшаренного списка она не видна. Набор живёт здесь, а не
+   * в состоянии `ListCard`, потому что отсюда он попадает в localStorage тем же
+   * порядком, что и активная группа, — одним ключом на пространство.
+   */
+  const [collapsedListIds, setCollapsedListIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // isSearchOpen: управляет видимостью поля поиска. Сохраняется в localStorage.
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -167,6 +200,50 @@ export default function ListsContainer({
     const savedGroupId = localStorage.getItem(groupStorageKey);
     if (savedGroupId) setActiveGroupId(savedGroupId);
   }, [tabStorageKey, groupStorageKey]);
+
+  /**
+   * Эффект: чтение свёрнутых карточек и уборка ID исчезнувших списков.
+   *
+   * Отдельно от эффекта выше, потому что зависит ещё и от `allLists`: удалённый
+   * список пропадает из выборки, а его ID остался бы в localStorage навсегда.
+   * Перезапуск на каждом обновлении данных безвреден — чтение идемпотентно, а
+   * запись выполняется, только если что-то действительно отсеялось.
+   */
+  useEffect(() => {
+    const stored = parseCollapsedLists(
+      localStorage.getItem(collapsedStorageKey),
+    );
+    const pruned = pruneCollapsedLists(
+      stored,
+      allLists.map((list) => list.id),
+    );
+    if (pruned !== stored) {
+      localStorage.setItem(collapsedStorageKey, serializeCollapsedLists(pruned));
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCollapsedListIds(pruned);
+  }, [collapsedStorageKey, allLists]);
+
+  /**
+   * Сворачивает или разворачивает карточку.
+   *
+   * Запись в localStorage внутри updater — тот же приём, что в
+   * `SettingsProvider`: колбэк остаётся стабильным, и переключение одной
+   * карточки не ломает мемоизацию всех остальных.
+   */
+  const handleToggleCollapse = useCallback(
+    (listId: string) => {
+      setCollapsedListIds((prev) => {
+        const next = toggleCollapsedList(prev, listId);
+        localStorage.setItem(
+          collapsedStorageKey,
+          serializeCollapsedLists(next),
+        );
+        return next;
+      });
+    },
+    [collapsedStorageKey],
+  );
 
   /**
    * Эффект: подписка на личный private-канал Pusher текущего пользователя.
@@ -372,6 +449,30 @@ export default function ListsContainer({
 
     return { lists, matchedItemIds: matches };
   }, [uniqueLists, searchQuery, activeGroupId]);
+
+  /**
+   * Средний экран: между `md` и `xl`.
+   *
+   * До гидрации всегда `false`, поэтому серверная разметка совпадает с
+   * клиентской: три куска, которые CSS показывает одной колонкой ниже `xl` и
+   * тремя от `xl`. На телефоне и десктопе этот флаг ничего не меняет — он
+   * включается только в середине, где иначе была бы одна колонка вместо двух.
+   */
+  const isMediumScreen = useMediaQuery(MEDIUM_SCREEN_QUERY);
+
+  /**
+   * Карточки, разложенные по колонкам.
+   *
+   * Три колонки — раскладка по умолчанию, и её достаточно для обоих крайних
+   * случаев: ниже `xl` обёртки колонок получают `display: contents`, выпадают
+   * из раскладки, и карточки выстраиваются в один поток в порядке DOM. Две
+   * колонки — единственный случай, который CSS сам собрать не может: из трёх
+   * кусков две колонки не склеить.
+   */
+  const listColumns = useMemo(
+    () => splitIntoColumns(filteredLists, isMediumScreen ? 2 : 3),
+    [filteredLists, isMediumScreen],
+  );
 
   // -------------------------------------------------------------------------
   // Обработчики для групп
@@ -805,39 +906,79 @@ export default function ListsContainer({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.12 }}
         >
-          <div className="columns-1 md:columns-2 xl:columns-3 gap-6">
-            {/* Внутренний AnimatePresence обрабатывает добавление/удаление
-                отдельных списков внутри группы. */}
-            <AnimatePresence initial={false}>
-              {filteredLists.map((list) => (
-                <motion.div
-                  key={stableKeys.get(list.id) ?? list.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="break-inside-avoid mb-6"
-                >
-                  <ListCard
-                    list={list}
-                    currentUserId={currentUserId}
-                    currentUserName={currentUserName}
-                    currentUserEmail={currentUserEmail}
-                    showAuthors={showAuthors}
-                    showItemNumbers={showItemNumbers}
-                    visibleItemIds={matchedItemIds?.get(list.id) ?? null}
-                    isDeleting={isDeleting}
-                    isLeaving={isLeaving}
-                    onRename={handleRename}
-                    onDelete={setListToDelete}
-                    onLeave={setListToLeave}
-                    searchQuery={searchQuery}
-                    userGroups={groups}
-                    onToggleListGroup={handleToggleListGroup}
-                  />
-                </motion.div>
-              ))}
-            </AnimatePresence>
+          {/* Колонки — отдельные контейнеры, а не `columns` и не грид.
+              Причины обеих замен в `PROJECT_MEMORY.md`; коротко: в multicol
+              колонка карточки вычислялась из высот, и сворачивание
+              перебрасывало соседей, а в гриде ряды выровнены, и рядом со
+              свёрнутой карточкой оставалась дыра во всю высоту раскрытой.
+              Здесь колонка задана номером карточки, а внутри колонки они
+              лежат вплотную. */}
+          {/* Ключ по числу колонок. При его смене карточки переезжают в другие
+              контейнеры, и без ключа каждая на мгновение оказывалась бы в DOM
+              дважды: старая копия доигрывает исчезновение в прежней колонке,
+              пока новая появляется в соседней. Ключ размонтирует старое дерево
+              целиком и мгновенно — `AnimatePresence` не может анимировать
+              собственное исчезновение, поэтому призраков не остаётся. */}
+          <div
+            key={listColumns.length}
+            className={`flex gap-6 ${
+              isMediumScreen
+                ? "flex-row items-start"
+                : "flex-col xl:flex-row xl:items-start"
+            }`}
+          >
+            {listColumns.map((column, columnIndex) => (
+              /* `contents` ниже xl убирает саму обёртку из раскладки: карточки
+                 становятся детьми внешнего flex-контейнера и выстраиваются в
+                 одну колонку в порядке DOM. Благодаря этому обе крайние ширины
+                 обходятся без JS, а серверная разметка сразу верна. На среднем
+                 экране колонок две, и обёртка становится настоящей колонкой на
+                 всех ширинах — этот случай уже включён после гидрации. */
+              <div
+                key={columnIndex}
+                data-testid="lists-column"
+                className={
+                  isMediumScreen
+                    ? "flex min-w-0 flex-1 flex-col gap-6"
+                    : "contents xl:flex xl:min-w-0 xl:flex-1 xl:flex-col xl:gap-6"
+                }
+              >
+                {/* AnimatePresence обрабатывает добавление и удаление списков
+                    внутри колонки. */}
+                <AnimatePresence initial={false}>
+                  {column.map((list) => (
+                    <motion.div
+                      key={stableKeys.get(list.id) ?? list.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      <ListCard
+                        list={list}
+                        currentUserId={currentUserId}
+                        currentUserName={currentUserName}
+                        currentUserEmail={currentUserEmail}
+                        showAuthors={showAuthors}
+                        showItemNumbers={showItemNumbers}
+                        showItemsCounter={showItemsCounter}
+                        visibleItemIds={matchedItemIds?.get(list.id) ?? null}
+                        isCollapsed={collapsedListIds.has(list.id)}
+                        onToggleCollapse={handleToggleCollapse}
+                        isDeleting={isDeleting}
+                        isLeaving={isLeaving}
+                        onRename={handleRename}
+                        onDelete={setListToDelete}
+                        onLeave={setListToLeave}
+                        searchQuery={searchQuery}
+                        userGroups={groups}
+                        onToggleListGroup={handleToggleListGroup}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            ))}
           </div>
 
           {/* Сообщение о пустом состоянии */}

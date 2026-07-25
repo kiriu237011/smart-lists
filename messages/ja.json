@@ -34,6 +34,9 @@
     "ariaDelete": "リスト{title}を削除",
     "ariaListActions": "リスト{title}の操作",
     "deleteListAction": "リストを削除",
+    "collapseAction": "リストを折りたたむ",
+    "expandAction": "リストを展開",
+    "ariaItemsCounter": "完了した項目: {total}件中{done}件",
     "leaveModal": {
       "title": "リストから退出しますか？",
       "body": "リスト「{title}」から退出しますか？再度アクセスするには、オーナーに共有し直してもらってください。",
@@ -71,6 +74,7 @@
   "Settings": {
     "showAuthors": "項目の作成者",
     "showItemNumbers": "項目の番号",
+    "showItemsCounter": "完了カウンター",
     "scrollToTop": "「トップへ」ボタン"
   },
   "GroupFilter": {

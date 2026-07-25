@@ -34,6 +34,9 @@
     "ariaDelete": "Xóa danh sách {title}",
     "ariaListActions": "Thao tác cho danh sách {title}",
     "deleteListAction": "Xóa danh sách",
+    "collapseAction": "Thu gọn danh sách",
+    "expandAction": "Mở rộng danh sách",
+    "ariaItemsCounter": "Mục đã hoàn thành: {done} trên {total}",
     "leaveModal": {
       "title": "Rời khỏi danh sách?",
       "body": "Bạn có muốn rời khỏi danh sách «{title}»? Để có lại quyền truy cập, hãy yêu cầu chủ sở hữu chia sẻ lại.",
@@ -71,6 +74,7 @@
   "Settings": {
     "showAuthors": "Hiển thị tác giả",
     "showItemNumbers": "Đánh số mục",
+    "showItemsCounter": "Bộ đếm đã hoàn thành",
     "scrollToTop": "Nút «Lên đầu»"
   },
   "GroupFilter": {

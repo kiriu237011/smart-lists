@@ -13,7 +13,13 @@
 
 import { anonymousTest as test, expect } from "./fixtures";
 import { setGuestMode } from "./factories";
-import { addItem, createList, onlyListCard, visible } from "./helpers";
+import {
+  addItem,
+  createList,
+  localStorageItem,
+  onlyListCard,
+  visible,
+} from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -75,6 +81,29 @@ test("выход из гостевого режима не стирает дан
   await expect(onlyListCard(page).getByTestId("list-title")).toHaveText(
     "Останется в браузере",
   );
+});
+
+test("гость сворачивает списки, и они хранятся под своим ключом", async ({
+  page,
+}) => {
+  // У гостя свои ключи localStorage: в одном браузере его данные и данные
+  // аккаунта не должны пересекаться, иначе свёрнутость протекла бы между ними.
+  await enterGuest(page);
+  await createList(page, "Гостевой список");
+  await addItem(onlyListCard(page), "Гостевое молоко");
+
+  const card = onlyListCard(page);
+  await card.getByTestId("list-collapse-toggle").click();
+  await expect(card.getByTestId("add-item-input")).toBeHidden();
+
+  expect(
+    JSON.parse((await localStorageItem(page, "guest:collapsedLists")) ?? "[]"),
+  ).toHaveLength(1);
+  // Ключ аккаунта не тронут: у гостя нет пространства, под которое он строится.
+  expect(await localStorageItem(page, "collapsedLists:default")).toBeNull();
+
+  await page.reload();
+  await expect(onlyListCard(page).getByTestId("add-item-input")).toBeHidden();
 });
 
 test("выключенная настройка убирает гостевой вход", async ({ page, db }) => {

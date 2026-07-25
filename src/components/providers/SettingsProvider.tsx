@@ -9,6 +9,8 @@ type SettingsContextType = {
   toggleShowScrollToTop: () => void;
   showItemNumbers: boolean;
   toggleShowItemNumbers: () => void;
+  showItemsCounter: boolean;
+  toggleShowItemsCounter: () => void;
 };
 
 export const SettingsContext = createContext<SettingsContextType>({
@@ -18,6 +20,8 @@ export const SettingsContext = createContext<SettingsContextType>({
   toggleShowScrollToTop: () => {},
   showItemNumbers: false,
   toggleShowItemNumbers: () => {},
+  showItemsCounter: true,
+  toggleShowItemsCounter: () => {},
 });
 
 /**
@@ -30,6 +34,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   // Нумерация записей выключена по умолчанию: сам порядок хранится всегда,
   // а цифры — опциональное отображение.
   const [showItemNumbers, setShowItemNumbers] = useState(false);
+  // Счётчик «выполнено / всего» в шапке карточки включён по умолчанию: он
+  // отвечает на первый вопрос к списку — сколько ещё осталось.
+  const [showItemsCounter, setShowItemsCounter] = useState(true);
 
   // Читаем из localStorage только после гидрации, чтобы избежать расхождения SSR/CSR.
   useEffect(() => {
@@ -37,6 +44,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setShowAuthors(localStorage.getItem("showAuthors") === "true");
     setShowScrollToTop(localStorage.getItem("showScrollToTop") !== "false");
     setShowItemNumbers(localStorage.getItem("showItemNumbers") === "true");
+    setShowItemsCounter(localStorage.getItem("showItemsCounter") !== "false");
   }, []);
 
   const toggleShowAuthors = () => {
@@ -63,6 +71,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const toggleShowItemsCounter = () => {
+    setShowItemsCounter((prev) => {
+      const next = !prev;
+      localStorage.setItem("showItemsCounter", String(next));
+      return next;
+    });
+  };
+
   return (
     <SettingsContext.Provider
       value={{
@@ -72,6 +88,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         toggleShowScrollToTop,
         showItemNumbers,
         toggleShowItemNumbers,
+        showItemsCounter,
+        toggleShowItemsCounter,
       }}
     >
       {children}

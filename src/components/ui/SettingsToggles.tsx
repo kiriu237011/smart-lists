@@ -15,6 +15,8 @@ export default function SettingsToggles() {
     toggleShowScrollToTop,
     showItemNumbers,
     toggleShowItemNumbers,
+    showItemsCounter,
+    toggleShowItemsCounter,
   } = useSettings();
   const t = useTranslations("Settings");
 
@@ -31,6 +33,12 @@ export default function SettingsToggles() {
         label={t("showItemNumbers")}
         checked={showItemNumbers}
         onChange={toggleShowItemNumbers}
+      />
+      <SettingToggle
+        testId="setting-show-items-counter"
+        label={t("showItemsCounter")}
+        checked={showItemsCounter}
+        onChange={toggleShowItemsCounter}
       />
       <SettingToggle
         testId="setting-scroll-to-top"

@@ -933,6 +933,7 @@ export function ListNote({
   searchQuery,
   isOpen,
   onClose,
+  isLastBlock = false,
 }: {
   listId: string;
   /** Название списка — заголовок диалога развёрнутой заметки. */
@@ -942,6 +943,12 @@ export function ListNote({
   searchQuery: string;
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * Последний видимый блок карточки — отступ снизу не нужен.
+   * Так бывает у свёрнутой карточки: записи и панели под заметкой скрыты, и
+   * `mb-4` отделял бы её от пустоты, ломая симметрию с отступом сверху.
+   */
+  isLastBlock?: boolean;
 }) {
   const api = useListsApi();
   const query = searchQuery.trim();
@@ -952,7 +959,9 @@ export function ListNote({
   if (!isOpen && !noteMatches) return null;
 
   return (
-    <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-800/50">
+    <div
+      className={`${isLastBlock ? "" : "mb-4"} rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-800/50`}
+    >
       {!isOpen && noteMatches && note && (
         <p className="text-xs leading-relaxed text-gray-600 dark:text-zinc-300">
           <Highlight text={getNoteExcerpt(note, query)} query={query} />

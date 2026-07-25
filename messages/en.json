@@ -34,6 +34,9 @@
     "ariaDelete": "Delete list {title}",
     "ariaListActions": "Actions for list {title}",
     "deleteListAction": "Delete list",
+    "collapseAction": "Collapse list",
+    "expandAction": "Expand list",
+    "ariaItemsCounter": "Completed entries: {done} of {total}",
     "leaveModal": {
       "title": "Leave list?",
       "body": "Do you want to leave the list \"{title}\"? To regain access, ask the owner to share it with you again.",
@@ -71,6 +74,7 @@
   "Settings": {
     "showAuthors": "Item authors",
     "showItemNumbers": "Item numbering",
+    "showItemsCounter": "Completed counter",
     "scrollToTop": "\"Back to top\" button"
   },
   "GroupFilter": {
