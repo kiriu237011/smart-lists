@@ -74,7 +74,7 @@ export default async function AuthenticatedHome({
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <LanguageSwitcher />
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
-            <HeaderSettings><SettingsToggles /></HeaderSettings>
+            <HeaderSettings testId="settings-trigger-desktop"><SettingsToggles /></HeaderSettings>
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <form action={async () => { "use server"; await signOut(); }}>
               <button className="flex items-center gap-2 text-base text-gray-400 hover:text-red-500 transition-colors cursor-pointer">
@@ -86,7 +86,7 @@ export default async function AuthenticatedHome({
 
           <div className="sm:hidden flex items-center">
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800 mr-2" />
-            <HeaderSettings>
+            <HeaderSettings testId="settings-trigger-mobile">
               <div className="flex justify-center items-center gap-6 mb-5">
                 <ThemeToggle />
                 <div className="w-px h-6 bg-gray-200 dark:bg-zinc-700" />

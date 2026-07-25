@@ -53,6 +53,7 @@ export function ShareListButton({
   return (
     <button
       type="button"
+      data-testid="share-toggle"
       onClick={onToggle}
       className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all duration-200 ${
         isOpen
@@ -270,6 +271,8 @@ export default function ShareListForm({
           {optimisticSharedWith.map((user) => (
             <span
               key={user.id}
+              data-testid="share-member"
+              data-member-email={user.email ?? ""}
               className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 px-2 py-1 rounded-full"
             >
               {/* Показываем имя, если есть; иначе email */}
@@ -278,6 +281,7 @@ export default function ShareListForm({
               {/* Кнопка удаления пользователя из доступа */}
               <button
                 type="button"
+                data-testid="share-member-remove"
                 disabled={user.id.startsWith("temp-")}
                 title={
                   user.id.startsWith("temp-")
@@ -302,6 +306,7 @@ export default function ShareListForm({
         <input
           name="email"
           type="email"
+          data-testid="share-email-input"
           placeholder={t("placeholder")}
           className="border dark:border-zinc-700 p-1 rounded text-xs flex-1 bg-gray-50 dark:bg-zinc-800 focus:bg-white dark:focus:bg-zinc-900 focus:ring-1 ring-gray-800 dark:ring-zinc-400 outline-none transition"
           value={email}
@@ -310,6 +315,7 @@ export default function ShareListForm({
         />
         <button
           type="submit"
+          data-testid="share-invite-submit"
           className="bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900 px-3 py-1 rounded text-xs font-medium hover:bg-gray-900 dark:hover:bg-zinc-200 transition"
         >
           {t("invite")}
@@ -325,6 +331,7 @@ export default function ShareListForm({
           onClick={() => setUserToRemove(null)}
         >
           <div
+            data-testid="share-remove-modal"
             className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-800 dark:border dark:border-zinc-700 p-5 shadow-lg dark:shadow-2xl dark:shadow-black/70"
             onClick={(event) => event.stopPropagation()}
           >
@@ -346,6 +353,7 @@ export default function ShareListForm({
               </button>
               <button
                 type="button"
+                data-testid="share-remove-confirm"
                 onClick={handleConfirmRemoveUser}
                 className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
               >

@@ -20,13 +20,24 @@ export default function SettingsToggles() {
 
   return (
     <div className="flex flex-col gap-3">
-      <SettingToggle label={t("showAuthors")} checked={showAuthors} onChange={toggleShowAuthors} />
       <SettingToggle
+        testId="setting-show-authors"
+        label={t("showAuthors")}
+        checked={showAuthors}
+        onChange={toggleShowAuthors}
+      />
+      <SettingToggle
+        testId="setting-show-item-numbers"
         label={t("showItemNumbers")}
         checked={showItemNumbers}
         onChange={toggleShowItemNumbers}
       />
-      <SettingToggle label={t("scrollToTop")} checked={showScrollToTop} onChange={toggleShowScrollToTop} />
+      <SettingToggle
+        testId="setting-scroll-to-top"
+        label={t("scrollToTop")}
+        checked={showScrollToTop}
+        onChange={toggleShowScrollToTop}
+      />
     </div>
   );
 }
@@ -35,16 +46,20 @@ function SettingToggle({
   label,
   checked,
   onChange,
+  testId,
 }: {
   label: string;
   checked: boolean;
   onChange: () => void;
+  /** Стабильный якорь для E2E: подписи переводятся, тумблеры — нет. */
+  testId: string;
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="text-sm text-gray-600 dark:text-zinc-300">{label}</span>
       <button
         type="button"
+        data-testid={testId}
         onClick={onChange}
         className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
           checked ? "bg-gray-800 dark:bg-zinc-200" : "bg-gray-200 dark:bg-zinc-700"

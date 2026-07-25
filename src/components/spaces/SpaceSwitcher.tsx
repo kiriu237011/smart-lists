@@ -186,6 +186,8 @@ export default function SpaceSwitcher({
 
       <div
         ref={rootRef}
+        data-testid="space-switcher"
+        data-variant={variant}
         className={
           isHeader
             ? "relative hidden w-max max-w-64 shrink-0 xl:block"
@@ -194,6 +196,7 @@ export default function SpaceSwitcher({
       >
       <button
         type="button"
+        data-testid="space-switcher-trigger"
         onClick={() => {
           setOpen((value) => !value);
           setMode("idle");
@@ -232,6 +235,8 @@ export default function SpaceSwitcher({
               <button
                 key={space.id}
                 type="button"
+                data-testid="space-option"
+                data-space-id={space.id}
                 onClick={() => switchTo(space.id)}
                 disabled={isPending}
                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
@@ -253,6 +258,7 @@ export default function SpaceSwitcher({
               <div className="flex gap-2">
                 <input
                   autoFocus
+                  data-testid="space-name-input"
                   value={value}
                   maxLength={50}
                   onChange={(event) => setValue(event.target.value)}
@@ -268,6 +274,7 @@ export default function SpaceSwitcher({
                 />
                 <button
                   type="button"
+                  data-testid="space-name-save"
                   disabled={isPending || !value.trim()}
                   onClick={mode === "create" ? submitCreate : submitRename}
                   className="rounded-lg bg-gray-900 px-3 text-sm text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
@@ -290,6 +297,7 @@ export default function SpaceSwitcher({
               </p>
               <input
                 autoFocus
+                data-testid="space-delete-input"
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
                 className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 outline-none dark:border-red-900 dark:bg-red-950/30"
@@ -300,6 +308,7 @@ export default function SpaceSwitcher({
                 </button>
                 <button
                   type="button"
+                  data-testid="space-delete-confirm"
                   onClick={submitDelete}
                   disabled={isPending || !value.trim()}
                   className="rounded-lg bg-red-600 px-3 py-2 text-white disabled:opacity-40"
@@ -312,6 +321,7 @@ export default function SpaceSwitcher({
             <div className="grid gap-1">
               <button
                 type="button"
+                data-testid="space-create-open"
                 disabled={spaces.filter((space) => !space.isDefault).length >= 5}
                 onClick={() => {
                   setValue("");
@@ -336,6 +346,7 @@ export default function SpaceSwitcher({
               {!current?.isDefault && (
                 <button
                   type="button"
+                  data-testid="space-delete-open"
                   onClick={prepareDelete}
                   className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
                 >

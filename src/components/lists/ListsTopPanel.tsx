@@ -83,6 +83,7 @@ export default function ListsTopPanel({
         <button
           type="button"
           onClick={onTabCreate}
+          data-testid="tab-create"
           className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
             !isSearchOpen
               ? "bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900"
@@ -96,6 +97,7 @@ export default function ListsTopPanel({
         <button
           type="button"
           onClick={onTabSearch}
+          data-testid="tab-search"
           className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
             isSearchOpen
               ? "bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900"
@@ -127,6 +129,7 @@ export default function ListsTopPanel({
             <input
               ref={searchInputRef}
               type="text"
+              data-testid="search-input"
               value={searchInput}
               onChange={(e) => onSearchChange(e.target.value)}
               onKeyDown={(e) => {

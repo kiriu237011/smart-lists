@@ -67,6 +67,7 @@ export default function ConfirmModal({
         className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-800 dark:border dark:border-zinc-700 p-5 shadow-lg dark:shadow-2xl dark:shadow-black/70"
         role="dialog"
         aria-modal="true"
+        data-testid="confirm-modal"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold mb-2">{title}</h3>
@@ -75,6 +76,7 @@ export default function ConfirmModal({
           <button
             type="button"
             onClick={onCancel}
+            data-testid="confirm-modal-cancel"
             className="px-3 py-2 rounded-md text-sm border border-gray-300 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-800"
           >
             {cancelLabel}
@@ -83,6 +85,7 @@ export default function ConfirmModal({
             type="button"
             disabled={isConfirming}
             onClick={onConfirm}
+            data-testid="confirm-modal-confirm"
             className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {confirmLabel}

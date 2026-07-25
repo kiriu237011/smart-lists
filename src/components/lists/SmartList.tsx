@@ -245,6 +245,8 @@ function DraggableItemRow({
       // Подъём строки под курсором. Тень и масштаб дают физическое ощущение
       // «взяли в руку»; без этого строка визуально неотличима от остальных.
       whileDrag={{ scale: 1.02 }}
+      data-testid="item"
+      data-item-id={item.id}
       className={className}
     >
       {children(dragControls)}
@@ -840,6 +842,7 @@ export default function SmartList({
                 type="button"
                 aria-hidden
                 tabIndex={-1}
+                data-testid="item-drag-handle"
                 disabled={isPending}
                 onPointerDown={(event) => {
                   if (!isPending) dragControls.start(event);
@@ -859,6 +862,7 @@ export default function SmartList({
             {showItemNumbers && (
               <span
                 aria-hidden
+                data-testid="item-number"
                 className="-mr-1 min-w-5 shrink-0 text-right text-sm tabular-nums text-gray-400 dark:text-zinc-500"
               >
                 {itemNumber ? `${itemNumber}.` : ""}
@@ -881,6 +885,8 @@ export default function SmartList({
             >
               <button
                 type="submit"
+                data-testid="item-toggle"
+                data-completed={item.isCompleted}
                 disabled={isPending}
                 title={isPending ? t("saving") : undefined}
                 className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
@@ -937,6 +943,7 @@ export default function SmartList({
                 <textarea
                   autoFocus
                   autoComplete="off"
+                  data-testid="item-name-input"
                   value={editItemName}
                   maxLength={200}
                   rows={1}
@@ -972,11 +979,14 @@ export default function SmartList({
                 />
               ) : isPending || (!item.isCompleted) ? (
                 <>
-                  <span className="flex-1"><Highlight text={item.name} query={searchQuery} /></span>
+                  <span className="flex-1" data-testid="item-name"><Highlight text={item.name} query={searchQuery} /></span>
                   {!isPending && <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex-shrink-0">✎</span>}
                 </>
               ) : (
-                <span className="transition-all duration-200 line-through text-gray-400 opacity-60 cursor-default">
+                <span
+                  data-testid="item-name"
+                  className="transition-all duration-200 line-through text-gray-400 opacity-60 cursor-default"
+                >
                   <Highlight text={item.name} query={searchQuery} />
                 </span>
               )}
@@ -1023,6 +1033,7 @@ export default function SmartList({
                 {item.note && (
                   <button
                     type="button"
+                    data-testid="item-note-toggle"
                     disabled={isPending}
                     onClick={() => {
                       setEditingItemId(null);
@@ -1047,6 +1058,7 @@ export default function SmartList({
                   <button
                     ref={openItemActionsId === item.id ? itemActionsButtonRef : undefined}
                     type="button"
+                    data-testid="item-menu-trigger"
                     disabled={isPending}
                     title={isPending ? t("saving") : undefined}
                     onClick={() => {
@@ -1083,6 +1095,7 @@ export default function SmartList({
                     <div
                       id={`item-actions-${item.id}`}
                       role="menu"
+                      data-testid="item-menu"
                       className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
                     >
                       {/* Перемещение доступно только у невыполненных
@@ -1093,6 +1106,7 @@ export default function SmartList({
                           <button
                             type="button"
                             role="menuitem"
+                            data-testid="item-move-up"
                             disabled={!canMoveUp}
                             onClick={() => {
                               setOpenItemActionsId(null);
@@ -1106,6 +1120,7 @@ export default function SmartList({
                           <button
                             type="button"
                             role="menuitem"
+                            data-testid="item-move-down"
                             disabled={!canMoveDown}
                             onClick={() => {
                               setOpenItemActionsId(null);
@@ -1131,6 +1146,7 @@ export default function SmartList({
                           <button
                             type="button"
                             role="menuitem"
+                            data-testid="item-move-to-list"
                             onClick={() => {
                               setOpenItemActionsId(null);
                               setItemToMove(item);
@@ -1152,6 +1168,7 @@ export default function SmartList({
                         <button
                           type="button"
                           role="menuitem"
+                          data-testid="item-note-add"
                           onClick={() => {
                             setOpenItemActionsId(null);
                             setOpenNoteItemId(item.id);
@@ -1188,6 +1205,7 @@ export default function SmartList({
                       <button
                         type="button"
                         role="menuitem"
+                        data-testid="item-delete"
                         onClick={() => {
                           setOpenItemActionsId(null);
                           setItemToDelete(item);
@@ -1263,7 +1281,12 @@ export default function SmartList({
             ))}
 
             {completedVisibleItems.map((item) => (
-              <li key={item.id} className={rowClassName(item)}>
+              <li
+                key={item.id}
+                data-testid="item"
+                data-item-id={item.id}
+                className={rowClassName(item)}
+              >
                 {renderItemRow(item, null)}
               </li>
             ))}
@@ -1271,7 +1294,12 @@ export default function SmartList({
         ) : (
           <ul className="mb-4 divide-y divide-gray-100 dark:divide-zinc-800">
             {visibleItems.map((item) => (
-              <li key={item.id} className={rowClassName(item)}>
+              <li
+                key={item.id}
+                data-testid="item"
+                data-item-id={item.id}
+                className={rowClassName(item)}
+              >
                 {renderItemRow(item, null)}
               </li>
             ))}
@@ -1337,6 +1365,7 @@ export default function SmartList({
           <input
             name="itemName"
             autoComplete="off"
+            data-testid="add-item-input"
             placeholder={t("placeholder")}
             className="border dark:border-zinc-700 p-2 rounded-lg w-full text-sm bg-gray-50 dark:bg-zinc-900 focus:bg-white dark:focus:bg-zinc-950 focus:ring-1 ring-gray-800 dark:ring-zinc-500 outline-none transition"
             value={newItemName}
@@ -1346,6 +1375,7 @@ export default function SmartList({
           />
           <button
             type="submit"
+            data-testid="add-item-submit"
             aria-label={t("placeholder")}
             className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:bg-gray-700 dark:hover:bg-white active:scale-95 transition-all duration-150 shadow-sm"
           >
@@ -1368,6 +1398,7 @@ export default function SmartList({
           onClick={() => setItemToDelete(null)}
         >
           <div
+            data-testid="item-delete-modal"
             className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-800 dark:border dark:border-zinc-700 p-5 shadow-lg dark:shadow-2xl dark:shadow-black/70"
             onClick={(event) => event.stopPropagation()}
           >
@@ -1387,6 +1418,7 @@ export default function SmartList({
               </button>
               <button
                 type="button"
+                data-testid="item-delete-confirm"
                 onClick={handleConfirmDeleteItem}
                 className="px-3 py-2 rounded-md text-sm bg-red-600 text-white hover:bg-red-700"
               >

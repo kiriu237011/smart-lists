@@ -136,6 +136,7 @@ export default function LanguageSwitcher() {
         {/* Свёрнутая таблетка: только активный язык */}
         <button
           type="button"
+          data-testid="locale-trigger"
           onClick={() => setIsOpen((prev) => !prev)}
           aria-expanded={isOpen}
           aria-haspopup="listbox"
@@ -182,6 +183,8 @@ export default function LanguageSwitcher() {
                     <button
                       type="button"
                       role="option"
+                      data-testid="locale-option"
+                      data-locale={loc}
                       aria-selected={isActive}
                       onClick={() => handleSwitch(loc)}
                       className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer ${

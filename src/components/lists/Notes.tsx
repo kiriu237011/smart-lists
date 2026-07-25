@@ -166,6 +166,7 @@ export function ListNoteButton({
   return (
     <button
       type="button"
+      data-testid="list-note-toggle"
       onClick={onToggle}
       aria-label={label}
       title={label}
@@ -416,6 +417,7 @@ function NoteModal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        data-testid="note-dialog"
       >
         <div className="mb-3 flex items-center gap-2">
           <span className="shrink-0 text-indigo-500 dark:text-indigo-400">
@@ -424,6 +426,7 @@ function NoteModal({
           <h3 className="min-w-0 truncate text-sm font-semibold">{title}</h3>
           <button
             type="button"
+            data-testid="note-dialog-close"
             onClick={onClose}
             aria-label={t("close")}
             className="-mr-1 ml-auto shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
@@ -491,6 +494,7 @@ export function NoteEditor({
           <textarea
             ref={textareaRef}
             autoFocus
+            data-testid="note-textarea"
             value={state.draft}
             onChange={(event) => setDraft(event.target.value)}
             rows={compact ? 3 : 5}
@@ -520,6 +524,7 @@ export function NoteEditor({
           <div className="mt-2 flex flex-wrap gap-2">
             <button
               type="button"
+              data-testid="note-conflict-load"
               onClick={takeConflictVersion}
               className="rounded-md border border-amber-300 px-2 py-1 hover:bg-amber-100 dark:border-amber-700 dark:hover:bg-amber-900/40"
             >
@@ -527,6 +532,7 @@ export function NoteEditor({
             </button>
             <button
               type="button"
+              data-testid="note-conflict-overwrite"
               disabled={isSaving}
               onClick={() => void save(state.conflict?.version ?? state.baseVersion)}
               className="rounded-md bg-amber-700 px-2 py-1 text-white hover:bg-amber-800 disabled:opacity-50"
@@ -542,6 +548,7 @@ export function NoteEditor({
       <div className="flex justify-end gap-2">
         <button
           type="button"
+          data-testid="note-cancel"
           onClick={onCancel}
           disabled={isSaving}
           className={`disabled:opacity-50 ${SECONDARY_BUTTON_CLASS}`}
@@ -550,6 +557,7 @@ export function NoteEditor({
         </button>
         <button
           type="button"
+          data-testid="note-save"
           onClick={() => void save(state.baseVersion)}
           disabled={isSaving || (!isDirty && !state.conflict)}
           className={`disabled:cursor-not-allowed disabled:opacity-50 ${PRIMARY_BUTTON_CLASS}`}
@@ -573,6 +581,7 @@ function ExpandRow({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       type="button"
+      data-testid="note-expand"
       onClick={onClick}
       className="flex w-full items-center justify-center gap-1.5 rounded-b-lg border-t border-gray-200 py-1.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
     >
@@ -588,11 +597,17 @@ function NoteReadActions({ onClose, onEdit }: { onClose: () => void; onEdit: () 
 
   return (
     <div className="flex justify-end gap-2">
-      <button type="button" onClick={onClose} className={SECONDARY_BUTTON_CLASS}>
+      <button
+        type="button"
+        data-testid="note-close"
+        onClick={onClose}
+        className={SECONDARY_BUTTON_CLASS}
+      >
         {t("close")}
       </button>
       <button
         type="button"
+        data-testid="note-edit"
         onClick={onEdit}
         className={`inline-flex items-center gap-1.5 ${PRIMARY_BUTTON_CLASS}`}
       >
@@ -673,7 +688,10 @@ export function NotePanel({
   };
 
   const noteText = (
-    <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-700 dark:text-zinc-200">
+    <div
+      data-testid="note-text"
+      className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-700 dark:text-zinc-200"
+    >
       <Highlight text={displayed.note ?? ""} query={searchQuery.trim()} />
     </div>
   );

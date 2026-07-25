@@ -2,7 +2,18 @@
 
 import { useState, useRef, useEffect } from "react";
 
-export default function HeaderSettings({ children }: { children: React.ReactNode }) {
+export default function HeaderSettings({
+  children,
+  testId,
+}: {
+  children: React.ReactNode;
+  /**
+   * Стабильный якорь для E2E. Компонент рендерится дважды — в десктопной и
+   * мобильной шапке, — поэтому идентификатор задаёт вызывающая сторона:
+   * иначе на странице оказалось бы два одинаковых.
+   */
+  testId?: string;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -22,7 +33,8 @@ export default function HeaderSettings({ children }: { children: React.ReactNode
 
   return (
     <div className="relative" ref={ref}>
-      <button 
+      <button
+        data-testid={testId}
         onClick={() => setOpen(!open)}
         className="p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-800 transition"
       >

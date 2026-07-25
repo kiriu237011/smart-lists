@@ -244,13 +244,19 @@ const ListCard = memo(function ListCard({
   const isTemp = list.id.startsWith("temp-");
 
   return (
-    <div className="break-inside-avoid mb-6 border border-gray-100 dark:border-transparent p-6 rounded-xl shadow-sm dark:shadow-lg dark:shadow-black/50 bg-white dark:bg-zinc-900">
+    <div
+      data-testid="list-card"
+      data-list-id={list.id}
+      data-list-role={isOwner ? "owner" : "editor"}
+      className="break-inside-avoid mb-6 border border-gray-100 dark:border-transparent p-6 rounded-xl shadow-sm dark:shadow-lg dark:shadow-black/50 bg-white dark:bg-zinc-900"
+    >
       {/* Заголовок и кнопки управления */}
       <div className="mb-4 border-b dark:border-zinc-700 pb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {isEditing ? (
             <input
               autoFocus
+              data-testid="list-title-input"
               className="text-xl font-bold w-full border dark:border-zinc-700 p-1 rounded-lg bg-gray-50 dark:bg-zinc-800 focus:bg-white dark:focus:bg-zinc-900 focus:ring-1 ring-gray-800 dark:ring-zinc-400 outline-none transition"
               value={editTitle}
               maxLength={50}
@@ -282,13 +288,13 @@ const ListCard = memo(function ListCard({
                 setEditTitle(list.title);
               }}
             >
-              <h2 className="text-xl font-bold truncate"><Highlight text={list.title} query={searchQuery} /></h2>
+              <h2 className="text-xl font-bold truncate" data-testid="list-title"><Highlight text={list.title} query={searchQuery} /></h2>
               <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 dark:text-zinc-500 text-base flex-shrink-0">
                 ✎
               </span>
             </div>
           ) : (
-            <h2 className="text-xl font-bold truncate"><Highlight text={list.title} query={searchQuery} /></h2>
+            <h2 className="text-xl font-bold truncate" data-testid="list-title"><Highlight text={list.title} query={searchQuery} /></h2>
           )}
         </div>
 
@@ -329,6 +335,7 @@ const ListCard = memo(function ListCard({
                   <button
                     ref={actionsMenuButtonRef}
                     type="button"
+                    data-testid="list-menu-trigger"
                     aria-label={t("ariaListActions", { title: list.title })}
                     aria-haspopup="menu"
                     aria-expanded={isActionsMenuOpen}
@@ -360,12 +367,14 @@ const ListCard = memo(function ListCard({
                     <div
                       id={`list-actions-${list.id}`}
                       role="menu"
+                      data-testid="list-menu"
                       className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
                     >
                       {!list.note && (
                         <button
                           type="button"
                           role="menuitem"
+                          data-testid="list-note-add"
                           onClick={() => {
                             setIsActionsMenuOpen(false);
                             setActivePanel(null);
@@ -385,6 +394,7 @@ const ListCard = memo(function ListCard({
                         <button
                           type="button"
                           role="menuitem"
+                          data-testid="list-note-delete"
                           onClick={() => {
                             setIsActionsMenuOpen(false);
                             setIsNoteDeleteOpen(true);
@@ -405,6 +415,7 @@ const ListCard = memo(function ListCard({
                           <button
                             type="button"
                             role="menuitem"
+                            data-testid="list-delete"
                             disabled={isDeleting}
                             onClick={() => {
                               setIsActionsMenuOpen(false);
@@ -540,6 +551,7 @@ const ListCard = memo(function ListCard({
           <div className="relative" ref={groupMenuRef}>
             <button
               type="button"
+              data-testid="list-group-trigger"
               onClick={() => setIsGroupMenuOpen((prev) => !prev)}
               className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
               aria-label={t("ariaGroupMenu")}
@@ -587,6 +599,9 @@ const ListCard = memo(function ListCard({
                       <button
                         key={group.id}
                         type="button"
+                        data-testid="list-group-option"
+                        data-group-id={group.id}
+                        data-in-group={inGroup}
                         onClick={() => {
                           void onToggleListGroup(list.id, group.id, inGroup);
                           setIsGroupMenuOpen(false);
@@ -619,6 +634,7 @@ const ListCard = memo(function ListCard({
           </span>
           <button
             type="button"
+            data-testid="list-leave"
             disabled={isLeaving}
             onClick={() => onLeave(list)}
             className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"

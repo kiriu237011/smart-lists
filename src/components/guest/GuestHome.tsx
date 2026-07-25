@@ -92,7 +92,7 @@ export default function GuestHome() {
   const listsCount = lists.length;
 
   return (
-    <main className="p-4 sm:p-10 max-w-7xl mx-auto">
+    <main className="p-4 sm:p-10 max-w-7xl mx-auto" data-testid="guest-home">
       {/* Шапка — та же структура, что у авторизованного пользователя */}
       <div className="flex items-center justify-between gap-3 sm:gap-4 mb-8 p-3 sm:p-5 bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-700 rounded-2xl shadow-sm dark:shadow-md dark:shadow-black/40">
         {/* Аватар гостя + имя + пояснение */}
@@ -144,12 +144,15 @@ export default function GuestHome() {
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <LanguageSwitcher />
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
-            <HeaderSettings>
+            <HeaderSettings testId="settings-trigger-desktop">
               <SettingsToggles />
             </HeaderSettings>
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-700" />
             <form action={exitGuestMode}>
-              <button className="flex items-center gap-2 text-base text-gray-400 hover:text-red-500 transition-colors cursor-pointer">
+              <button
+                data-testid="guest-exit"
+                className="flex items-center gap-2 text-base text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
+              >
                 <SignOutIcon />
                 <span>{t("Guest.exit")}</span>
               </button>
@@ -159,7 +162,7 @@ export default function GuestHome() {
           {/* Мобильная версия меню (под шестерёнкой) */}
           <div className="sm:hidden flex items-center">
             <div className="w-px h-5 bg-gray-200 dark:bg-zinc-800 mr-2" />
-            <HeaderSettings>
+            <HeaderSettings testId="settings-trigger-mobile">
               <div className="flex justify-center items-center gap-6 mb-5">
                 <ThemeToggle />
                 <div className="w-px h-6 bg-gray-200 dark:bg-zinc-700" />

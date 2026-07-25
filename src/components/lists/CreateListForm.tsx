@@ -79,10 +79,15 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:flex-row">
+    <form
+      onSubmit={handleSubmit}
+      data-testid="create-list-form"
+      className="flex flex-col gap-3 sm:flex-row"
+    >
       {/* Поле ввода названия списка */}
       <input
         name="title"
+        data-testid="create-list-input"
         placeholder={t("placeholder")}
         className="w-full min-w-0 flex-1 border dark:border-zinc-700 p-3 rounded-lg bg-gray-50 dark:bg-zinc-800 focus:bg-white dark:focus:bg-zinc-900 focus:ring-1 ring-gray-800 dark:ring-zinc-400 outline-none transition text-left"
         value={title}
@@ -96,6 +101,7 @@ export default function CreateListForm({ onCreateList }: CreateListFormProps) {
       <button
         type="submit"
         disabled={isCreating}
+        data-testid="create-list-submit"
         className="w-full shrink-0 bg-gray-800 text-white dark:bg-zinc-100 dark:text-zinc-900 px-3 py-3 rounded-xl font-medium transition sm:w-auto disabled:cursor-not-allowed disabled:bg-gray-700 dark:disabled:bg-zinc-300 hover:bg-gray-900 dark:hover:bg-zinc-200"
       >
         {isCreating ? (

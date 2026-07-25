@@ -1,7 +1,12 @@
-# Postgres для интеграционных тестов. Отдельный инстанс на нестандартном порту
-# 5433, чтобы не пересекаться с локальным dev-Postgres на 5432. Данные живут
-# только в tmpfs (память): база эфемерна, каждый up начинается с чистого листа,
-# и тесты не зависят от остатков прошлого прогона.
+# Postgres для тестов. Отдельные инстансы на нестандартных портах, чтобы не
+# пересекаться с локальным dev-Postgres на 5432. Данные живут только в tmpfs
+# (память): базы эфемерны, каждый up начинается с чистого листа, и тесты не
+# зависят от остатков прошлого прогона.
+#
+# Инстансов два, потому что наборы чистят базу по-разному: интеграционные
+# делают TRUNCATE между тестами, а E2E полагаются на то, что данные соседнего
+# теста никуда не делись (воркеры идут параллельно). На общей базе один набор
+# вытирал бы состояние другого при случайном одновременном запуске.
 services:
   postgres-test:
     image: postgres:17
@@ -15,6 +20,24 @@ services:
       - /var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d smartlists_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # База для E2E: её читает и пишет запущенное приложение, а не тест напрямую.
+  postgres-e2e:
+    image: postgres:17
+    profiles: ["e2e"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: smartlists_e2e_test
+    ports:
+      - "5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d smartlists_e2e_test"]
       interval: 2s
       timeout: 3s
       retries: 20

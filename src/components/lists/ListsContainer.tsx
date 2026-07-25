@@ -780,11 +780,12 @@ export default function ListsContainer({
       {/* Плашка с результатами поиска */}
       {searchQuery && (
         <div className="flex items-center justify-between mb-4 px-1">
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-gray-500" data-testid="search-results">
             {t("searchResults", { found: filteredLists.length, total: uniqueLists.length })}
           </span>
           <button
             type="button"
+            data-testid="search-close"
             onClick={() => { setIsSearchOpen(false); setSearchInput(""); localStorage.setItem(tabStorageKey, "create"); }}
             className="text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
           >
@@ -841,7 +842,10 @@ export default function ListsContainer({
 
           {/* Сообщение о пустом состоянии */}
           {filteredLists.length === 0 && (
-            <div className="text-center py-10 border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-xl">
+            <div
+              data-testid="lists-empty"
+              className="text-center py-10 border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-xl"
+            >
               <p className="text-gray-500 dark:text-zinc-400">
                 {searchQuery.trim()
                   ? t("noSearchResults")

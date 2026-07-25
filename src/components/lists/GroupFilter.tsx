@@ -131,6 +131,7 @@ export default function GroupFilter({
           {/* Пилюля "Все" */}
           <button
             type="button"
+            data-testid="group-all"
             onClick={() => onSelectGroup(null)}
             className={`px-3 py-1 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
               activeGroupId === null
@@ -168,6 +169,9 @@ export default function GroupFilter({
               ) : (
                 <button
                   type="button"
+                  data-testid="group-chip"
+                  data-group-id={group.id}
+                  data-active={activeGroupId === group.id}
                   onClick={() => onSelectGroup(group.id)}
                   onDoubleClick={() => {
                     setEditingGroupId(group.id);
@@ -211,6 +215,7 @@ export default function GroupFilter({
           <input
             ref={createInputRef}
             autoFocus
+            data-testid="group-create-input"
             value={newGroupName}
             maxLength={50}
             onChange={(e) => setNewGroupName(e.target.value)}
@@ -236,6 +241,7 @@ export default function GroupFilter({
           />
           <button
             type="button"
+            data-testid="group-create-submit"
             onClick={() => void handleCreateSubmit()}
             disabled={isSubmitting || !newGroupName.trim()}
             className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition disabled:opacity-40"
@@ -257,6 +263,7 @@ export default function GroupFilter({
         /* Кнопка "+" для создания новой группы */
         <button
           type="button"
+          data-testid="group-create-open"
           onClick={() => setIsCreating(true)}
           aria-label={t("ariaCreateGroup")}
           className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors text-base leading-none"
