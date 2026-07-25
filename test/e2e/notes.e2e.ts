@@ -48,6 +48,79 @@ test("заметка списка сохраняется и переживает
   expect(stored?.noteVersion).toBe(1);
 });
 
+test("Ctrl+Enter сохраняет заметку, одиночный Enter переносит строку", async ({
+  page,
+  user,
+  db,
+}) => {
+  const list = await makeList(db, user.id, user.defaultSpaceId, {
+    note: "Исходный текст",
+  });
+  await openSpace(page, user);
+
+  await listCard(page, list.id).getByTestId("list-note-toggle").click();
+  await visible(page, "note-edit").click();
+
+  // Одиночный Enter остаётся переносом строки и ничего не сохраняет.
+  const textarea = visible(page, "note-textarea");
+  await textarea.fill("Первая строка");
+  await textarea.press("Enter");
+  await textarea.pressSequentially("вторая строка");
+  await expect(textarea).toHaveValue("Первая строка\nвторая строка");
+  expect((await db.list.findUnique({ where: { id: list.id } }))?.note).toBe(
+    "Исходный текст",
+  );
+
+  // Ctrl+Enter эквивалентен кнопке: редактор закрывается, текст сохранён.
+  await textarea.press("Control+Enter");
+  await expect(visible(page, "note-text")).toContainText("вторая строка");
+  await expect(visible(page, "note-textarea")).toHaveCount(0);
+
+  // Перенос строки проверяем по базе: toHaveText нормализует пробелы.
+  const stored = await db.list.findUnique({ where: { id: list.id } });
+  expect(stored?.note).toBe("Первая строка\nвторая строка");
+  expect(stored?.noteVersion).toBe(1);
+});
+
+test("Ctrl+Enter не сохраняет пустой черновик и работает в диалоге", async ({
+  page,
+  user,
+  db,
+}) => {
+  const list = await makeList(db, user.id, user.defaultSpaceId, {
+    note: LONG_NOTE,
+  });
+  await openSpace(page, user);
+
+  await listCard(page, list.id).getByTestId("list-note-toggle").click();
+  await visible(page, "note-edit").click();
+  await visible(page, "note-expand").click();
+
+  const dialog = visible(page, "note-dialog");
+  const textarea = dialog.getByTestId("note-textarea");
+
+  // Черновик не изменён — кнопка неактивна, и хоткей ведёт себя так же:
+  // редактор остаётся открытым, версия заметки в базе не растёт.
+  await expect(dialog.getByTestId("note-save")).toBeDisabled();
+  await textarea.press("Control+Enter");
+  await expect(textarea).toBeVisible();
+  expect(
+    (await db.list.findUnique({ where: { id: list.id } }))?.noteVersion,
+  ).toBe(0);
+
+  await textarea.fill(`${LONG_NOTE}\nДописано в диалоге`);
+  await textarea.press("Control+Enter");
+
+  // Диалог остаётся открытым и переходит в режим чтения. Локатор ограничен им:
+  // за диалогом видна встроенная панель с тем же `note-text`.
+  await expect(dialog.getByTestId("note-text")).toContainText(
+    "Дописано в диалоге",
+  );
+  expect((await db.list.findUnique({ where: { id: list.id } }))?.note).toBe(
+    `${LONG_NOTE}\nДописано в диалоге`,
+  );
+});
+
 test("длинная заметка открывается в диалоге и блокирует фон", async ({
   page,
   user,

@@ -128,6 +128,8 @@
     "placeholder": "Дополнительный контекст, детали или условия...",
     "save": "Сохранить",
     "saving": "Сохраняю...",
+    "saveShortcut": "Ctrl/⌘ + Enter — сохранить",
+    "saveShortcutKeys": "Ctrl/⌘ + Enter",
     "cancel": "Отмена",
     "close": "Закрыть",
     "edit": "Редактировать",

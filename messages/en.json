@@ -128,6 +128,8 @@
     "placeholder": "Additional context, details, or conditions...",
     "save": "Save",
     "saving": "Saving...",
+    "saveShortcut": "Ctrl/⌘ + Enter to save",
+    "saveShortcutKeys": "Ctrl/⌘ + Enter",
     "cancel": "Cancel",
     "close": "Close",
     "edit": "Edit",

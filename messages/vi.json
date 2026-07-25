@@ -128,6 +128,8 @@
     "placeholder": "Bối cảnh, chi tiết hoặc điều kiện bổ sung...",
     "save": "Lưu",
     "saving": "Đang lưu...",
+    "saveShortcut": "Ctrl/⌘ + Enter để lưu",
+    "saveShortcutKeys": "Ctrl/⌘ + Enter",
     "cancel": "Hủy",
     "close": "Đóng",
     "edit": "Chỉnh sửa",

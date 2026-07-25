@@ -2,9 +2,11 @@
  * @file Notes.tsx
  * @description Общие просмотрщик и редактор plain-text заметок, а также панель заметки списка.
  *
- * Редактор сохраняет текст только по явному действию пользователя. Версия,
- * полученная при открытии, передаётся в API: если заметку уже изменили в другой
- * вкладке или другой участник, черновик остаётся на экране и показывается выбор.
+ * Редактор сохраняет текст только по явному действию пользователя — кнопкой или
+ * Ctrl/Cmd+Enter. Одиночный Enter переносит строку: заметка многострочная по
+ * смыслу. Версия, полученная при открытии, передаётся в API: если заметку уже
+ * изменили в другой вкладке или другой участник, черновик остаётся на экране и
+ * показывается выбор.
  *
  * Заметка до нескольких строк живёт прямо в карточке. Более длинная обрезается
  * и открывается в диалоге: карточка узкая, и 4000 символов дают больше двух
@@ -21,6 +23,9 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  // Под алиасом: без него React-тип затеняет DOM-овский `KeyboardEvent`,
+  // на котором держатся глобальные слушатели Escape в этом же файле.
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -477,6 +482,27 @@ export function NoteEditor({
     textarea.setSelectionRange(end, end);
   }, []);
 
+  /** Условие активности сохранения. Общее для кнопки и хоткея. */
+  const canSave = !isSaving && (isDirty || Boolean(state.conflict));
+
+  /**
+   * Ctrl/Cmd+Enter — полный эквивалент кнопки «Сохранить»: та же версия, то же
+   * условие активности. При открытом конфликте это, как и кнопка, повторная
+   * попытка от устаревшей версии; перезапись остаётся отдельным осознанным
+   * действием в блоке конфликта.
+   *
+   * Обработчик висит на textarea, а не на window: в диалоге уже есть глобальный
+   * слушатель Escape, и второй глобальный хоткей срабатывал бы вне редактора.
+   */
+  const handleSaveShortcut = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+    // Enter в процессе IME-набора подтверждает слово, а не сохраняет заметку.
+    if (event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    if (!canSave) return;
+    void save(state.baseVersion);
+  };
+
   return (
     <div
       className={`space-y-2 ${
@@ -497,6 +523,7 @@ export function NoteEditor({
             data-testid="note-textarea"
             value={state.draft}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleSaveShortcut}
             rows={compact ? 3 : 5}
             maxLength={MAX_NOTE_LENGTH}
             placeholder={t("placeholder")}
@@ -545,7 +572,18 @@ export function NoteEditor({
 
       {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
 
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        {/* Подсказка к хоткею. Показывается только при точном указателе:
+            на тач-устройстве клавиш Ctrl и Cmd нет. Текст короткий, потому что
+            во встроенном редакторе узкой карточки рядом стоят обе кнопки;
+            полная формулировка остаётся в `title`. */}
+        <span
+          data-testid="note-save-shortcut"
+          title={t("saveShortcut")}
+          className="mr-auto hidden select-none text-[11px] text-gray-400 pointer-fine:inline dark:text-zinc-500"
+        >
+          {t("saveShortcutKeys")}
+        </span>
         <button
           type="button"
           data-testid="note-cancel"
@@ -559,7 +597,8 @@ export function NoteEditor({
           type="button"
           data-testid="note-save"
           onClick={() => void save(state.baseVersion)}
-          disabled={isSaving || (!isDirty && !state.conflict)}
+          disabled={!canSave}
+          title={t("saveShortcut")}
           className={`disabled:cursor-not-allowed disabled:opacity-50 ${PRIMARY_BUTTON_CLASS}`}
         >
           {isSaving ? t("saving") : t("save")}
