@@ -37,6 +37,7 @@ import {
   createGroupSchema,
   deleteGroupSchema,
   renameGroupSchema,
+  moveGroupSchema,
   listGroupMembershipSchema,
   updateListNoteSchema,
   updateItemNoteSchema,
@@ -1330,11 +1331,24 @@ export async function createGroup(formData: FormData) {
       };
     }
 
+    // Новая группа встаёт в конец текущего порядка. Тайбрейки createdAt/id в
+    // выборке сохранят детерминированность даже при двух одновременных созданиях.
+    const lastGroup = await prisma.listGroup.findFirst({
+      where: { userId: session.user.id, spaceId: space.id },
+      orderBy: [
+        { position: "desc" },
+        { createdAt: "desc" },
+        { id: "desc" },
+      ],
+      select: { position: true },
+    });
+
     const group = await prisma.listGroup.create({
       data: {
         name: result.data.name,
         userId: session.user.id,
         spaceId: space.id,
+        position: (lastGroup?.position ?? 0) + POSITION_STEP,
       },
       select: { id: true, name: true },
     });
@@ -1444,6 +1458,141 @@ export async function renameGroup(formData: FormData) {
   } catch (error) {
     logger.error({ error: error }, "Ошибка при переименовании группы:");
     return { success: false, error: "Не удалось переименовать группу" };
+  }
+}
+
+/**
+ * Перемещает личную группу между двумя новыми соседями.
+ *
+ * Клиент передаёт место назначения соседями, а не индексом. Сервер заново
+ * читает их позиции в текущем пространстве и изменяет только одну строку.
+ * Если сосед исчез или перестал быть соседним, клиентское представление
+ * считается устаревшим и оптимистичное перемещение откатывается.
+ */
+export async function moveGroup(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+
+    const result = moveGroupSchema.safeParse({
+      groupId: formData.get("groupId"),
+      previousGroupId: formData.get("previousGroupId") || null,
+      nextGroupId: formData.get("nextGroupId") || null,
+    });
+    if (!result.success) {
+      return { success: false, error: getValidationError(result.error) };
+    }
+
+    const { groupId, previousGroupId, nextGroupId } = result.data;
+    const groups = await prisma.listGroup.findMany({
+      where: { userId: session.user.id, spaceId: space.id },
+      orderBy: [
+        { position: "asc" },
+        { createdAt: "asc" },
+        { id: "asc" },
+      ],
+      select: { id: true, position: true },
+    });
+
+    const movingGroup = groups.find((group) => group.id === groupId);
+    if (!movingGroup) {
+      return { success: false, error: "Группа не найдена" };
+    }
+
+    const previous = previousGroupId
+      ? (groups.find((group) => group.id === previousGroupId) ?? null)
+      : null;
+    const next = nextGroupId
+      ? (groups.find((group) => group.id === nextGroupId) ?? null)
+      : null;
+    if ((previousGroupId && !previous) || (nextGroupId && !next)) {
+      return { success: false, error: "stale" };
+    }
+
+    // После удаления перемещаемой группы указанные соседи должны описывать
+    // реальный разрыв в текущем порядке. Иначе другая вкладка успела изменить
+    // порядок, и применять жест приблизительно было бы неожиданно.
+    const withoutMoving = groups.filter((group) => group.id !== groupId);
+    const previousIndex = previous
+      ? withoutMoving.findIndex((group) => group.id === previous.id)
+      : -1;
+    const nextIndex = next
+      ? withoutMoving.findIndex((group) => group.id === next.id)
+      : withoutMoving.length;
+    if (
+      nextIndex !== previousIndex + 1 ||
+      (!previous && nextIndex !== 0) ||
+      (!next && previousIndex !== withoutMoving.length - 1)
+    ) {
+      return { success: false, error: "stale" };
+    }
+
+    if (!previous && !next) {
+      // Единственная группа уже находится на единственно возможном месте.
+      return { success: true };
+    }
+
+    const lowestPosition = groups[0].position;
+    const highestPosition = groups[groups.length - 1].position;
+    let newPosition: number;
+    if (previous && next) {
+      newPosition = (previous.position + next.position) / 2;
+    } else if (previous) {
+      newPosition = highestPosition + POSITION_STEP;
+    } else {
+      newPosition = lowestPosition - POSITION_STEP;
+    }
+
+    const needsRebalance =
+      previous !== null &&
+      next !== null &&
+      (newPosition <= previous.position || newPosition >= next.position);
+
+    if (needsRebalance) {
+      const reordered = [...withoutMoving];
+      reordered.splice(nextIndex, 0, movingGroup);
+      await prisma.$transaction(
+        reordered.map((group, index) =>
+          prisma.listGroup.update({
+            where: { id: group.id },
+            data: { position: (index + 1) * POSITION_STEP },
+          }),
+        ),
+      );
+      logger.info(
+        {
+          uid: hashId(session.user.id),
+          groupId,
+          spaceId: space.id,
+          action: "moveGroup",
+        },
+        "Позиции групп перенумерованы: исчерпана точность дробной позиции",
+      );
+    } else {
+      await prisma.listGroup.update({
+        where: { id: groupId },
+        data: { position: newPosition },
+      });
+    }
+
+    revalidatePath("/", "layout");
+    logger.info(
+      {
+        uid: hashId(session.user.id),
+        groupId,
+        spaceId: space.id,
+        action: "moveGroup",
+      },
+      "Группа перемещена",
+    );
+    return { success: true };
+  } catch (error) {
+    logger.error({ error }, "Ошибка при перемещении группы:");
+    return { success: false, error: "Не удалось переместить группу" };
   }
 }
 

@@ -67,6 +67,7 @@
       "groupCreateFailed": "Failed to create the group",
       "groupDeleteFailed": "Failed to delete the group",
       "groupRenameFailed": "Failed to rename the group",
+      "groupMoveFailed": "Failed to reorder the groups",
       "groupAssignFailed": "Failed to change the group",
       "tooLong": "The name is too long (50 characters max)"
     }
@@ -81,7 +82,13 @@
     "all": "All",
     "newGroupPlaceholder": "Name...",
     "ariaCreateGroup": "Create group",
-    "ariaDeleteGroup": "Delete group {name}"
+    "ariaDeleteGroup": "Delete group {name}",
+    "ariaDragGroup": "Reorder group {name}, position {position} of {count}",
+    "dragInstructions": "To pick up a group, press Space or Enter. Move it with the arrow keys. Press Space or Enter again to drop it, or Escape to cancel.",
+    "dragStart": "Picked up group {name}.",
+    "dragOver": "Group {name} moved to position {position}.",
+    "dragEnd": "Group {name} dropped at position {position}.",
+    "dragCancel": "Moving group {name} was cancelled."
   },
   "SmartList": {
     "saving": "Saving...",

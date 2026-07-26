@@ -98,6 +98,11 @@ export type ListsApi = {
   // ---- Группы ----
   createGroup: (name: string) => Promise<CreateGroupResult>;
   renameGroup: (groupId: string, name: string) => Promise<ActionResult>;
+  moveGroup: (
+    groupId: string,
+    previousGroupId: string | null,
+    nextGroupId: string | null,
+  ) => Promise<ActionResult>;
   deleteGroup: (groupId: string) => Promise<ActionResult>;
   addListToGroup: (listId: string, groupId: string) => Promise<ActionResult>;
   removeListFromGroup: (listId: string, groupId: string) => Promise<ActionResult>;

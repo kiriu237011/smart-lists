@@ -67,6 +67,7 @@
       "groupCreateFailed": "グループを作成できませんでした",
       "groupDeleteFailed": "グループを削除できませんでした",
       "groupRenameFailed": "グループの名前を変更できませんでした",
+      "groupMoveFailed": "グループの順序を変更できませんでした",
       "groupAssignFailed": "グループを変更できませんでした",
       "tooLong": "名前が長すぎます（最大50文字）"
     }
@@ -81,7 +82,13 @@
     "all": "すべて",
     "newGroupPlaceholder": "名前...",
     "ariaCreateGroup": "グループを作成",
-    "ariaDeleteGroup": "グループ{name}を削除"
+    "ariaDeleteGroup": "グループ{name}を削除",
+    "ariaDragGroup": "グループ{name}の順序を変更、{count}件中{position}番目",
+    "dragInstructions": "グループを持ち上げるには Space または Enter を押します。矢印キーで移動し、もう一度 Space または Enter で配置、Escape でキャンセルします。",
+    "dragStart": "グループ{name}を持ち上げました。",
+    "dragOver": "グループ{name}を{position}番目に移動しました。",
+    "dragEnd": "グループ{name}を{position}番目に配置しました。",
+    "dragCancel": "グループ{name}の移動をキャンセルしました。"
   },
   "SmartList": {
     "saving": "保存中...",

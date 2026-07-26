@@ -3,21 +3,21 @@
  * @description Тесты затвора realtime-обновлений на время перетаскивания.
  *
  * Состояние затвора — модульные переменные, поэтому каждый тест начинается с
- * `endItemDrag()`: незакрытый затвор из предыдущего теста иначе протёк бы в
- * следующий. Это же и есть главный риск в проде — забытый `endItemDrag`
+ * `endDrag()`: незакрытый затвор из предыдущего теста иначе протёк бы в
+ * следующий. Это же и есть главный риск в проде — забытый `endDrag`
  * навсегда перестаёт пропускать обновления во вкладке.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  beginItemDrag,
+  beginDrag,
   deferRefreshWhileDragging,
-  endItemDrag,
+  endDrag,
 } from "@/lib/drag-gate";
 
 beforeEach(() => {
-  endItemDrag();
+  endDrag();
 });
 
 describe("deferRefreshWhileDragging", () => {
@@ -30,20 +30,20 @@ describe("deferRefreshWhileDragging", () => {
 
   it("во время жеста откладывает обновление и не вызывает его сразу", () => {
     const refresh = vi.fn();
-    beginItemDrag();
+    beginDrag();
 
     expect(deferRefreshWhileDragging(refresh)).toBe(true);
     expect(refresh).not.toHaveBeenCalled();
   });
 });
 
-describe("endItemDrag", () => {
+describe("endDrag", () => {
   it("выполняет отложенное обновление после жеста", () => {
     const refresh = vi.fn();
-    beginItemDrag();
+    beginDrag();
     deferRefreshWhileDragging(refresh);
 
-    endItemDrag();
+    endDrag();
 
     expect(refresh).toHaveBeenCalledTimes(1);
   });
@@ -51,11 +51,11 @@ describe("endItemDrag", () => {
   it("хранит только последнее обновление: router.refresh идемпотентен", () => {
     const first = vi.fn();
     const second = vi.fn();
-    beginItemDrag();
+    beginDrag();
     deferRefreshWhileDragging(first);
     deferRefreshWhileDragging(second);
 
-    endItemDrag();
+    endDrag();
 
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
@@ -63,30 +63,30 @@ describe("endItemDrag", () => {
 
   it("не вызывает отложенное обновление повторно", () => {
     const refresh = vi.fn();
-    beginItemDrag();
+    beginDrag();
     deferRefreshWhileDragging(refresh);
 
-    endItemDrag();
-    endItemDrag();
+    endDrag();
+    endDrag();
 
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("безопасен, когда жеста не было", () => {
-    expect(() => endItemDrag()).not.toThrow();
+    expect(() => endDrag()).not.toThrow();
   });
 
   it("открывает затвор: после жеста обновления снова проходят напрямую", () => {
-    beginItemDrag();
+    beginDrag();
     deferRefreshWhileDragging(vi.fn());
-    endItemDrag();
+    endDrag();
 
     expect(deferRefreshWhileDragging(vi.fn())).toBe(false);
   });
 
   it("отменённый жест не оставляет затвор закрытым", () => {
-    beginItemDrag();
-    endItemDrag(); // отмена без единого отложенного обновления
+    beginDrag();
+    endDrag(); // отмена без единого отложенного обновления
 
     expect(deferRefreshWhileDragging(vi.fn())).toBe(false);
   });

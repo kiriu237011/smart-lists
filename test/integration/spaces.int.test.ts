@@ -143,7 +143,12 @@ describe("deleteSpace", () => {
     const space = await makeSpace(user.id, "Проект");
     const list = await makeList(user.id, space.id);
     await prisma.listGroup.create({
-      data: { userId: user.id, spaceId: space.id, name: "Группа" },
+      data: {
+        userId: user.id,
+        spaceId: space.id,
+        name: "Группа",
+        position: 1,
+      },
     });
     setSessionUser(user.id);
 
@@ -255,7 +260,12 @@ describe("getSpaceDeleteImpact", () => {
     const listA = await makeList(user.id, space.id);
     await makeList(user.id, space.id);
     await prisma.listGroup.create({
-      data: { userId: user.id, spaceId: space.id, name: "Группа" },
+      data: {
+        userId: user.id,
+        spaceId: space.id,
+        name: "Группа",
+        position: 1,
+      },
     });
     await shareList(listA.id, recipient.id);
     await prisma.attachment.create({

@@ -67,6 +67,7 @@
       "groupCreateFailed": "Не удалось создать группу",
       "groupDeleteFailed": "Не удалось удалить группу",
       "groupRenameFailed": "Не удалось переименовать группу",
+      "groupMoveFailed": "Не удалось изменить порядок групп",
       "groupAssignFailed": "Не удалось изменить группу",
       "tooLong": "Слишком длинное название (максимум 50 символов)"
     }
@@ -81,7 +82,13 @@
     "all": "Все",
     "newGroupPlaceholder": "Название...",
     "ariaCreateGroup": "Создать группу",
-    "ariaDeleteGroup": "Удалить группу {name}"
+    "ariaDeleteGroup": "Удалить группу {name}",
+    "ariaDragGroup": "Изменить положение группы {name}, позиция {position} из {count}",
+    "dragInstructions": "Чтобы поднять группу, нажмите пробел или Enter. Перемещайте её клавишами со стрелками. Для завершения снова нажмите пробел или Enter, для отмены — Escape.",
+    "dragStart": "Группа {name} поднята.",
+    "dragOver": "Группа {name} перемещена на позицию {position}.",
+    "dragEnd": "Группа {name} размещена на позиции {position}.",
+    "dragCancel": "Перемещение группы {name} отменено."
   },
   "SmartList": {
     "saving": "Сохраняется...",

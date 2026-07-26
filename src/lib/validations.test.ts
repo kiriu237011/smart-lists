@@ -14,6 +14,7 @@ import { MAX_NOTE_LENGTH } from "@/lib/notes";
 import {
   createItemSchema,
   createListSchema,
+  moveGroupSchema,
   moveItemSchema,
   moveItemToListSchema,
   requestUploadSchema,
@@ -145,6 +146,45 @@ describe("moveItemSchema", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("moveGroupSchema", () => {
+  it("принимает соседей и null на краю", () => {
+    expect(
+      moveGroupSchema.safeParse({
+        groupId: "group_2",
+        previousGroupId: "group_1",
+        nextGroupId: "group_3",
+      }).success,
+    ).toBe(true);
+    expect(
+      moveGroupSchema.safeParse({
+        groupId: "group_2",
+        previousGroupId: null,
+        nextGroupId: "group_1",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("отбивает саму перемещаемую группу в качестве соседа", () => {
+    expect(
+      moveGroupSchema.safeParse({
+        groupId: "group_2",
+        previousGroupId: "group_2",
+        nextGroupId: null,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("отбивает пустую строку вместо края", () => {
+    expect(
+      moveGroupSchema.safeParse({
+        groupId: "group_2",
+        previousGroupId: "",
+        nextGroupId: null,
+      }).success,
+    ).toBe(false);
   });
 });
 

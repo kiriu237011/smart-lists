@@ -20,6 +20,12 @@ import { defineConfig, devices } from "@playwright/test";
 import { appEnv, E2E_BASE_URL, E2E_PORT } from "./test/e2e/env";
 
 const isCI = Boolean(process.env.CI);
+// На Windows завершение Playwright иногда оставляет дочерний `next start` на
+// порту 3100. Автоматическое переиспользование такого процесса опасно: он может
+// обслуживать предыдущую `.next`-сборку, и тесты будут проверять старый код.
+// Внешний сервер разрешается переиспользовать только осознанно.
+const reuseExistingServer =
+  !isCI && process.env.E2E_REUSE_SERVER === "1";
 
 /**
  * Локальная итерация по тестам не должна каждый раз ждать сборку.
@@ -74,7 +80,7 @@ export default defineConfig({
   webServer: {
     command: serverCommand,
     url: E2E_BASE_URL,
-    reuseExistingServer: !isCI,
+    reuseExistingServer,
     // Сборка Next на холодном кэше занимает минуты.
     timeout: 300_000,
     env: appEnv,

@@ -495,6 +495,47 @@ describe("группы", () => {
     expect(stored().groups.map((g) => g.name)).toEqual(["Дом", "Работа"]);
   });
 
+  it("перемещает группу между новыми соседями", async () => {
+    const api = createApi();
+    const home = await api.createGroup("Дом");
+    const work = await api.createGroup("Работа");
+    const archive = await api.createGroup("Архив");
+
+    const result = await api.moveGroup(
+      archive.group!.id,
+      null,
+      home.group!.id,
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(stored().groups.map((group) => group.name)).toEqual([
+      "Архив",
+      "Дом",
+      "Работа",
+    ]);
+    expect(work.success).toBe(true);
+  });
+
+  it("не применяет перемещение с устаревшими соседями", async () => {
+    const api = createApi();
+    const home = await api.createGroup("Дом");
+    const work = await api.createGroup("Работа");
+    await api.createGroup("Архив");
+
+    const result = await api.moveGroup(
+      work.group!.id,
+      home.group!.id,
+      null,
+    );
+
+    expect(result).toEqual({ success: false, error: "stale" });
+    expect(stored().groups.map((group) => group.name)).toEqual([
+      "Дом",
+      "Работа",
+      "Архив",
+    ]);
+  });
+
   it("удаление группы не удаляет списки, а только снимает связь", async () => {
     const api = createApi();
     const group = await api.createGroup("Дом");

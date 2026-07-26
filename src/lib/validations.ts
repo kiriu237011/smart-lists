@@ -177,6 +177,26 @@ export const renameGroupSchema = z.object({
 });
 
 /**
+ * Схема перемещения группы между новыми соседями.
+ * null означает край последовательности, пустая строка соседом не считается.
+ */
+export const moveGroupSchema = z
+  .object({
+    groupId: z.string().min(1),
+    previousGroupId: z.string().min(1).nullable(),
+    nextGroupId: z.string().min(1).nullable(),
+  })
+  .refine(
+    ({ groupId, previousGroupId, nextGroupId }) =>
+      groupId !== previousGroupId &&
+      groupId !== nextGroupId &&
+      (previousGroupId === null ||
+        nextGroupId === null ||
+        previousGroupId !== nextGroupId),
+    { message: "Группа и её соседи должны различаться" },
+  );
+
+/**
  * Схема для добавления/удаления списка из группы.
  * Используется в Server Actions `addListToGroup` и `removeListFromGroup`.
  */

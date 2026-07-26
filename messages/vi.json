@@ -67,6 +67,7 @@
       "groupCreateFailed": "Không thể tạo nhóm",
       "groupDeleteFailed": "Không thể xóa nhóm",
       "groupRenameFailed": "Không thể đổi tên nhóm",
+      "groupMoveFailed": "Không thể thay đổi thứ tự nhóm",
       "groupAssignFailed": "Không thể thay đổi nhóm",
       "tooLong": "Tên quá dài (tối đa 50 ký tự)"
     }
@@ -81,7 +82,13 @@
     "all": "Tất cả",
     "newGroupPlaceholder": "Tên...",
     "ariaCreateGroup": "Tạo nhóm",
-    "ariaDeleteGroup": "Xóa nhóm {name}"
+    "ariaDeleteGroup": "Xóa nhóm {name}",
+    "ariaDragGroup": "Sắp xếp lại nhóm {name}, vị trí {position} trên {count}",
+    "dragInstructions": "Để nhấc một nhóm, nhấn Space hoặc Enter. Di chuyển nhóm bằng các phím mũi tên. Nhấn lại Space hoặc Enter để thả, hoặc Escape để hủy.",
+    "dragStart": "Đã nhấc nhóm {name}.",
+    "dragOver": "Nhóm {name} đã chuyển đến vị trí {position}.",
+    "dragEnd": "Nhóm {name} đã được thả ở vị trí {position}.",
+    "dragCancel": "Đã hủy di chuyển nhóm {name}."
   },
   "SmartList": {
     "saving": "Đang lưu...",

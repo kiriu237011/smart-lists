@@ -150,6 +150,9 @@ export default function ListsContainer({
   /** Флаг ожидания ответа сервера при удалении группы. */
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
 
+  /** Флаг сохранения нового порядка групп. Блокирует пересекающиеся мутации. */
+  const [isReorderingGroup, setIsReorderingGroup] = useState(false);
+
   /** Активный фильтр группы. null = показывать все списки. Сохраняется в localStorage. */
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
@@ -555,6 +558,31 @@ export default function ListsContainer({
     }
   }, [groups, api, t]);
 
+  const handleMoveGroup = useCallback(
+    async (groupId: string, orderedGroups: ListGroup[]) => {
+      if (isReorderingGroup) return;
+
+      const groupsSnapshot = groups;
+      const newIndex = orderedGroups.findIndex((group) => group.id === groupId);
+      if (newIndex === -1) return;
+
+      setIsReorderingGroup(true);
+      setGroups(orderedGroups);
+
+      const result = await api.moveGroup(
+        groupId,
+        orderedGroups[newIndex - 1]?.id ?? null,
+        orderedGroups[newIndex + 1]?.id ?? null,
+      );
+      if (!result.success) {
+        setGroups(groupsSnapshot);
+        toast.error(t("errors.groupMoveFailed"));
+      }
+      setIsReorderingGroup(false);
+    },
+    [api, groups, isReorderingGroup, t],
+  );
+
   const handleToggleListGroup = useCallback(
     async (listId: string, groupId: string, inGroup: boolean) => {
       const result = inGroup
@@ -562,8 +590,12 @@ export default function ListsContainer({
         : await api.addListToGroup(listId, groupId);
       if (!result.success) {
         toast.error(t("errors.groupAssignFailed"));
+        return false;
       }
-      // router.refresh подхватит актуальные данные через Pusher/revalidatePath
+      // RSC-payload из Server Action (или синхронный refresh гостевого
+      // хранилища) уже применён к моменту завершения Promise. Меню карточки
+      // закрывается только после этого, чтобы новый payload не отменил выбор.
+      return true;
     },
     [api, t],
   );
@@ -850,6 +882,8 @@ export default function ListsContainer({
         onCreateGroup={handleCreateGroup}
         onDeleteGroup={handleDeleteGroup}
         onRenameGroup={handleRenameGroup}
+        onMoveGroup={handleMoveGroup}
+        isReordering={isReorderingGroup}
       />
 
       {/* Панель с вкладками Создать/Поиск и переключателем авторов */}

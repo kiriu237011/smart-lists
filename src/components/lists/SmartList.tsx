@@ -34,7 +34,7 @@ import {
   type ReactNode,
 } from "react";
 import { Reorder, useDragControls, type DragControls } from "framer-motion";
-import { beginItemDrag, endItemDrag } from "@/lib/drag-gate";
+import { beginDrag, endDrag } from "@/lib/drag-gate";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
 import { useListsDirectory } from "@/components/providers/ListsDirectoryProvider";
 import toast from "react-hot-toast";
@@ -737,7 +737,7 @@ export default function SmartList({
 
   const handleDragStart = (item: Item) => {
     // Закрываем затвор realtime: перерисовка дерева посреди жеста сорвала бы его.
-    beginItemDrag();
+    beginDrag();
     setDraggingItemId(item.id);
     // Фиксируем текущий порядок как стартовый — дальше им управляет onReorder.
     setDragOrder(activeVisibleItems);
@@ -750,7 +750,7 @@ export default function SmartList({
    * назначения — тот же контракт, что и у перемещения через меню.
    */
   const handleDragEnd = (item: Item) => {
-    endItemDrag();
+    endDrag();
     setDraggingItemId(null);
 
     const finalOrder = dragOrder;

@@ -14,6 +14,7 @@ import {
   addListToGroup,
   createGroup,
   deleteGroup,
+  moveGroup,
   removeListFromGroup,
   renameGroup,
 } from "@/app/actions";
@@ -61,7 +62,7 @@ describe("deleteGroup", () => {
   it("удаляет свою группу", async () => {
     const user = await makeUser();
     const group = await prisma.listGroup.create({
-      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "Дом" },
+      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "Дом", position: 1 },
     });
     setSessionUser(user.id);
 
@@ -77,7 +78,7 @@ describe("deleteGroup", () => {
     const owner = await makeUser();
     const other = await makeUser();
     const group = await prisma.listGroup.create({
-      data: { userId: owner.id, spaceId: owner.defaultSpaceId, name: "Дом" },
+      data: { userId: owner.id, spaceId: owner.defaultSpaceId, name: "Дом", position: 1 },
     });
     setSessionUser(other.id);
 
@@ -100,6 +101,7 @@ describe("deleteGroup", () => {
         userId: user.id,
         spaceId: user.defaultSpaceId,
         name: "Дом",
+        position: 1,
         lists: { connect: { id: list.id } },
       },
     });
@@ -116,7 +118,7 @@ describe("renameGroup", () => {
   it("переименовывает свою группу", async () => {
     const user = await makeUser();
     const group = await prisma.listGroup.create({
-      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "Старое" },
+      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "Старое", position: 1 },
     });
     setSessionUser(user.id);
 
@@ -134,7 +136,7 @@ describe("renameGroup", () => {
     const owner = await makeUser();
     const other = await makeUser();
     const group = await prisma.listGroup.create({
-      data: { userId: owner.id, spaceId: owner.defaultSpaceId, name: "Owner" },
+      data: { userId: owner.id, spaceId: owner.defaultSpaceId, name: "Owner", position: 1 },
     });
     setSessionUser(other.id);
 
@@ -149,12 +151,134 @@ describe("renameGroup", () => {
   });
 });
 
+describe("moveGroup", () => {
+  it("перемещает группу между строками порядка и сохраняет позицию", async () => {
+    const user = await makeUser();
+    const [home, work, archive] = await Promise.all([
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Дом",
+          position: 1,
+        },
+      }),
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Работа",
+          position: 2,
+        },
+      }),
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Архив",
+          position: 3,
+        },
+      }),
+    ]);
+    setSessionUser(user.id);
+
+    const result = await moveGroup(
+      formData({
+        groupId: archive.id,
+        previousGroupId: "",
+        nextGroupId: home.id,
+        spaceId: user.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: true });
+    const ordered = await prisma.listGroup.findMany({
+      where: { userId: user.id, spaceId: user.defaultSpaceId },
+      orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { name: true },
+    });
+    expect(ordered.map((group) => group.name)).toEqual([
+      "Архив",
+      "Дом",
+      "Работа",
+    ]);
+    expect(work.position).toBe(2);
+  });
+
+  it("отклоняет устаревшую пару соседей без частичного обновления", async () => {
+    const user = await makeUser();
+    const groups = await Promise.all(
+      ["Дом", "Работа", "Архив"].map((name, index) =>
+        prisma.listGroup.create({
+          data: {
+            userId: user.id,
+            spaceId: user.defaultSpaceId,
+            name,
+            position: index + 1,
+          },
+        }),
+      ),
+    );
+    setSessionUser(user.id);
+
+    const result = await moveGroup(
+      formData({
+        groupId: groups[1].id,
+        previousGroupId: groups[0].id,
+        nextGroupId: "",
+        spaceId: user.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: false, error: "stale" });
+    const positions = await prisma.listGroup.findMany({
+      where: { userId: user.id },
+      orderBy: { position: "asc" },
+      select: { name: true },
+    });
+    expect(positions.map((group) => group.name)).toEqual([
+      "Дом",
+      "Работа",
+      "Архив",
+    ]);
+  });
+
+  it("не перемещает группу другого пользователя", async () => {
+    const owner = await makeUser();
+    const other = await makeUser();
+    const group = await prisma.listGroup.create({
+      data: {
+        userId: owner.id,
+        spaceId: owner.defaultSpaceId,
+        name: "Чужая",
+        position: 1,
+      },
+    });
+    setSessionUser(other.id);
+
+    const result = await moveGroup(
+      formData({
+        groupId: group.id,
+        previousGroupId: "",
+        nextGroupId: "",
+        spaceId: other.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: false, error: "Группа не найдена" });
+    expect(
+      (await prisma.listGroup.findUniqueOrThrow({ where: { id: group.id } }))
+        .position,
+    ).toBe(1);
+  });
+});
+
 describe("addListToGroup", () => {
   it("владелец добавляет свой список в свою группу", async () => {
     const user = await makeUser();
     const list = await makeList(user.id, user.defaultSpaceId);
     const group = await prisma.listGroup.create({
-      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "Дом" },
+      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "Дом", position: 1 },
     });
     setSessionUser(user.id);
 
@@ -173,7 +297,7 @@ describe("addListToGroup", () => {
     await shareList(list.id, editor.id);
     // Группа принадлежит редактору в его пространстве.
     const group = await prisma.listGroup.create({
-      data: { userId: editor.id, spaceId: editor.defaultSpaceId, name: "Общие" },
+      data: { userId: editor.id, spaceId: editor.defaultSpaceId, name: "Общие", position: 1 },
     });
     setSessionUser(editor.id);
 
@@ -190,7 +314,7 @@ describe("addListToGroup", () => {
     const other = await makeUser();
     const list = await makeList(other.id, other.defaultSpaceId);
     const group = await prisma.listGroup.create({
-      data: { userId: owner.id, spaceId: owner.defaultSpaceId, name: "Owner" },
+      data: { userId: owner.id, spaceId: owner.defaultSpaceId, name: "Owner", position: 1 },
     });
     setSessionUser(other.id);
 
@@ -207,7 +331,7 @@ describe("addListToGroup", () => {
     const stranger = await makeUser();
     const foreignList = await makeList(stranger.id, stranger.defaultSpaceId);
     const group = await prisma.listGroup.create({
-      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "Моя" },
+      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "Моя", position: 1 },
     });
     setSessionUser(user.id);
 
@@ -229,6 +353,7 @@ describe("removeListFromGroup", () => {
         userId: user.id,
         spaceId: user.defaultSpaceId,
         name: "Дом",
+        position: 1,
         lists: { connect: { id: list.id } },
       },
     });
@@ -256,11 +381,17 @@ describe("персональность и изоляция групп", () => {
         userId: owner.id,
         spaceId: owner.defaultSpaceId,
         name: "У владельца",
+        position: 1,
         lists: { connect: { id: list.id } },
       },
     });
     const editorGroup = await prisma.listGroup.create({
-      data: { userId: editor.id, spaceId: editor.defaultSpaceId, name: "У редактора" },
+      data: {
+        userId: editor.id,
+        spaceId: editor.defaultSpaceId,
+        name: "У редактора",
+        position: 1,
+      },
     });
 
     // Редактор кладёт тот же список в свою группу.
@@ -285,7 +416,12 @@ describe("персональность и изоляция групп", () => {
     const user = await makeUser();
     const otherSpace = await makeSpace(user.id, "Другое");
     const group = await prisma.listGroup.create({
-      data: { userId: user.id, spaceId: user.defaultSpaceId, name: "В default" },
+      data: {
+        userId: user.id,
+        spaceId: user.defaultSpaceId,
+        name: "В default",
+        position: 1,
+      },
     });
     setSessionUser(user.id);
 

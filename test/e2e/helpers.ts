@@ -134,6 +134,51 @@ export async function dragItemOnto(
   await page.mouse.up();
 }
 
+/** Названия пользовательских групп в текущем визуальном порядке. */
+export async function groupNames(page: Page): Promise<string[]> {
+  return page.locator('[data-testid="group-chip"]:visible').allTextContents();
+}
+
+/**
+ * Перетаскивает группу за отдельную ручку на место другой группы.
+ * Реальные pointer-события нужны и dnd-kit, как Framer Motion у записей.
+ */
+export async function dragGroupOnto(
+  page: Page,
+  sourceGroupId: string,
+  targetGroupId: string,
+  beforeDrop?: () => Promise<void>,
+): Promise<void> {
+  const source = page.locator(
+    `[data-testid="group-sortable"][data-group-id="${sourceGroupId}"]:visible`,
+  );
+  const target = page.locator(
+    `[data-testid="group-sortable"][data-group-id="${targetGroupId}"]:visible`,
+  );
+  const sourceBox = await source.boundingBox();
+  const handleBox = await source.getByTestId("group-drag-handle").boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !handleBox || !targetBox) {
+    throw new Error("Не удалось получить геометрию групп для перетаскивания");
+  }
+
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+  const pointerOffsetX = sourceBox.x + sourceBox.width / 2 - startX;
+  const pointerOffsetY = sourceBox.y + sourceBox.height / 2 - startY;
+  const endX = targetBox.x + targetBox.width / 2 - pointerOffsetX;
+  const endY = targetBox.y + targetBox.height / 2 - pointerOffsetY;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + (endX >= startX ? 8 : -8), startY, {
+    steps: 3,
+  });
+  await page.mouse.move(endX, endY, { steps: 24 });
+  await beforeDrop?.();
+  await page.mouse.up();
+}
+
 /** Значение ключа localStorage текущей страницы. */
 export async function localStorageItem(
   page: Page,

@@ -36,6 +36,7 @@ import {
   renameListSchema,
   createGroupSchema,
   renameGroupSchema,
+  moveGroupSchema,
   updateListNoteSchema,
   updateItemNoteSchema,
 } from "@/lib/validations";
@@ -519,6 +520,51 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         const group = data.groups.find((g) => g.id === parsed.data.groupId);
         if (!group) return { success: false, error: "Группа не найдена" };
         group.name = parsed.data.name;
+        return { success: true };
+      });
+    },
+
+    moveGroup: async (groupId, previousGroupId, nextGroupId) => {
+      const parsed = moveGroupSchema.safeParse({
+        groupId,
+        previousGroupId,
+        nextGroupId,
+      });
+      if (!parsed.success) {
+        return { success: false, error: getValidationError(parsed.error) };
+      }
+
+      return mutate((data) => {
+        const currentIndex = data.groups.findIndex(
+          (group) => group.id === parsed.data.groupId,
+        );
+        if (currentIndex === -1) {
+          return { success: false, error: "Группа не найдена" };
+        }
+
+        const reordered = [...data.groups];
+        const [movingGroup] = reordered.splice(currentIndex, 1);
+        const previousIndex = parsed.data.previousGroupId
+          ? reordered.findIndex(
+              (group) => group.id === parsed.data.previousGroupId,
+            )
+          : -1;
+        const nextIndex = parsed.data.nextGroupId
+          ? reordered.findIndex((group) => group.id === parsed.data.nextGroupId)
+          : reordered.length;
+
+        if (
+          (parsed.data.previousGroupId && previousIndex === -1) ||
+          (parsed.data.nextGroupId && nextIndex === -1) ||
+          nextIndex !== previousIndex + 1 ||
+          (!parsed.data.previousGroupId && nextIndex !== 0) ||
+          (!parsed.data.nextGroupId && previousIndex !== reordered.length - 1)
+        ) {
+          return { success: false, error: "stale" };
+        }
+
+        reordered.splice(nextIndex, 0, movingGroup);
+        data.groups = reordered;
         return { success: true };
       });
     },

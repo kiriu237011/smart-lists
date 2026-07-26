@@ -32,6 +32,7 @@ import {
   createGroup,
   deleteGroup,
   renameGroup,
+  moveGroup,
   addListToGroup,
   removeListFromGroup,
 } from "@/app/actions";
@@ -100,6 +101,17 @@ export default function ServerListsApiProvider({
       // ---- Группы ----
       createGroup: async (name) => createGroup(buildFormData({ name }, spaceId)),
       renameGroup: async (groupId, name) => renameGroup(buildFormData({ groupId, name }, spaceId)),
+      moveGroup: async (groupId, previousGroupId, nextGroupId) =>
+        moveGroup(
+          buildFormData(
+            {
+              groupId,
+              previousGroupId: previousGroupId ?? "",
+              nextGroupId: nextGroupId ?? "",
+            },
+            spaceId,
+          ),
+        ),
       deleteGroup: async (groupId) => deleteGroup(buildFormData({ groupId }, spaceId)),
       addListToGroup: async (listId, groupId) =>
         addListToGroup(buildFormData({ groupId, listId }, spaceId)),

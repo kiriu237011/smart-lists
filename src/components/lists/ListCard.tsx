@@ -134,7 +134,11 @@ export type ListCardProps = {
   /** Все группы пользователя (для меню назначения в группу). */
   userGroups: ListGroup[];
   /** Колбэк добавления/удаления списка из группы. */
-  onToggleListGroup: (listId: string, groupId: string, inGroup: boolean) => Promise<void>;
+  onToggleListGroup: (
+    listId: string,
+    groupId: string,
+    inGroup: boolean,
+  ) => Promise<boolean>;
 };
 
 /**
@@ -350,6 +354,7 @@ const ListCard = memo(function ListCard({
 
   // Состояние дропдауна меню групп
   const [isGroupMenuOpen, setIsGroupMenuOpen] = useState(false);
+  const [pendingGroupId, setPendingGroupId] = useState<string | null>(null);
   const groupMenuRef = useRef<HTMLDivElement>(null);
 
   // Закрываем меню при клике вне его
@@ -952,11 +957,25 @@ const ListCard = memo(function ListCard({
                           data-testid="list-group-option"
                           data-group-id={group.id}
                           data-in-group={inGroup}
-                          onClick={() => {
-                            void onToggleListGroup(list.id, group.id, inGroup);
-                            setIsGroupMenuOpen(false);
+                          data-pending={pendingGroupId === group.id}
+                          disabled={pendingGroupId !== null}
+                          onClick={async () => {
+                            if (pendingGroupId !== null) return;
+                            setPendingGroupId(group.id);
+                            try {
+                              const success = await onToggleListGroup(
+                                list.id,
+                                group.id,
+                                inGroup,
+                              );
+                              if (success) {
+                                setIsGroupMenuOpen(false);
+                              }
+                            } finally {
+                              setPendingGroupId(null);
+                            }
                           }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700 transition-colors text-left"
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-zinc-200 hover:bg-gray-50 dark:hover:bg-zinc-700 transition-colors text-left disabled:cursor-wait disabled:opacity-60"
                         >
                           <span className={`w-4 h-4 flex-shrink-0 flex items-center justify-center rounded text-xs ${
                             inGroup

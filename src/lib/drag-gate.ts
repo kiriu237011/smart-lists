@@ -1,16 +1,16 @@
 /**
  * @file drag-gate.ts
- * @description Затвор realtime-обновлений на время перетаскивания записи.
+ * @description Затвор realtime-обновлений на время перетаскивания.
  *
  * Клиентский модуль (состояние живёт в памяти вкладки).
  *
  * Зачем нужен:
  *   Событие Pusher `refresh` вызывает `router.refresh()`, который перерисовывает
  *   всё дерево Server Components. Если это произойдёт в момент, когда
- *   пользователь тащит запись, framer-motion получит новый набор children прямо
- *   посреди жеста — в лучшем случае запись дёрнется, в худшем перетаскивание
- *   сорвётся. Поэтому на время жеста обновление откладывается и выполняется
- *   сразу после отпускания.
+ *   пользователь тащит запись или группу, DnD-компонент получит новый набор
+ *   children прямо посреди жеста — в лучшем случае элемент дёрнется, в худшем
+ *   перетаскивание сорвётся. Поэтому на время жеста обновление откладывается и
+ *   выполняется сразу после отпускания.
  *
  * Почему модульная переменная, а не контекст:
  *   Жест по своей природе единственный на вкладку — двух одновременных
@@ -22,23 +22,23 @@
  * всегда забирает актуальное состояние, поэтому копить очередь незачем.
  */
 
-/** Идёт ли сейчас перетаскивание записи. */
-let isDraggingItem = false;
+/** Идёт ли сейчас перетаскивание записи или группы. */
+let isDragging = false;
 
 /** Обновление, пришедшее во время жеста и ожидающее его окончания. */
 let deferredRefresh: (() => void) | null = null;
 
 /** Отмечает начало жеста: с этого момента realtime-обновления откладываются. */
-export function beginItemDrag(): void {
-  isDraggingItem = true;
+export function beginDrag(): void {
+  isDragging = true;
 }
 
 /**
  * Отмечает конец жеста и выполняет отложенное обновление, если оно было.
  * Вызывать обязательно и при отмене жеста, иначе затвор останется закрытым.
  */
-export function endItemDrag(): void {
-  isDraggingItem = false;
+export function endDrag(): void {
+  isDragging = false;
   const pending = deferredRefresh;
   deferredRefresh = null;
   pending?.();
@@ -51,7 +51,7 @@ export function endItemDrag(): void {
  *          false — жеста нет, обновление нужно выполнить обычным порядком.
  */
 export function deferRefreshWhileDragging(refresh: () => void): boolean {
-  if (!isDraggingItem) return false;
+  if (!isDragging) return false;
   deferredRefresh = refresh;
   return true;
 }

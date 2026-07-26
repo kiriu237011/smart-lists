@@ -64,6 +64,11 @@ export default async function ListsDataFetcher({
         // Подгружаем только группы, принадлежащие текущему пользователю
         groups: {
           where: { userId, spaceId },
+          orderBy: [
+            { position: "asc" },
+            { createdAt: "asc" },
+            { id: "asc" },
+          ],
           select: { id: true, name: true },
         },
         // Вложения: показываем ТОЛЬКО подтверждённые (UPLOADED).
@@ -86,7 +91,11 @@ export default async function ListsDataFetcher({
     // Группы пользователя для панели фильтрации
     prisma.listGroup.findMany({
       where: { userId, spaceId },
-      orderBy: { createdAt: "asc" },
+      orderBy: [
+        { position: "asc" },
+        { createdAt: "asc" },
+        { id: "asc" },
+      ],
       select: { id: true, name: true },
     }),
   ]);
