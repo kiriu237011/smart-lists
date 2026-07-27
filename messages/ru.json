@@ -36,6 +36,11 @@
     "deleteListAction": "Удалить список",
     "collapseAction": "Свернуть список",
     "expandAction": "Развернуть список",
+    "moveEarlierAction": "Переместить раньше",
+    "moveLaterAction": "Переместить позже",
+    "ariaDragList": "Перетащить список {title}",
+    "dragInstructions": "Чтобы поднять группу или список, нажмите пробел или Enter. Перемещайте объект клавишами со стрелками. Для завершения снова нажмите пробел или Enter, для отмены — Escape.",
+    "addedToGroup": "Список добавлен в группу «{name}»",
     "ariaItemsCounter": "Выполнено записей: {done} из {total}",
     "leaveModal": {
       "title": "Отписаться от списка?",
@@ -68,6 +73,7 @@
       "groupDeleteFailed": "Не удалось удалить группу",
       "groupRenameFailed": "Не удалось переименовать группу",
       "groupMoveFailed": "Не удалось изменить порядок групп",
+      "listMoveFailed": "Не удалось изменить порядок списков",
       "groupAssignFailed": "Не удалось изменить группу",
       "tooLong": "Слишком длинное название (максимум 50 символов)"
     }

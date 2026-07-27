@@ -15,6 +15,7 @@ import {
   createItemSchema,
   createListSchema,
   moveGroupSchema,
+  moveListInGroupSchema,
   moveItemSchema,
   moveItemToListSchema,
   requestUploadSchema,
@@ -183,6 +184,30 @@ describe("moveGroupSchema", () => {
         groupId: "group_2",
         previousGroupId: "",
         nextGroupId: null,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("moveListInGroupSchema", () => {
+  it("принимает группу, список и соседей итогового порядка", () => {
+    expect(
+      moveListInGroupSchema.safeParse({
+        groupId: "group_1",
+        listId: "list_2",
+        previousListId: "list_1",
+        nextListId: "list_3",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("отбивает перемещаемый список в качестве соседа", () => {
+    expect(
+      moveListInGroupSchema.safeParse({
+        groupId: "group_1",
+        listId: "list_2",
+        previousListId: "list_2",
+        nextListId: null,
       }).success,
     ).toBe(false);
   });

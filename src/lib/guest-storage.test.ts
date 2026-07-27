@@ -129,6 +129,21 @@ describe("loadGuestData", () => {
 
     expect(loadGuestData()).toEqual({ lists: [], groups: [] });
   });
+
+  it("добавляет порядок списков старым группам без потери membership", () => {
+    storage.seedRaw(
+      STORAGE_KEY,
+      JSON.stringify({
+        lists: [
+          { id: "new", title: "Новый", groupIds: ["g1"], items: [] },
+          { id: "old", title: "Старый", groupIds: ["g1"], items: [] },
+        ],
+        groups: [{ id: "g1", name: "Дом" }],
+      }),
+    );
+
+    expect(loadGuestData().groups[0].listIds).toEqual(["new", "old"]);
+  });
 });
 
 describe("createList", () => {
@@ -161,10 +176,14 @@ describe("createList", () => {
     expect(stored().lists[0].groupIds).toEqual([group.group?.id]);
   });
 
-  it("игнорирует несуществующую группу вместо создания битой связи", async () => {
-    await createApi().createList({ title: "Покупки", groupId: "нет-такой" });
+  it("не создаёт список для несуществующей группы", async () => {
+    const result = await createApi().createList({
+      title: "Покупки",
+      groupId: "нет-такой",
+    });
 
-    expect(stored().lists[0].groupIds).toEqual([]);
+    expect(result).toEqual({ success: false, error: "Группа не найдена" });
+    expect(stored().lists).toHaveLength(0);
   });
 
   it("возвращает storageFailed и не зовёт refresh, когда запись невозможна", async () => {
@@ -556,6 +575,57 @@ describe("группы", () => {
     await api.addListToGroup(list.list!.id, group.group!.id);
 
     expect(stored().lists[0].groupIds).toEqual([group.group!.id]);
+    expect(stored().groups[0].listIds).toEqual([list.list!.id]);
+  });
+
+  it("хранит независимый порядок списков в пересекающихся группах", async () => {
+    const api = createApi();
+    const firstGroup = await api.createGroup("Первая");
+    const secondGroup = await api.createGroup("Вторая");
+    const first = await api.createList({ title: "A" });
+    const second = await api.createList({ title: "B" });
+    const third = await api.createList({ title: "C" });
+    for (const list of [first, second, third]) {
+      await api.addListToGroup(list.list!.id, firstGroup.group!.id);
+      await api.addListToGroup(list.list!.id, secondGroup.group!.id);
+    }
+
+    const result = await api.moveListInGroup(
+      firstGroup.group!.id,
+      third.list!.id,
+      null,
+      first.list!.id,
+    );
+
+    expect(result).toEqual({ success: true });
+    const groups = stored().groups;
+    expect(groups.find((group) => group.id === firstGroup.group!.id)?.listIds).toEqual([
+      third.list!.id,
+      first.list!.id,
+      second.list!.id,
+    ]);
+    expect(groups.find((group) => group.id === secondGroup.group!.id)?.listIds).toEqual([
+      first.list!.id,
+      second.list!.id,
+      third.list!.id,
+    ]);
+  });
+
+  it("назначение в другую группу сохраняет исходную", async () => {
+    const api = createApi();
+    const source = await api.createGroup("Исходная");
+    const target = await api.createGroup("Целевая");
+    const list = await api.createList({
+      title: "Покупки",
+      groupId: source.group!.id,
+    });
+
+    await api.addListToGroup(list.list!.id, target.group!.id);
+
+    expect(stored().lists[0].groupIds).toEqual([
+      source.group!.id,
+      target.group!.id,
+    ]);
   });
 
   it("отбивает добавление в несуществующую группу", async () => {
@@ -628,7 +698,9 @@ describe("toListData", () => {
 
     const [listData] = toListData(stored(), GUEST_NAME);
 
-    expect(listData.groups).toEqual([{ id: group.group!.id, name: "Дом" }]);
+    expect(listData.groups).toEqual([
+      { id: group.group!.id, name: "Дом", position: 1 },
+    ]);
   });
 
   it("подставляет нулевую версию заметки, когда поля нет в хранилище", () => {

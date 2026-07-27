@@ -15,6 +15,7 @@ import {
   createGroup,
   deleteGroup,
   moveGroup,
+  moveListInGroup,
   removeListFromGroup,
   renameGroup,
 } from "@/app/actions";
@@ -23,11 +24,21 @@ import { formData, makeList, makeSpace, makeUser, shareList } from "./factories"
 
 /** ID списков, входящих в группу. */
 async function listsInGroup(groupId: string): Promise<string[]> {
-  const group = await prisma.listGroup.findUniqueOrThrow({
-    where: { id: groupId },
-    select: { lists: { select: { id: true } } },
+  const memberships = await prisma.listGroupMembership.findMany({
+    where: { groupId },
+    select: { listId: true },
   });
-  return group.lists.map((l) => l.id).sort();
+  return memberships.map((membership) => membership.listId).sort();
+}
+
+/** Названия списков в сохранённом порядке конкретной группы. */
+async function listNamesInGroup(groupId: string): Promise<string[]> {
+  const memberships = await prisma.listGroupMembership.findMany({
+    where: { groupId },
+    orderBy: [{ position: "asc" }, { listId: "asc" }],
+    select: { list: { select: { title: true } } },
+  });
+  return memberships.map((membership) => membership.list.title);
 }
 
 describe("createGroup", () => {
@@ -102,8 +113,10 @@ describe("deleteGroup", () => {
         spaceId: user.defaultSpaceId,
         name: "Дом",
         position: 1,
-        lists: { connect: { id: list.id } },
       },
+    });
+    await prisma.listGroupMembership.create({
+      data: { groupId: group.id, listId: list.id, position: 1 },
     });
     setSessionUser(user.id);
 
@@ -344,6 +357,139 @@ describe("addListToGroup", () => {
   });
 });
 
+describe("moveListInGroup", () => {
+  it("меняет порядок только в выбранной группе", async () => {
+    const user = await makeUser();
+    const [firstGroup, secondGroup] = await Promise.all(
+      ["Первая", "Вторая"].map((name, index) =>
+        prisma.listGroup.create({
+          data: {
+            userId: user.id,
+            spaceId: user.defaultSpaceId,
+            name,
+            position: index + 1,
+          },
+        }),
+      ),
+    );
+    const lists = await Promise.all(
+      ["A", "B", "C"].map((title) =>
+        makeList(user.id, user.defaultSpaceId, { title }),
+      ),
+    );
+    await prisma.listGroupMembership.createMany({
+      data: [firstGroup, secondGroup].flatMap((group) =>
+        lists.map((list, index) => ({
+          groupId: group.id,
+          listId: list.id,
+          position: index + 1,
+        })),
+      ),
+    });
+    setSessionUser(user.id);
+
+    const result = await moveListInGroup(
+      formData({
+        groupId: firstGroup.id,
+        listId: lists[2].id,
+        previousListId: "",
+        nextListId: lists[0].id,
+        spaceId: user.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(await listNamesInGroup(firstGroup.id)).toEqual(["C", "A", "B"]);
+    expect(await listNamesInGroup(secondGroup.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("отклоняет устаревший разрыв без частичного обновления", async () => {
+    const user = await makeUser();
+    const group = await prisma.listGroup.create({
+      data: {
+        userId: user.id,
+        spaceId: user.defaultSpaceId,
+        name: "Дом",
+        position: 1,
+      },
+    });
+    const lists = await Promise.all(
+      ["A", "B", "C"].map((title) =>
+        makeList(user.id, user.defaultSpaceId, { title }),
+      ),
+    );
+    await prisma.listGroupMembership.createMany({
+      data: lists.map((list, index) => ({
+        groupId: group.id,
+        listId: list.id,
+        position: index + 1,
+      })),
+    });
+    setSessionUser(user.id);
+
+    const result = await moveListInGroup(
+      formData({
+        groupId: group.id,
+        listId: lists[1].id,
+        previousListId: lists[0].id,
+        nextListId: "",
+        spaceId: user.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: false, error: "stale" });
+    expect(await listNamesInGroup(group.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("перенумеровывает только одну группу при исчерпании точности", async () => {
+    const user = await makeUser();
+    const group = await prisma.listGroup.create({
+      data: {
+        userId: user.id,
+        spaceId: user.defaultSpaceId,
+        name: "Точная",
+        position: 1,
+      },
+    });
+    const lists = await Promise.all(
+      ["A", "B", "C"].map((title) =>
+        makeList(user.id, user.defaultSpaceId, { title }),
+      ),
+    );
+    await prisma.listGroupMembership.createMany({
+      data: [
+        { groupId: group.id, listId: lists[0].id, position: 1 },
+        {
+          groupId: group.id,
+          listId: lists[1].id,
+          position: 1 + Number.EPSILON,
+        },
+        { groupId: group.id, listId: lists[2].id, position: 3 },
+      ],
+    });
+    setSessionUser(user.id);
+
+    const result = await moveListInGroup(
+      formData({
+        groupId: group.id,
+        listId: lists[2].id,
+        previousListId: lists[0].id,
+        nextListId: lists[1].id,
+        spaceId: user.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(await listNamesInGroup(group.id)).toEqual(["A", "C", "B"]);
+    const positions = await prisma.listGroupMembership.findMany({
+      where: { groupId: group.id },
+      orderBy: { position: "asc" },
+      select: { position: true },
+    });
+    expect(positions.map((membership) => membership.position)).toEqual([1, 2, 3]);
+  });
+});
+
 describe("removeListFromGroup", () => {
   it("убирает список из группы, не удаляя сам список", async () => {
     const user = await makeUser();
@@ -354,8 +500,10 @@ describe("removeListFromGroup", () => {
         spaceId: user.defaultSpaceId,
         name: "Дом",
         position: 1,
-        lists: { connect: { id: list.id } },
       },
+    });
+    await prisma.listGroupMembership.create({
+      data: { groupId: group.id, listId: list.id, position: 1 },
     });
     setSessionUser(user.id);
 
@@ -382,8 +530,10 @@ describe("персональность и изоляция групп", () => {
         spaceId: owner.defaultSpaceId,
         name: "У владельца",
         position: 1,
-        lists: { connect: { id: list.id } },
       },
+    });
+    await prisma.listGroupMembership.create({
+      data: { groupId: ownerGroup.id, listId: list.id, position: 1 },
     });
     const editorGroup = await prisma.listGroup.create({
       data: {

@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { splitIntoColumns } from "@/lib/list-columns";
+import { listsInGroupOrder, splitIntoColumns } from "@/lib/list-columns";
 
 /** Разворачивает колонки обратно в плоский список. */
 function flatten<T>(columns: T[][]): T[] {
@@ -55,5 +55,33 @@ describe("splitIntoColumns", () => {
   it("трактует бессмысленное число колонок как одну", () => {
     expect(splitIntoColumns([1, 2], 0)).toEqual([[1, 2]]);
     expect(splitIntoColumns([1, 2], -3)).toEqual([[1, 2]]);
+  });
+});
+
+describe("listsInGroupOrder", () => {
+  const lists = [
+    { id: "new", groups: [{ id: "work", position: 2 }] },
+    {
+      id: "shared",
+      groups: [
+        { id: "work", position: 1 },
+        { id: "home", position: 3 },
+      ],
+    },
+    { id: "outside", groups: [{ id: "home", position: 1 }] },
+  ];
+
+  it("отбирает membership активной группы и сортирует по её позиции", () => {
+    expect(listsInGroupOrder(lists, "work").map((list) => list.id)).toEqual([
+      "shared",
+      "new",
+    ]);
+  });
+
+  it("не смешивает независимые порядки пересекающихся групп", () => {
+    expect(listsInGroupOrder(lists, "home").map((list) => list.id)).toEqual([
+      "outside",
+      "shared",
+    ]);
   });
 });

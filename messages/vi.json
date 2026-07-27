@@ -36,6 +36,11 @@
     "deleteListAction": "Xóa danh sách",
     "collapseAction": "Thu gọn danh sách",
     "expandAction": "Mở rộng danh sách",
+    "moveEarlierAction": "Di chuyển lên trước",
+    "moveLaterAction": "Di chuyển xuống sau",
+    "ariaDragList": "Kéo danh sách {title}",
+    "dragInstructions": "Để nhấc một nhóm hoặc danh sách, nhấn Space hoặc Enter. Di chuyển bằng các phím mũi tên. Nhấn Space hoặc Enter lần nữa để thả, hoặc Escape để hủy.",
+    "addedToGroup": "Đã thêm danh sách vào nhóm “{name}”",
     "ariaItemsCounter": "Mục đã hoàn thành: {done} trên {total}",
     "leaveModal": {
       "title": "Rời khỏi danh sách?",
@@ -68,6 +73,7 @@
       "groupDeleteFailed": "Không thể xóa nhóm",
       "groupRenameFailed": "Không thể đổi tên nhóm",
       "groupMoveFailed": "Không thể thay đổi thứ tự nhóm",
+      "listMoveFailed": "Không thể thay đổi thứ tự danh sách",
       "groupAssignFailed": "Không thể thay đổi nhóm",
       "tooLong": "Tên quá dài (tối đa 50 ký tự)"
     }

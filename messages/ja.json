@@ -36,6 +36,11 @@
     "deleteListAction": "リストを削除",
     "collapseAction": "リストを折りたたむ",
     "expandAction": "リストを展開",
+    "moveEarlierAction": "前へ移動",
+    "moveLaterAction": "後ろへ移動",
+    "ariaDragList": "リスト「{title}」をドラッグ",
+    "dragInstructions": "グループまたはリストを持ち上げるには Space または Enter を押します。矢印キーで移動し、もう一度 Space または Enter で配置、Escape でキャンセルします。",
+    "addedToGroup": "リストを「{name}」グループに追加しました",
     "ariaItemsCounter": "完了した項目: {total}件中{done}件",
     "leaveModal": {
       "title": "リストから退出しますか？",
@@ -68,6 +73,7 @@
       "groupDeleteFailed": "グループを削除できませんでした",
       "groupRenameFailed": "グループの名前を変更できませんでした",
       "groupMoveFailed": "グループの順序を変更できませんでした",
+      "listMoveFailed": "リストの順序を変更できませんでした",
       "groupAssignFailed": "グループを変更できませんでした",
       "tooLong": "名前が長すぎます（最大50文字）"
     }

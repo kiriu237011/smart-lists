@@ -230,9 +230,8 @@ test("активная группа переживает перезагрузк�
   const grouped = await makeList(db, user.id, user.defaultSpaceId, {
     title: "В группе",
   });
-  await db.list.update({
-    where: { id: grouped.id },
-    data: { groups: { connect: { id: group.id } } },
+  await db.listGroupMembership.create({
+    data: { listId: grouped.id, groupId: group.id, position: 1 },
   });
   const outside = await makeList(db, user.id, user.defaultSpaceId, {
     title: "Без группы",
@@ -272,9 +271,8 @@ test("удаление группы требует подтверждения и
     },
   });
   const list = await makeList(db, user.id, user.defaultSpaceId, { title: "Список" });
-  await db.list.update({
-    where: { id: list.id },
-    data: { groups: { connect: { id: group.id } } },
+  await db.listGroupMembership.create({
+    data: { listId: list.id, groupId: group.id, position: 1 },
   });
 
   await openSpace(page, user);

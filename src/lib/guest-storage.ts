@@ -37,10 +37,11 @@ import {
   createGroupSchema,
   renameGroupSchema,
   moveGroupSchema,
+  moveListInGroupSchema,
   updateListNoteSchema,
   updateItemNoteSchema,
 } from "@/lib/validations";
-import type { ListData, ListGroup } from "@/components/lists/ListCard";
+import type { ListData } from "@/components/lists/ListCard";
 import type { ListsApi } from "@/components/providers/ListsApiProvider";
 import { randomUUID } from "@/lib/uuid";
 import { normalizeNote } from "@/lib/notes";
@@ -86,6 +87,8 @@ const storedListSchema = z.object({
 const storedGroupSchema = z.object({
   id: z.string(),
   name: z.string(),
+  /** ID списков в персональном порядке этой группы. */
+  listIds: z.array(z.string()).default([]),
 });
 
 /** Все гостевые данные под одним ключом localStorage. */
@@ -96,6 +99,7 @@ const guestDataSchema = z.object({
 
 export type GuestData = z.infer<typeof guestDataSchema>;
 type StoredList = z.infer<typeof storedListSchema>;
+type StoredGroup = z.infer<typeof storedGroupSchema>;
 
 // ---------------------------------------------------------------------------
 // Чтение / запись localStorage
@@ -126,7 +130,37 @@ export function loadGuestData(): GuestData {
     if (!raw) return emptyData();
 
     const result = guestDataSchema.safeParse(JSON.parse(raw));
-    return result.success ? result.data : emptyData();
+    if (!result.success) return emptyData();
+
+    // Старый формат не содержал listIds. Заодно очищаем исчезнувшие и
+    // дублирующиеся ID, а недостающие membership дописываем в прежнем
+    // глобальном порядке списков.
+    const existingListIds = new Set(result.data.lists.map((list) => list.id));
+    for (const group of result.data.groups) {
+      const members = new Set(
+        result.data.lists
+          .filter((list) => list.groupIds.includes(group.id))
+          .map((list) => list.id),
+      );
+      const seen = new Set<string>();
+      group.listIds = [
+        ...group.listIds.filter((id) => {
+          if (
+            !existingListIds.has(id) ||
+            !members.has(id) ||
+            seen.has(id)
+          ) {
+            return false;
+          }
+          seen.add(id);
+          return true;
+        }),
+        ...result.data.lists
+          .map((list) => list.id)
+          .filter((id) => members.has(id) && !seen.has(id)),
+      ];
+    }
+    return result.data;
   } catch {
     // JSON.parse упал или localStorage недоступен (privacy mode)
     return emptyData();
@@ -170,7 +204,7 @@ function getValidationError(error: ZodError): string {
  */
 function storedListToListData(
   list: StoredList,
-  groups: ListGroup[],
+  groups: StoredGroup[],
   guestName: string,
 ): ListData {
   const guestUser = { id: GUEST_USER_ID, name: guestName, email: "" };
@@ -190,7 +224,13 @@ function storedListToListData(
       addedBy: guestUser,
     })),
     sharedWith: [],
-    groups: groups.filter((g) => list.groupIds.includes(g.id)),
+    groups: groups
+      .filter((group) => list.groupIds.includes(group.id))
+      .map((group) => ({
+        id: group.id,
+        name: group.name,
+        position: Math.max(0, group.listIds.indexOf(list.id)) + 1,
+      })),
     files: [],
   };
 }
@@ -244,19 +284,24 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
       }
 
       const data = loadGuestData();
+      const initialGroup = parsed.data.groupId
+        ? (data.groups.find((group) => group.id === parsed.data.groupId) ??
+          null)
+        : null;
+      if (parsed.data.groupId && !initialGroup) {
+        return { success: false, error: "Группа не найдена" };
+      }
       const newList: StoredList = {
         id: guestId(),
         title: parsed.data.title,
         note: null,
         noteVersion: 0,
-        // Привязываем к группе сразу, если она существует (как на сервере)
-        groupIds:
-          parsed.data.groupId && data.groups.some((g) => g.id === parsed.data.groupId)
-            ? [parsed.data.groupId]
-            : [],
+        // Привязываем к проверенной группе сразу (как на сервере).
+        groupIds: initialGroup ? [initialGroup.id] : [],
         items: [],
       };
       data.lists.unshift(newList); // Новые списки сверху (createdAt desc на сервере)
+      initialGroup?.listIds.unshift(newList.id);
 
       if (!saveGuestData(data)) {
         return { success: false, error: "storageFailed" };
@@ -311,6 +356,9 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         data.lists = data.lists.filter((l) => l.id !== listId);
         if (data.lists.length === before) {
           return { success: false, error: "Список не найден" };
+        }
+        for (const group of data.groups) {
+          group.listIds = group.listIds.filter((id) => id !== listId);
         }
         return { success: true };
       });
@@ -501,7 +549,7 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
       }
 
       const data = loadGuestData();
-      const group = { id: guestId(), name: parsed.data.name };
+      const group = { id: guestId(), name: parsed.data.name, listIds: [] };
       data.groups.push(group); // Порядок создания (createdAt asc на сервере)
 
       if (!saveGuestData(data)) {
@@ -569,6 +617,61 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
       });
     },
 
+    moveListInGroup: async (
+      groupId,
+      listId,
+      previousListId,
+      nextListId,
+    ) => {
+      const parsed = moveListInGroupSchema.safeParse({
+        groupId,
+        listId,
+        previousListId,
+        nextListId,
+      });
+      if (!parsed.success) {
+        return { success: false, error: getValidationError(parsed.error) };
+      }
+
+      return mutate((data) => {
+        const group = data.groups.find(
+          (entry) => entry.id === parsed.data.groupId,
+        );
+        const list = data.lists.find(
+          (entry) => entry.id === parsed.data.listId,
+        );
+        if (!group) return { success: false, error: "Группа не найдена" };
+        if (!list || !list.groupIds.includes(group.id)) {
+          return { success: false, error: "Список не входит в группу" };
+        }
+
+        const currentIndex = group.listIds.indexOf(list.id);
+        if (currentIndex === -1) return { success: false, error: "stale" };
+
+        const reordered = [...group.listIds];
+        reordered.splice(currentIndex, 1);
+        const previousIndex = parsed.data.previousListId
+          ? reordered.indexOf(parsed.data.previousListId)
+          : -1;
+        const nextIndex = parsed.data.nextListId
+          ? reordered.indexOf(parsed.data.nextListId)
+          : reordered.length;
+        if (
+          (parsed.data.previousListId && previousIndex === -1) ||
+          (parsed.data.nextListId && nextIndex === -1) ||
+          nextIndex !== previousIndex + 1 ||
+          (!parsed.data.previousListId && nextIndex !== 0) ||
+          (!parsed.data.nextListId && previousIndex !== reordered.length - 1)
+        ) {
+          return { success: false, error: "stale" };
+        }
+
+        reordered.splice(nextIndex, 0, list.id);
+        group.listIds = reordered;
+        return { success: true };
+      });
+    },
+
     deleteGroup: async (groupId) => {
       return mutate((data) => {
         const before = data.groups.length;
@@ -587,10 +690,14 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
     addListToGroup: async (listId, groupId) => {
       return mutate((data) => {
         const list = data.lists.find((l) => l.id === listId);
-        if (!list || !data.groups.some((g) => g.id === groupId)) {
+        const group = data.groups.find((entry) => entry.id === groupId);
+        if (!list || !group) {
           return { success: false, error: "Список или группа не найдены" };
         }
-        if (!list.groupIds.includes(groupId)) list.groupIds.push(groupId);
+        if (!list.groupIds.includes(groupId)) {
+          list.groupIds.push(groupId);
+          group.listIds.push(list.id);
+        }
         return { success: true };
       });
     },
@@ -600,6 +707,10 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         const list = data.lists.find((l) => l.id === listId);
         if (!list) return { success: false, error: "Список не найден" };
         list.groupIds = list.groupIds.filter((id) => id !== groupId);
+        const group = data.groups.find((entry) => entry.id === groupId);
+        if (group) {
+          group.listIds = group.listIds.filter((id) => id !== list.id);
+        }
         return { success: true };
       });
     },

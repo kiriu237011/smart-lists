@@ -179,6 +179,82 @@ export async function dragGroupOnto(
   await page.mouse.up();
 }
 
+/** Заголовки видимых карточек в каноническом DOM-порядке колонок. */
+export async function listTitles(page: Page): Promise<string[]> {
+  return page
+    .locator('[data-testid="list-card"]:visible [data-testid="list-title"]')
+    .allTextContents();
+}
+
+/** Перетаскивает карточку за ручку на место другой карточки. */
+export async function dragListOnto(
+  page: Page,
+  sourceListId: string,
+  targetListId: string,
+  onDragStarted?: () => Promise<void>,
+  onDropped?: () => Promise<void>,
+): Promise<void> {
+  const source = page.locator(
+    `[data-testid="list-sortable"][data-list-id="${sourceListId}"]:visible`,
+  );
+  const target = page.locator(
+    `[data-testid="list-sortable"][data-list-id="${targetListId}"]:visible`,
+  );
+  const sourceBox = await source.boundingBox();
+  const handleBox = await source.getByTestId("list-drag-handle").boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !handleBox || !targetBox) {
+    throw new Error("Не удалось получить геометрию карточек для перетаскивания");
+  }
+
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+  const pointerOffsetX = sourceBox.x + sourceBox.width / 2 - startX;
+  const pointerOffsetY = sourceBox.y + sourceBox.height / 2 - startY;
+  const endX = targetBox.x + targetBox.width / 2 - pointerOffsetX;
+  const endY = targetBox.y + targetBox.height / 2 - pointerOffsetY;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + (endX >= startX ? 8 : -8), startY, {
+    steps: 3,
+  });
+  await onDragStarted?.();
+  await page.mouse.move(endX, endY, { steps: 24 });
+  await page.mouse.up();
+  await onDropped?.();
+}
+
+/** Бросает карточку на вкладку группы, не удаляя исходные membership. */
+export async function dragListToGroup(
+  page: Page,
+  listId: string,
+  groupId: string,
+): Promise<void> {
+  const source = page.locator(
+    `[data-testid="list-sortable"][data-list-id="${listId}"]:visible`,
+  );
+  const target = page.locator(
+    `[data-testid="group-sortable"][data-group-id="${groupId}"]:visible`,
+  );
+  const handleBox = await source.getByTestId("list-drag-handle").boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!handleBox || !targetBox) {
+    throw new Error("Не удалось получить геометрию списка и целевой группы");
+  }
+
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+  const endX = targetBox.x + targetBox.width / 2;
+  const endY = targetBox.y + targetBox.height / 2;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX, startY - 8, { steps: 3 });
+  await page.mouse.move(endX, endY, { steps: 24 });
+  await page.mouse.up();
+}
+
 /** Значение ключа localStorage текущей страницы. */
 export async function localStorageItem(
   page: Page,

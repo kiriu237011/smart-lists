@@ -36,6 +36,11 @@
     "deleteListAction": "Delete list",
     "collapseAction": "Collapse list",
     "expandAction": "Expand list",
+    "moveEarlierAction": "Move earlier",
+    "moveLaterAction": "Move later",
+    "ariaDragList": "Drag list {title}",
+    "dragInstructions": "To pick up a group or list, press Space or Enter. Move it with the arrow keys. Press Space or Enter again to drop, or Escape to cancel.",
+    "addedToGroup": "List added to “{name}”",
     "ariaItemsCounter": "Completed entries: {done} of {total}",
     "leaveModal": {
       "title": "Leave list?",
@@ -68,6 +73,7 @@
       "groupDeleteFailed": "Failed to delete the group",
       "groupRenameFailed": "Failed to rename the group",
       "groupMoveFailed": "Failed to reorder the groups",
+      "listMoveFailed": "Failed to reorder the lists",
       "groupAssignFailed": "Failed to change the group",
       "tooLong": "The name is too long (50 characters max)"
     }

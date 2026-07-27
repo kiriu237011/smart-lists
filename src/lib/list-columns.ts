@@ -47,3 +47,36 @@ export function splitIntoColumns<T>(items: T[], columnCount: number): T[][] {
   }
   return columns;
 }
+
+/**
+ * Отбирает и сортирует списки по персональной позиции membership в группе.
+ *
+ * При равных позициях сохраняется входной порядок: он уже детерминирован
+ * сервером по createdAt/id и остаётся безопасным тайбрейком после гонки.
+ */
+export function listsInGroupOrder<
+  T extends { groups: Array<{ id: string; position: number }> },
+>(lists: T[], groupId: string): T[] {
+  return lists
+    .map((list, sourceIndex) => ({
+      list,
+      sourceIndex,
+      position:
+        list.groups.find((group) => group.id === groupId)?.position ?? null,
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        list: T;
+        sourceIndex: number;
+        position: number;
+      } => entry.position !== null,
+    )
+    .sort(
+      (left, right) =>
+        left.position - right.position ||
+        left.sourceIndex - right.sourceIndex,
+    )
+    .map(({ list }) => list);
+}

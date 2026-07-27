@@ -32,7 +32,7 @@ export default async function ListsDataFetcher({
     prisma.list.findMany({
       relationLoadStrategy: "join",
       where: listInSpaceWhere(userId, spaceId),
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       select: {
         id: true,
         title: true,
@@ -62,14 +62,12 @@ export default async function ListsDataFetcher({
           },
         },
         // Подгружаем только группы, принадлежащие текущему пользователю
-        groups: {
-          where: { userId, spaceId },
-          orderBy: [
-            { position: "asc" },
-            { createdAt: "asc" },
-            { id: "asc" },
-          ],
-          select: { id: true, name: true },
+        groupMemberships: {
+          where: { group: { userId, spaceId } },
+          select: {
+            position: true,
+            group: { select: { id: true, name: true, position: true } },
+          },
         },
         // Вложения: показываем ТОЛЬКО подтверждённые (UPLOADED).
         // PENDING-строки (недозалитые) в UI не рендерятся.
@@ -102,9 +100,22 @@ export default async function ListsDataFetcher({
 
   // UI пока использует имя sharedWith как представление списка участников.
   // Источником данных уже служит только явная модель ListShare.
-  const lists = allLists.map(({ shares, ...list }) => ({
+  const lists = allLists.map(({ shares, groupMemberships, ...list }) => ({
     ...list,
     sharedWith: shares.map(({ user }) => user),
+    // Бейджи и меню идут в персональном порядке вкладок, а позиция самой
+    // membership используется для сортировки карточек активной группы.
+    groups: groupMemberships
+      .sort(
+        (left, right) =>
+          left.group.position - right.group.position ||
+          left.group.id.localeCompare(right.group.id),
+      )
+      .map(({ group, position }) => ({
+        id: group.id,
+        name: group.name,
+        position,
+      })),
   }));
 
   return (

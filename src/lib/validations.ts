@@ -197,6 +197,27 @@ export const moveGroupSchema = z
   );
 
 /**
+ * Схема перемещения списка между новыми соседями внутри одной группы.
+ * Позиция принадлежит membership, поэтому groupId входит в контракт явно.
+ */
+export const moveListInGroupSchema = z
+  .object({
+    groupId: z.string().min(1),
+    listId: z.string().min(1),
+    previousListId: z.string().min(1).nullable(),
+    nextListId: z.string().min(1).nullable(),
+  })
+  .refine(
+    ({ listId, previousListId, nextListId }) =>
+      listId !== previousListId &&
+      listId !== nextListId &&
+      (previousListId === null ||
+        nextListId === null ||
+        previousListId !== nextListId),
+    { message: "Список и его соседи должны различаться" },
+  );
+
+/**
  * Схема для добавления/удаления списка из группы.
  * Используется в Server Actions `addListToGroup` и `removeListFromGroup`.
  */

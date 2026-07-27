@@ -33,6 +33,7 @@ import {
   deleteGroup,
   renameGroup,
   moveGroup,
+  moveListInGroup,
   addListToGroup,
   removeListFromGroup,
 } from "@/app/actions";
@@ -108,6 +109,23 @@ export default function ServerListsApiProvider({
               groupId,
               previousGroupId: previousGroupId ?? "",
               nextGroupId: nextGroupId ?? "",
+            },
+            spaceId,
+          ),
+        ),
+      moveListInGroup: async (
+        groupId,
+        listId,
+        previousListId,
+        nextListId,
+      ) =>
+        moveListInGroup(
+          buildFormData(
+            {
+              groupId,
+              listId,
+              previousListId: previousListId ?? "",
+              nextListId: nextListId ?? "",
             },
             spaceId,
           ),

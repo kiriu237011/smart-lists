@@ -28,6 +28,7 @@
 "use client";
 
 import {
+  forwardRef,
   startTransition,
   useCallback,
   useEffect,
@@ -36,8 +37,32 @@ import {
   useRef,
   useState,
   useTransition,
+  type ReactNode,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  pointerWithin,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
 import { ListsDirectoryProvider } from "@/components/providers/ListsDirectoryProvider";
 import toast from "react-hot-toast";
@@ -46,7 +71,11 @@ import { useTranslations } from "next-intl";
 import { useSettings } from "@/components/providers/SettingsProvider";
 import { useRouter } from "next/navigation";
 import { getPusherClient } from "@/lib/pusher-client";
-import { deferRefreshWhileDragging } from "@/lib/drag-gate";
+import {
+  beginDrag,
+  deferRefreshWhileDragging,
+  endDrag,
+} from "@/lib/drag-gate";
 import { randomUUID } from "@/lib/uuid";
 import {
   parseCollapsedLists,
@@ -54,7 +83,7 @@ import {
   serializeCollapsedLists,
   toggleCollapsedList,
 } from "@/lib/collapsed-lists";
-import { splitIntoColumns } from "@/lib/list-columns";
+import { listsInGroupOrder, splitIntoColumns } from "@/lib/list-columns";
 import { useMediaQuery } from "@/lib/use-media-query";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
 import ListsTopPanel from "@/components/lists/ListsTopPanel";
@@ -70,6 +99,97 @@ import GroupFilter from "@/components/lists/GroupFilter";
  * нестандартном размере шрифта.
  */
 const MEDIUM_SCREEN_QUERY = "(min-width: 48rem) and (max-width: 79.999rem)";
+
+const listDndId = (listId: string) => `list:${listId}`;
+
+/**
+ * Sortable-обёртка карточки.
+ *
+ * Transform живёт на том же motion-узле, который уже отвечал за появление и
+ * исчезновение карточки. Масштаб из rectSortingStrategy намеренно отбрасываем:
+ * карточки разной высоты не должны сплющивать содержимое при обмене местами.
+ */
+type SortableListCardProps = {
+  list: ListData;
+  showHandle: boolean;
+  disabled: boolean;
+  isCollapsed: boolean;
+  dragLabel: string;
+  children: (dragHandle: ReactNode) => ReactNode;
+};
+
+const SortableListCard = forwardRef<HTMLDivElement, SortableListCardProps>(
+  function SortableListCard(
+    { list, showHandle, disabled, isCollapsed, dragLabel, children },
+    presenceRef,
+  ) {
+    const {
+      attributes,
+      listeners,
+      setActivatorNodeRef,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({
+      id: listDndId(list.id),
+      disabled,
+      data: { type: "list", listId: list.id },
+    });
+
+    // `popLayout` передаёт ref непосредственному ребёнку AnimatePresence.
+    // Объединяем его с ref dnd-kit, чтобы исчезающая при смене колонки копия
+    // сразу выпадала из flex-раскладки, не теряя измерения и exit-анимацию.
+    const setCombinedNodeRef = useCallback(
+      (node: HTMLDivElement | null) => {
+        setNodeRef(node);
+        if (typeof presenceRef === "function") {
+          presenceRef(node);
+        } else if (presenceRef) {
+          presenceRef.current = node;
+        }
+      },
+      [presenceRef, setNodeRef],
+    );
+
+    const dragHandle = showHandle ? (
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        data-testid="list-drag-handle"
+        disabled={disabled}
+        {...attributes}
+        {...listeners}
+        aria-label={dragLabel}
+        className="inline-flex h-6 w-6 flex-shrink-0 touch-none cursor-grab items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 active:cursor-grabbing disabled:cursor-wait disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-400 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 dark:disabled:hover:bg-transparent dark:disabled:hover:text-zinc-500"
+      >
+        <GripVertical aria-hidden size={16} strokeWidth={2.2} />
+      </button>
+    ) : null;
+
+    return (
+      <motion.div
+        ref={setCombinedNodeRef}
+        style={{
+          transform: CSS.Translate.toString(transform),
+          transition,
+          zIndex: isDragging ? 30 : undefined,
+        }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: isDragging ? (isCollapsed ? 0.18 : 0) : 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: isDragging && !isCollapsed ? 0 : 0.15 }}
+        data-testid="list-sortable"
+        data-list-id={list.id}
+        data-drag-projection={
+          isDragging ? (isCollapsed ? "visible" : "hidden") : "idle"
+        }
+      >
+        {children(dragHandle)}
+      </motion.div>
+    );
+  },
+);
 
 /** Пропсы компонента `ListsContainer`. */
 type ListsContainerProps = {
@@ -152,6 +272,20 @@ export default function ListsContainer({
 
   /** Флаг сохранения нового порядка групп. Блокирует пересекающиеся мутации. */
   const [isReorderingGroup, setIsReorderingGroup] = useState(false);
+
+  /** Флаг сохранения порядка/назначения списка через DnD. */
+  const [isReorderingList, setIsReorderingList] = useState(false);
+
+  /** Тип и ID поднятой сущности; нужен overlay и подсветке drop-target. */
+  const [activeDrag, setActiveDrag] = useState<{
+    type: "group" | "list";
+    id: string;
+  } | null>(null);
+
+  /** Вкладка группы под карточкой во время переноса. */
+  const [listDropTargetGroupId, setListDropTargetGroupId] = useState<
+    string | null
+  >(null);
 
   /** Активный фильтр группы. null = показывать все списки. Сохраняется в localStorage. */
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
@@ -292,12 +426,14 @@ export default function ListsContainer({
   /**
    * Оптимистичный список всех списков покупок.
    *
-   * Reducer обрабатывает 5 действий:
+   * Reducer обрабатывает обычные CRUD-действия и две операции порядка:
    *   - `add`     — добавляет список в начало массива (с защитой от дублей).
    *   - `delete`  — удаляет список по id.
    *   - `restore` — возвращает список на исходную позицию при откате удаления.
    *   - `replace` — заменяет временный список (temp-*) реальным из ответа сервера.
-   *   - `rename`  — обновляет название списка (оптимистично или откат).
+   *   - `rename`  — обновляет название списка (оптимистично или откат);
+   *   - `groupOrder` — задаёт временные позиции карточек активной группы;
+   *   - `addToGroup` — оптимистично добавляет membership в конец группы.
    */
   const [optimisticLists, setOptimisticLists] = useOptimistic(
     allLists,
@@ -307,10 +443,23 @@ export default function ListsContainer({
         action,
         listId,
         list,
+        groupId,
+        group,
+        orderedListIds,
       }: {
-        action: "add" | "delete" | "restore" | "replace" | "rename";
+        action:
+          | "add"
+          | "delete"
+          | "restore"
+          | "replace"
+          | "rename"
+          | "groupOrder"
+          | "addToGroup";
         listId?: string;
         list?: ListData;
+        groupId?: string;
+        group?: ListGroup;
+        orderedListIds?: string[];
       },
     ) => {
       switch (action) {
@@ -354,6 +503,49 @@ export default function ListsContainer({
           return state.map((item) =>
             item.id === listId ? { ...item, title: list.title } : item,
           );
+
+        case "groupOrder": {
+          if (!groupId || !orderedListIds) return state;
+          const positions = new Map(
+            orderedListIds.map((id, index) => [id, index + 1]),
+          );
+          return state.map((item) => {
+            const position = positions.get(item.id);
+            if (position === undefined) return item;
+            return {
+              ...item,
+              groups: item.groups.map((membership) =>
+                membership.id === groupId
+                  ? { ...membership, position }
+                  : membership,
+              ),
+            };
+          });
+        }
+
+        case "addToGroup": {
+          if (!groupId || !group || !listId) return state;
+          const maxPosition = state.reduce((maximum, item) => {
+            const position = item.groups.find(
+              (membership) => membership.id === groupId,
+            )?.position;
+            return position === undefined
+              ? maximum
+              : Math.max(maximum, position);
+          }, 0);
+          return state.map((item) =>
+            item.id !== listId ||
+            item.groups.some((membership) => membership.id === groupId)
+              ? item
+              : {
+                  ...item,
+                  groups: [
+                    ...item.groups,
+                    { ...group, position: maxPosition + 1 },
+                  ],
+                },
+          );
+        }
 
         default:
           return state;
@@ -415,9 +607,7 @@ export default function ListsContainer({
   const { lists: filteredLists, matchedItemIds } = useMemo(() => {
     // Шаг 1: фильтр по активной группе
     const groupFiltered = activeGroupId
-      ? uniqueLists.filter((list) =>
-          list.groups.some((g) => g.id === activeGroupId),
-        )
+      ? listsInGroupOrder(uniqueLists, activeGroupId)
       : uniqueLists;
 
     // Шаг 2: фильтр по поисковому запросу
@@ -601,6 +791,267 @@ export default function ListsContainer({
   );
 
   /**
+   * Сохраняет уже собранный плоский порядок активной группы.
+   * На клиенте временно выдаём позициям 1..n; сервер обычно пишет только одну
+   * дробную позицию между переданными соседями.
+   */
+  const persistListOrder = useCallback(
+    (listId: string, orderedLists: ListData[]) => {
+      if (!activeGroupId || isReorderingList) return;
+      const newIndex = orderedLists.findIndex((list) => list.id === listId);
+      if (newIndex === -1) return;
+
+      setIsReorderingList(true);
+      startTransition(async () => {
+        setOptimisticLists({
+          action: "groupOrder",
+          groupId: activeGroupId,
+          orderedListIds: orderedLists.map((list) => list.id),
+        });
+
+        const result = await api.moveListInGroup(
+          activeGroupId,
+          listId,
+          orderedLists[newIndex - 1]?.id ?? null,
+          orderedLists[newIndex + 1]?.id ?? null,
+        );
+        if (!result.success) {
+          toast.error(t("errors.listMoveFailed"));
+          if (result.error === "stale") router.refresh();
+        }
+        setIsReorderingList(false);
+      });
+    },
+    [
+      activeGroupId,
+      api,
+      isReorderingList,
+      router,
+      setOptimisticLists,
+      t,
+    ],
+  );
+
+  /** Кнопки «раньше/позже» — клавиатурная альтернатива жесту карточки. */
+  const handleMoveListStep = useCallback(
+    (listId: string, direction: "earlier" | "later") => {
+      if (!activeGroupId || searchQuery.trim()) return;
+      const currentIndex = filteredLists.findIndex((list) => list.id === listId);
+      const targetIndex =
+        direction === "earlier" ? currentIndex - 1 : currentIndex + 1;
+      if (
+        currentIndex === -1 ||
+        targetIndex < 0 ||
+        targetIndex >= filteredLists.length
+      ) {
+        return;
+      }
+      persistListOrder(
+        listId,
+        arrayMove(filteredLists, currentIndex, targetIndex),
+      );
+    },
+    [activeGroupId, filteredLists, persistListOrder, searchQuery],
+  );
+
+  /** Drop карточки на вкладку добавляет membership и сохраняет исходные. */
+  const addListToGroupByDrop = useCallback(
+    (listId: string, groupId: string) => {
+      if (isReorderingList) return;
+      const group = groups.find((entry) => entry.id === groupId);
+      const list = uniqueLists.find((entry) => entry.id === listId);
+      if (
+        !group ||
+        !list ||
+        list.groups.some((membership) => membership.id === groupId)
+      ) {
+        return;
+      }
+
+      setIsReorderingList(true);
+      startTransition(async () => {
+        setOptimisticLists({
+          action: "addToGroup",
+          listId,
+          groupId,
+          group,
+        });
+        const result = await api.addListToGroup(listId, groupId);
+        if (!result.success) {
+          toast.error(t("errors.groupAssignFailed"));
+        } else {
+          toast.success(t("addedToGroup", { name: group.name }));
+        }
+        setIsReorderingList(false);
+      });
+    },
+    [
+      api,
+      groups,
+      isReorderingList,
+      setOptimisticLists,
+      t,
+      uniqueLists,
+    ],
+  );
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  /**
+   * В одном DndContext живут два независимых порядка.
+   * Для карточки вкладки имеют приоритет только когда указатель действительно
+   * находится внутри валидной цели; в остальных случаях ищется ближайшая
+   * карточка. Для группы карточки полностью исключаются из collision detection.
+   */
+  const collisionDetection = useCallback<CollisionDetection>(
+    (args) => {
+      const activeType = args.active.data.current?.type;
+      if (activeType === "group") {
+        return closestCenter({
+          ...args,
+          droppableContainers: args.droppableContainers.filter(
+            (container) => container.data.current?.type === "group",
+          ),
+        });
+      }
+      if (activeType !== "list") return [];
+
+      const activeListId = args.active.data.current?.listId;
+      const activeList = uniqueLists.find((list) => list.id === activeListId);
+      const groupTargets = args.droppableContainers.filter((container) => {
+        if (container.data.current?.type !== "group") return false;
+        const groupId = container.data.current.groupId;
+        return (
+          typeof groupId === "string" &&
+          groupId !== activeGroupId &&
+          !activeList?.groups.some((membership) => membership.id === groupId)
+        );
+      });
+      const groupCollisions = pointerWithin({
+        ...args,
+        droppableContainers: groupTargets,
+      });
+      if (groupCollisions.length > 0) return groupCollisions;
+
+      if (!activeGroupId || searchQuery.trim()) return [];
+      return closestCenter({
+        ...args,
+        droppableContainers: args.droppableContainers.filter(
+          (container) => container.data.current?.type === "list",
+        ),
+      });
+    },
+    [activeGroupId, searchQuery, uniqueLists],
+  );
+
+  const handleDndStart = useCallback((event: DragStartEvent) => {
+    const type = event.active.data.current?.type;
+    const id =
+      type === "group"
+        ? event.active.data.current?.groupId
+        : event.active.data.current?.listId;
+    if ((type !== "group" && type !== "list") || typeof id !== "string") return;
+    beginDrag();
+    setActiveDrag({ type, id });
+  }, []);
+
+  const handleDndOver = useCallback((event: DragOverEvent) => {
+    const targetGroupId =
+      event.active.data.current?.type === "list" &&
+      event.over?.data.current?.type === "group"
+        ? event.over.data.current.groupId
+        : null;
+    setListDropTargetGroupId(
+      typeof targetGroupId === "string" ? targetGroupId : null,
+    );
+  }, []);
+
+  const finishDnd = useCallback(() => {
+    endDrag();
+    setActiveDrag(null);
+    setListDropTargetGroupId(null);
+  }, []);
+
+  const handleDndCancel = useCallback(() => {
+    finishDnd();
+  }, [finishDnd]);
+
+  const handleDndEnd = useCallback(
+    (event: DragEndEvent) => {
+      const activeType = event.active.data.current?.type;
+      const overType = event.over?.data.current?.type;
+      const activeListId = event.active.data.current?.listId;
+      const activeGroupIdFromEvent = event.active.data.current?.groupId;
+      const overListId = event.over?.data.current?.listId;
+      const overGroupId = event.over?.data.current?.groupId;
+      finishDnd();
+
+      if (
+        activeType === "group" &&
+        overType === "group" &&
+        typeof activeGroupIdFromEvent === "string" &&
+        typeof overGroupId === "string" &&
+        activeGroupIdFromEvent !== overGroupId
+      ) {
+        const oldIndex = groups.findIndex(
+          (group) => group.id === activeGroupIdFromEvent,
+        );
+        const newIndex = groups.findIndex((group) => group.id === overGroupId);
+        if (oldIndex !== -1 && newIndex !== -1) {
+          void handleMoveGroup(
+            activeGroupIdFromEvent,
+            arrayMove(groups, oldIndex, newIndex),
+          );
+        }
+        return;
+      }
+
+      if (activeType !== "list" || typeof activeListId !== "string") return;
+      if (overType === "group" && typeof overGroupId === "string") {
+        addListToGroupByDrop(activeListId, overGroupId);
+        return;
+      }
+      if (
+        overType !== "list" ||
+        typeof overListId !== "string" ||
+        !activeGroupId ||
+        searchQuery.trim() ||
+        activeListId === overListId
+      ) {
+        return;
+      }
+
+      const oldIndex = filteredLists.findIndex(
+        (list) => list.id === activeListId,
+      );
+      const newIndex = filteredLists.findIndex((list) => list.id === overListId);
+      if (oldIndex !== -1 && newIndex !== -1) {
+        persistListOrder(
+          activeListId,
+          arrayMove(filteredLists, oldIndex, newIndex),
+        );
+      }
+    },
+    [
+      activeGroupId,
+      addListToGroupByDrop,
+      filteredLists,
+      finishDnd,
+      groups,
+      handleMoveGroup,
+      persistListOrder,
+      searchQuery,
+    ],
+  );
+
+  /**
    * Обработчик создания нового списка.
    *
    * Передаётся в `CreateListForm` как колбэк.
@@ -622,6 +1073,18 @@ export default function ListsContainer({
       const activeGroup = activeGroupId
         ? (groups.find((g) => g.id === activeGroupId) ?? null)
         : null;
+      const firstPosition = activeGroupId
+        ? Math.min(
+            ...uniqueLists
+              .map(
+                (list) =>
+                  list.groups.find((group) => group.id === activeGroupId)
+                    ?.position,
+              )
+              .filter((position): position is number => position !== undefined),
+            1,
+          )
+        : 1;
 
       // Оптимистичный объект с временным ID и данными текущего пользователя
       const optimisticList: ListData = {
@@ -636,7 +1099,9 @@ export default function ListsContainer({
         },
         items: [],
         sharedWith: [],
-        groups: activeGroup ? [activeGroup] : [],
+        groups: activeGroup
+          ? [{ ...activeGroup, position: firstPosition - 1 }]
+          : [],
         files: [],
       };
 
@@ -685,7 +1150,7 @@ export default function ListsContainer({
 
       return { success: true };
     },
-    [currentUserEmail, currentUserId, currentUserName, setOptimisticLists, activeGroupId, groups, api, t],
+    [currentUserEmail, currentUserId, currentUserName, setOptimisticLists, activeGroupId, groups, uniqueLists, api, t],
   );
 
   /**
@@ -872,8 +1337,26 @@ export default function ListsContainer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleConfirmDeleteGroup, isDeletingGroup, groupToDelete]);
 
+  const draggedList =
+    activeDrag?.type === "list"
+      ? uniqueLists.find((list) => list.id === activeDrag.id) ?? null
+      : null;
+
   return (
     <ListsDirectoryProvider directory={directory}>
+      <DndContext
+        sensors={dndSensors}
+        collisionDetection={collisionDetection}
+        onDragStart={handleDndStart}
+        onDragOver={handleDndOver}
+        onDragCancel={handleDndCancel}
+        onDragEnd={handleDndEnd}
+        accessibility={{
+          screenReaderInstructions: {
+            draggable: t("dragInstructions"),
+          },
+        }}
+      >
       {/* Фильтр по группам */}
       <GroupFilter
         groups={groups}
@@ -882,8 +1365,8 @@ export default function ListsContainer({
         onCreateGroup={handleCreateGroup}
         onDeleteGroup={handleDeleteGroup}
         onRenameGroup={handleRenameGroup}
-        onMoveGroup={handleMoveGroup}
-        isReordering={isReorderingGroup}
+        isReordering={isReorderingGroup || isReorderingList}
+        listDropTargetGroupId={listDropTargetGroupId}
       />
 
       {/* Панель с вкладками Создать/Поиск и переключателем авторов */}
@@ -935,6 +1418,8 @@ export default function ListsContainer({
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={activeGroupId ?? "all"}
+          data-testid="lists-group-view"
+          data-group-id={activeGroupId ?? "all"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -953,14 +1438,18 @@ export default function ListsContainer({
               пока новая появляется в соседней. Ключ размонтирует старое дерево
               целиком и мгновенно — `AnimatePresence` не может анимировать
               собственное исчезновение, поэтому призраков не остаётся. */}
-          <div
-            key={listColumns.length}
-            className={`flex gap-6 ${
-              isMediumScreen
-                ? "flex-row items-start"
-                : "flex-col xl:flex-row xl:items-start"
-            }`}
+          <SortableContext
+            items={filteredLists.map((list) => listDndId(list.id))}
+            strategy={rectSortingStrategy}
           >
+            <div
+              key={listColumns.length}
+              className={`flex gap-6 ${
+                isMediumScreen
+                  ? "flex-row items-start"
+                  : "flex-col xl:flex-row xl:items-start"
+              }`}
+            >
             {listColumns.map((column, columnIndex) => (
               /* `contents` ниже xl убирает саму обёртку из раскладки: карточки
                  становятся детьми внешнего flex-контейнера и выстраиваются в
@@ -979,15 +1468,42 @@ export default function ListsContainer({
               >
                 {/* AnimatePresence обрабатывает добавление и удаление списков
                     внутри колонки. */}
-                <AnimatePresence initial={false}>
-                  {column.map((list) => (
-                    <motion.div
+                <AnimatePresence initial={false} mode="popLayout">
+                  {column.map((list) => {
+                    const flatIndex = filteredLists.findIndex(
+                      (entry) => entry.id === list.id,
+                    );
+                    const hasGroupTarget = groups.some(
+                      (group) =>
+                        !list.groups.some(
+                          (membership) => membership.id === group.id,
+                        ),
+                    );
+                    const canReorder =
+                      activeGroupId !== null && filteredLists.length > 1;
+                    const showDragHandle =
+                      activeGroupId !== null &&
+                      !list.id.startsWith("temp-") &&
+                      !searchQuery.trim() &&
+                      (canReorder || hasGroupTarget);
+                    const isDragDisabled =
+                      !showDragHandle ||
+                      isReorderingGroup ||
+                      isReorderingList;
+                    const isListCollapsed = collapsedListIds.has(list.id);
+
+                    return (
+                    <SortableListCard
                       key={stableKeys.get(list.id) ?? list.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.15 }}
+                      list={list}
+                      showHandle={showDragHandle}
+                      disabled={isDragDisabled}
+                      isCollapsed={isListCollapsed}
+                      dragLabel={t("ariaDragList", {
+                        title: list.title,
+                      })}
                     >
+                      {(dragHandle) => (
                       <ListCard
                         list={list}
                         currentUserId={currentUserId}
@@ -997,7 +1513,7 @@ export default function ListsContainer({
                         showItemNumbers={showItemNumbers}
                         showItemsCounter={showItemsCounter}
                         visibleItemIds={matchedItemIds?.get(list.id) ?? null}
-                        isCollapsed={collapsedListIds.has(list.id)}
+                        isCollapsed={isListCollapsed}
                         onToggleCollapse={handleToggleCollapse}
                         isDeleting={isDeleting}
                         isLeaving={isLeaving}
@@ -1007,13 +1523,26 @@ export default function ListsContainer({
                         searchQuery={searchQuery}
                         userGroups={groups}
                         onToggleListGroup={handleToggleListGroup}
+                        dragHandle={dragHandle}
+                        canMoveEarlier={canReorder && flatIndex > 0}
+                        canMoveLater={
+                          canReorder &&
+                          flatIndex >= 0 &&
+                          flatIndex < filteredLists.length - 1
+                        }
+                        onMoveInGroup={
+                          canReorder ? handleMoveListStep : undefined
+                        }
                       />
-                    </motion.div>
-                  ))}
+                      )}
+                    </SortableListCard>
+                    );
+                  })}
                 </AnimatePresence>
               </div>
             ))}
-          </div>
+            </div>
+          </SortableContext>
 
           {/* Сообщение о пустом состоянии */}
           {filteredLists.length === 0 && (
@@ -1071,6 +1600,27 @@ export default function ListsContainer({
           onCancel={() => setGroupToDelete(null)}
         />
       )}
+      <DragOverlay dropAnimation={null}>
+        {draggedList ? (
+          <div className="flex w-[min(22rem,calc(100vw-2rem))] items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-2xl ring-1 ring-black/5 dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/70">
+            <GripVertical
+              aria-hidden
+              className="flex-shrink-0 text-gray-400 dark:text-zinc-500"
+              size={17}
+            />
+            <span className="min-w-0 flex-1 truncate font-semibold">
+              {draggedList.title}
+            </span>
+            {draggedList.items.length > 0 && (
+              <span className="flex-shrink-0 text-xs tabular-nums text-gray-400 dark:text-zinc-500">
+                {draggedList.items.filter((item) => item.isCompleted).length} /{" "}
+                {draggedList.items.length}
+              </span>
+            )}
+          </div>
+        ) : null}
+      </DragOverlay>
+      </DndContext>
     </ListsDirectoryProvider>
   );
 }

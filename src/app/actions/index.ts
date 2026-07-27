@@ -38,6 +38,7 @@ import {
   deleteGroupSchema,
   renameGroupSchema,
   moveGroupSchema,
+  moveListInGroupSchema,
   listGroupMembershipSchema,
   updateListNoteSchema,
   updateItemNoteSchema,
@@ -831,7 +832,39 @@ export async function createList(formData: FormData) {
       };
     }
 
-    // 3. Создаём список в БД.
+    // Если список создаётся из активной группы, сначала проверяем личную группу
+    // в том же пространстве и вычисляем позицию в её начале. Сам membership
+    // создаётся вложенно вместе со списком: ошибка связи не должна оставлять
+    // успешно созданный, но не показанный в активной группе список.
+    let initialMembership: {
+      group: { id: string; name: string };
+      position: number;
+    } | null = null;
+    if (result.data.groupId) {
+      const group = await prisma.listGroup.findFirst({
+        where: {
+          id: result.data.groupId,
+          userId: session.user.id,
+          spaceId: space.id,
+        },
+        select: { id: true, name: true },
+      });
+      if (!group) return { success: false, error: "Группа не найдена" };
+
+      const firstMembership = await prisma.listGroupMembership.findFirst({
+        where: { groupId: group.id },
+        orderBy: { position: "asc" },
+        select: { position: true },
+      });
+      initialMembership = {
+        group,
+        position: firstMembership
+          ? firstMembership.position - POSITION_STEP
+          : POSITION_STEP,
+      };
+    }
+
+    // 3. Создаём список и начальное членство одной атомарной Prisma-операцией.
     // ownerId берём из сессии — клиент не может его подменить!
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const newList = (await (prisma.list.create as any)({
@@ -839,6 +872,14 @@ export async function createList(formData: FormData) {
         title: result.data.title,
         ownerId: session.user.id,
         spaceId: space.id,
+        groupMemberships: initialMembership
+          ? {
+              create: {
+                groupId: initialMembership.group.id,
+                position: initialMembership.position,
+              },
+            }
+          : undefined,
       },
       // include подгружает связанные записи одним запросом
       include: {
@@ -868,21 +909,15 @@ export async function createList(formData: FormData) {
       }[];
     };
 
-    // Если передан groupId — сразу подключаем список к группе (одна операция)
-    let listGroups: { id: string; name: string }[] = [];
-    if (result.data.groupId) {
-      const group = await prisma.listGroup.findFirst({
-        where: { id: result.data.groupId, userId: session.user.id, spaceId: space.id },
-        select: { id: true, name: true },
-      });
-      if (group) {
-        await prisma.listGroup.update({
-          where: { id: group.id },
-          data: { lists: { connect: { id: newList.id } } },
-        });
-        listGroups = [{ id: group.id, name: group.name }];
-      }
-    }
+    const listGroups = initialMembership
+      ? [
+          {
+            id: initialMembership.group.id,
+            name: initialMembership.group.name,
+            position: initialMembership.position,
+          },
+        ]
+      : [];
 
     revalidatePath("/", "layout");
     // Уведомление после ответа (after), без эха вкладке автора (socketId)
@@ -1597,6 +1632,167 @@ export async function moveGroup(formData: FormData) {
 }
 
 /**
+ * Перемещает список между соседями внутри личной группы пользователя.
+ *
+ * Клиент передаёт соседей итогового порядка, а сервер читает их позиции из БД
+ * и проверяет актуальность разрыва. Обычно меняется одна membership-строка;
+ * при исчерпании точности перенумеровывается только целевая группа.
+ */
+export async function moveListInGroup(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+
+    const result = moveListInGroupSchema.safeParse({
+      groupId: formData.get("groupId"),
+      listId: formData.get("listId"),
+      previousListId: formData.get("previousListId") || null,
+      nextListId: formData.get("nextListId") || null,
+    });
+    if (!result.success) {
+      return { success: false, error: getValidationError(result.error) };
+    }
+
+    const { groupId, listId, previousListId, nextListId } = result.data;
+    const [group, visibleList] = await Promise.all([
+      prisma.listGroup.findFirst({
+        where: { id: groupId, userId: session.user.id, spaceId: space.id },
+        select: { id: true },
+      }),
+      prisma.list.findFirst({
+        where: { id: listId, ...listInSpaceWhere(session.user.id, space.id) },
+        select: { id: true },
+      }),
+    ]);
+    if (!group) return { success: false, error: "Группа не найдена" };
+    if (!visibleList) return { success: false, error: "Список не найден" };
+
+    const memberships = await prisma.listGroupMembership.findMany({
+      where: { groupId },
+      orderBy: [
+        { position: "asc" },
+        { list: { createdAt: "asc" } },
+        { listId: "asc" },
+      ],
+      select: { listId: true, position: true },
+    });
+    const movingMembership = memberships.find(
+      (membership) => membership.listId === listId,
+    );
+    if (!movingMembership) {
+      return { success: false, error: "Список не входит в группу" };
+    }
+
+    const previous = previousListId
+      ? (memberships.find(
+          (membership) => membership.listId === previousListId,
+        ) ?? null)
+      : null;
+    const next = nextListId
+      ? (memberships.find((membership) => membership.listId === nextListId) ??
+        null)
+      : null;
+    if ((previousListId && !previous) || (nextListId && !next)) {
+      return { success: false, error: "stale" };
+    }
+
+    const withoutMoving = memberships.filter(
+      (membership) => membership.listId !== listId,
+    );
+    const previousIndex = previous
+      ? withoutMoving.findIndex(
+          (membership) => membership.listId === previous.listId,
+        )
+      : -1;
+    const nextIndex = next
+      ? withoutMoving.findIndex(
+          (membership) => membership.listId === next.listId,
+        )
+      : withoutMoving.length;
+    if (
+      nextIndex !== previousIndex + 1 ||
+      (!previous && nextIndex !== 0) ||
+      (!next && previousIndex !== withoutMoving.length - 1)
+    ) {
+      return { success: false, error: "stale" };
+    }
+
+    if (!previous && !next) {
+      return { success: true };
+    }
+
+    const lowestPosition = memberships[0].position;
+    const highestPosition = memberships[memberships.length - 1].position;
+    let newPosition: number;
+    if (previous && next) {
+      newPosition = (previous.position + next.position) / 2;
+    } else if (previous) {
+      newPosition = highestPosition + POSITION_STEP;
+    } else {
+      newPosition = lowestPosition - POSITION_STEP;
+    }
+
+    const needsRebalance =
+      previous !== null &&
+      next !== null &&
+      (newPosition <= previous.position || newPosition >= next.position);
+
+    if (needsRebalance) {
+      const reordered = [...withoutMoving];
+      reordered.splice(nextIndex, 0, movingMembership);
+      await prisma.$transaction(
+        reordered.map((membership, index) =>
+          prisma.listGroupMembership.update({
+            where: {
+              listId_groupId: {
+                listId: membership.listId,
+                groupId,
+              },
+            },
+            data: { position: (index + 1) * POSITION_STEP },
+          }),
+        ),
+      );
+      logger.info(
+        {
+          uid: hashId(session.user.id),
+          groupId,
+          listId,
+          spaceId: space.id,
+          action: "moveListInGroup",
+        },
+        "Позиции списков группы перенумерованы: исчерпана точность дробной позиции",
+      );
+    } else {
+      await prisma.listGroupMembership.update({
+        where: { listId_groupId: { listId, groupId } },
+        data: { position: newPosition },
+      });
+    }
+
+    revalidatePath("/", "layout");
+    logger.info(
+      {
+        uid: hashId(session.user.id),
+        groupId,
+        listId,
+        spaceId: space.id,
+        action: "moveListInGroup",
+      },
+      "Список перемещён внутри группы",
+    );
+    return { success: true };
+  } catch (error) {
+    logger.error({ error }, "Ошибка при перемещении списка внутри группы:");
+    return { success: false, error: "Не удалось переместить список" };
+  }
+}
+
+/**
  * Добавляет список в группу.
  *
  * Проверяет, что:
@@ -1645,11 +1841,24 @@ export async function addListToGroup(formData: FormData) {
       return { success: false, error: "Список не найден" };
     }
 
-    await prisma.listGroup.update({
-      where: { id: result.data.groupId },
-      data: {
-        lists: { connect: { id: result.data.listId } },
+    const lastMembership = await prisma.listGroupMembership.findFirst({
+      where: { groupId: result.data.groupId },
+      orderBy: { position: "desc" },
+      select: { position: true },
+    });
+    await prisma.listGroupMembership.upsert({
+      where: {
+        listId_groupId: {
+          listId: result.data.listId,
+          groupId: result.data.groupId,
+        },
       },
+      create: {
+        listId: result.data.listId,
+        groupId: result.data.groupId,
+        position: (lastMembership?.position ?? 0) + POSITION_STEP,
+      },
+      update: {},
     });
 
     revalidatePath("/", "layout");
@@ -1697,10 +1906,10 @@ export async function removeListFromGroup(formData: FormData) {
       return { success: false, error: "Группа не найдена" };
     }
 
-    await prisma.listGroup.update({
-      where: { id: result.data.groupId },
-      data: {
-        lists: { disconnect: { id: result.data.listId } },
+    await prisma.listGroupMembership.deleteMany({
+      where: {
+        groupId: result.data.groupId,
+        listId: result.data.listId,
       },
     });
 

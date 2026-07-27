@@ -12,18 +12,7 @@
 
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
   SortableContext,
-  sortableKeyboardCoordinates,
   useSortable,
   type SortingStrategy,
 } from "@dnd-kit/sortable";
@@ -31,7 +20,6 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { type ListGroup } from "@/components/lists/ListCard";
-import { beginDrag, endDrag } from "@/lib/drag-gate";
 import {
   getWrappedSortTransforms,
   type WrappedSortLayout,
@@ -44,9 +32,11 @@ type GroupFilterProps = {
   onCreateGroup: (name: string) => Promise<void>;
   onDeleteGroup: (groupId: string) => void;
   onRenameGroup: (groupId: string, newName: string) => Promise<void>;
-  onMoveGroup: (groupId: string, orderedGroups: ListGroup[]) => Promise<void>;
   isReordering: boolean;
+  listDropTargetGroupId: string | null;
 };
+
+export const groupDndId = (groupId: string) => `group:${groupId}`;
 
 /**
  * Сортируемая обёртка одной пилюли.
@@ -61,12 +51,16 @@ function SortableGroupChip({
   showHandle,
   disabled,
   dragLabel,
+  onPrepareDrag,
+  isListDropTarget,
   children,
 }: {
   group: ListGroup;
   showHandle: boolean;
   disabled: boolean;
   dragLabel: string;
+  onPrepareDrag: () => void;
+  isListDropTarget: boolean;
   children: (isDragging: boolean) => ReactNode;
 }) {
   const {
@@ -78,7 +72,11 @@ function SortableGroupChip({
     transition,
     isDragging,
     isSorting,
-  } = useSortable({ id: group.id, disabled });
+  } = useSortable({
+    id: groupDndId(group.id),
+    disabled,
+    data: { type: "group", groupId: group.id },
+  });
 
   return (
     <div
@@ -96,8 +94,12 @@ function SortableGroupChip({
         // ставим соседей в безопасные рассчитанные позиции.
         transition: isSorting ? "none" : transition,
       }}
-      className={`relative flex items-center group/pill ${
+      className={`relative flex items-center rounded-full group/pill ${
         isDragging ? "z-30 opacity-90 drop-shadow-lg" : ""
+      } ${
+        isListDropTarget
+          ? "ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-blue-400 dark:ring-offset-zinc-950"
+          : ""
       }`}
     >
       {showHandle && (
@@ -108,6 +110,11 @@ function SortableGroupChip({
           disabled={disabled}
           {...attributes}
           {...listeners}
+          onPointerDown={(event) => {
+            onPrepareDrag()
+            listeners?.onPointerDown?.(event)
+          }}
+          onFocus={onPrepareDrag}
           aria-label={dragLabel}
           className={`peer/drag absolute left-1 z-10 inline-flex h-5 w-5 touch-none cursor-grab items-center justify-center rounded-full text-gray-400 transition-colors hover:text-gray-700 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 ${
             isDragging
@@ -130,20 +137,12 @@ export default function GroupFilter({
   onCreateGroup,
   onDeleteGroup,
   onRenameGroup,
-  onMoveGroup,
   isReordering,
+  listDropTargetGroupId,
 }: GroupFilterProps) {
   const t = useTranslations("GroupFilter");
   const filterRef = useRef<HTMLDivElement>(null);
   const sortingLayoutRef = useRef<WrappedSortLayout | null>(null);
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
 
   const sortingStrategy = useCallback<SortingStrategy>(
     ({ rects, activeIndex, overIndex, index }) => {
@@ -215,7 +214,7 @@ export default function GroupFilter({
     await onRenameGroup(groupId, trimmed);
   };
 
-  const handleDragStart = () => {
+  const prepareDragLayout = () => {
     cancelLongPress();
     const container = filterRef.current;
     if (container) {
@@ -229,30 +228,7 @@ export default function GroupFilter({
         rowGap: Number.parseFloat(styles.rowGap) || 0,
       };
     }
-    beginDrag();
   };
-
-  const handleDragCancel = () => {
-    sortingLayoutRef.current = null;
-    endDrag();
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    sortingLayoutRef.current = null;
-    endDrag();
-    const { active, over } = event;
-    if (!over || active.id === over.id || isReordering) return;
-
-    const oldIndex = groups.findIndex((group) => group.id === active.id);
-    const newIndex = groups.findIndex((group) => group.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const orderedGroups = arrayMove(groups, oldIndex, newIndex);
-    void onMoveGroup(String(active.id), orderedGroups);
-  };
-
-  const groupName = (id: string | number) =>
-    groups.find((group) => group.id === id)?.name ?? "";
 
   const groupPosition = (id: string | number) =>
     Math.max(1, groups.findIndex((group) => group.id === id) + 1);
@@ -313,40 +289,8 @@ export default function GroupFilter({
           </button>
 
           {/* "Все" не входит в SortableContext и физически не может сдвинуться. */}
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragCancel={handleDragCancel}
-            onDragEnd={handleDragEnd}
-            accessibility={{
-              screenReaderInstructions: {
-                draggable: t("dragInstructions"),
-              },
-              announcements: {
-                onDragStart: ({ active }) =>
-                  t("dragStart", { name: groupName(active.id) }),
-                onDragOver: ({ active, over }) =>
-                  over
-                    ? t("dragOver", {
-                        name: groupName(active.id),
-                        position: groupPosition(over.id),
-                      })
-                    : undefined,
-                onDragEnd: ({ active, over }) =>
-                  over
-                    ? t("dragEnd", {
-                        name: groupName(active.id),
-                        position: groupPosition(over.id),
-                      })
-                    : t("dragCancel", { name: groupName(active.id) }),
-                onDragCancel: ({ active }) =>
-                  t("dragCancel", { name: groupName(active.id) }),
-              },
-            }}
-          >
-            <SortableContext
-              items={groups.map((group) => group.id)}
+          <SortableContext
+              items={groups.map((group) => groupDndId(group.id))}
               strategy={sortingStrategy}
             >
               {groups.map((group) => {
@@ -360,6 +304,8 @@ export default function GroupFilter({
                     group={group}
                     showHandle={showHandle}
                     disabled={isReordering || editingGroupId === group.id}
+                    onPrepareDrag={prepareDragLayout}
+                    isListDropTarget={listDropTargetGroupId === group.id}
                     dragLabel={t("ariaDragGroup", {
                       name: group.name,
                       position: groupPosition(group.id),
@@ -448,7 +394,6 @@ export default function GroupFilter({
                 );
               })}
             </SortableContext>
-          </DndContext>
         </>
       )}
 

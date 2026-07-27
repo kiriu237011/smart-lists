@@ -170,9 +170,10 @@ model List {
   /// Явная модель общего доступа с размещением в пространстве получателя.
   shares ListShare[]
 
-  /// Группы, в которые пользователи добавили этот список.
-  /// Каждый пользователь имеет свои группы — один список может быть в разных группах разных пользователей.
-  groups ListGroup[] @relation("ListGroupMembers")
+  /// Персональные размещения списка в группах пользователей.
+  /// Порядок хранится на самой связи: один список может занимать разные места
+  /// в разных группах и у разных пользователей.
+  groupMemberships ListGroupMembership[]
 
   // ---- Связь "Вложения" (One-to-Many) ----
 
@@ -210,8 +211,8 @@ model ListGroup {
   /// Составная связь гарантирует, что пространство принадлежит владельцу группы.
   space Space @relation(fields: [spaceId, userId], references: [id, userId], onDelete: Cascade)
 
-  /// Списки, входящие в эту группу (Many-to-Many).
-  lists List[] @relation("ListGroupMembers")
+  /// Упорядоченные размещения списков в этой группе.
+  listMemberships ListGroupMembership[]
 
   /// Позиция группы среди пользовательских групп текущего пространства.
   /// Дробное значение позволяет переставлять одну группу между соседями без
@@ -225,6 +226,31 @@ model ListGroup {
   @@index([userId])
   @@index([spaceId])
   @@index([userId, spaceId, position])
+}
+
+/// Персональное размещение списка в группе.
+///
+/// Явная модель отображается на прежнюю implicit M2M-таблицу
+/// `_ListGroupMembers`, поэтому миграция добавляет порядок без потери уже
+/// существующих связей.
+model ListGroupMembership {
+  /// ID списка. В существующей таблице Prisma называла колонку `A`.
+  listId String @map("A")
+
+  /// ID группы. В существующей таблице Prisma называла колонку `B`.
+  groupId String @map("B")
+
+  /// Относительный порядок списка внутри конкретной группы.
+  /// Дробная позиция позволяет обычно обновлять только одну строку.
+  position Float
+
+  list  List      @relation(fields: [listId], references: [id], onDelete: Cascade)
+  group ListGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([listId, groupId], map: "_ListGroupMembers_AB_pkey")
+  @@index([groupId], map: "_ListGroupMembers_B_index")
+  @@index([groupId, position], map: "_ListGroupMembers_groupId_position_idx")
+  @@map("_ListGroupMembers")
 }
 
 /// Персональное пространство пользователя — верхний уровень организации списков.

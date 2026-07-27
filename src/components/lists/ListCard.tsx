@@ -24,6 +24,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { useTranslations } from "next-intl";
@@ -42,6 +43,7 @@ import {
   NoteRemoveIcon,
   TrashIcon,
 } from "@/components/lists/Notes";
+import { ArrowDown, ArrowUp } from "lucide-react";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -72,6 +74,11 @@ export type ListGroup = {
   name: string;
 };
 
+/** Размещение списка в группе вместе с его персональной позицией. */
+export type ListGroupMembership = ListGroup & {
+  position: number;
+};
+
 /** Вложение к списку (только подтверждённые, status UPLOADED). */
 export type Attachment = {
   id: string;
@@ -94,8 +101,8 @@ export type ListData = {
   owner: ListOwner;
   items: Item[];
   sharedWith: SharedUser[];
-  /** Группы текущего пользователя, в которых находится этот список. */
-  groups: ListGroup[];
+  /** Персональные размещения списка в группах текущего пользователя. */
+  groups: ListGroupMembership[];
   /** Вложения списка (подтверждённые). */
   files: Attachment[];
 };
@@ -139,6 +146,12 @@ export type ListCardProps = {
     groupId: string,
     inGroup: boolean,
   ) => Promise<boolean>;
+  /** Ручка DnD, создаваемая sortable-обёрткой контейнера. */
+  dragHandle?: ReactNode;
+  /** Доступная альтернатива жесту в плоском порядке активной группы. */
+  canMoveEarlier?: boolean;
+  canMoveLater?: boolean;
+  onMoveInGroup?: (listId: string, direction: "earlier" | "later") => void;
 };
 
 /**
@@ -214,6 +227,10 @@ const ListCard = memo(function ListCard({
   searchQuery,
   userGroups,
   onToggleListGroup,
+  dragHandle,
+  canMoveEarlier = false,
+  canMoveLater = false,
+  onMoveInGroup,
 }: ListCardProps) {
   const t = useTranslations("ListsContainer");
   const notesT = useTranslations("Notes");
@@ -497,6 +514,8 @@ const ListCard = memo(function ListCard({
         }`}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
+          {dragHandle}
+
           {/* Шеврон — основной способ свернуть карточку. Клик по заголовку
               занят переименованием, поэтому нужна отдельная кнопка. */}
           {!isTemp && !isEditing && (
@@ -685,6 +704,39 @@ const ListCard = memo(function ListCard({
                         <CollapseChevron isCollapsed={isBodyHidden} />
                         {isBodyHidden ? t("expandAction") : t("collapseAction")}
                       </button>
+
+                      {onMoveInGroup && (
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            data-testid="list-move-earlier"
+                            disabled={!canMoveEarlier}
+                            onClick={() => {
+                              setIsActionsMenuOpen(false);
+                              onMoveInGroup(list.id, "earlier");
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                          >
+                            <ArrowUp aria-hidden size={17} />
+                            {t("moveEarlierAction")}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            data-testid="list-move-later"
+                            disabled={!canMoveLater}
+                            onClick={() => {
+                              setIsActionsMenuOpen(false);
+                              onMoveInGroup(list.id, "later");
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                          >
+                            <ArrowDown aria-hidden size={17} />
+                            {t("moveLaterAction")}
+                          </button>
+                        </>
+                      )}
 
                       <div
                         role="separator"
