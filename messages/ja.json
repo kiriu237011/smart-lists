@@ -1,10 +1,22 @@
 {
   "Auth": {
     "title": "Smart Lists",
-    "subtitle": "ログインしてリストを保存しましょう",
+    "eyebrow": "シンプルに。すばやく。一緒に。",
+    "headline": "大切なことを、ひとつのリストに。",
+    "subtitle": "アイデアを記録し、予定を立て、大切な人とリストを共有。余計な複雑さはありません。",
     "signIn": "Googleでログイン",
     "guestSignIn": "ゲストとして続ける",
-    "guestHint": "アカウント不要 — リストはこのブラウザにのみ保存されます"
+    "guestHint": "登録せずにお試しできます — データはこの端末に保存されます",
+    "previewTitle": "今週の買い物",
+    "previewProgress": "{total}件中{done}件",
+    "previewShared": "共有リスト",
+    "previewItems": {
+      "milk": "牛乳",
+      "vegetables": "野菜と葉物",
+      "coffee": "コーヒー",
+      "bread": "全粒粉パン"
+    },
+    "previewNote": "カフェインレスを選ぶ"
   },
   "Guest": {
     "name": "ゲスト",

@@ -17,7 +17,25 @@ anonymousTest.describe("без сессии", () => {
     await page.goto("/");
 
     await expect(page).toHaveURL(/\/en$/);
+    await expect(page.getByTestId("auth-hero-title")).toHaveText(
+      "Everything important, in one list.",
+    );
+    await expect(page.getByTestId("auth-list-preview")).toBeVisible();
     await expect(page.getByTestId("sign-in-google")).toBeVisible();
+  });
+
+  anonymousTest("экран входа помещается на мобильной ширине", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/en");
+
+    await expect(page.getByTestId("auth-hero-title")).toBeVisible();
+    await expect(page.getByTestId("auth-list-preview")).toBeVisible();
+    await expect(page.getByTestId("sign-in-google")).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
   });
 
   anonymousTest("чужое пространство недоступно и уводит на экран входа", async ({

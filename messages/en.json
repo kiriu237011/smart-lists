@@ -1,10 +1,22 @@
 {
   "Auth": {
     "title": "Smart Lists",
-    "subtitle": "Sign in to save your lists",
+    "eyebrow": "Simple. Fast. Together.",
+    "headline": "Everything important, in one list.",
+    "subtitle": "Capture ideas, plan what matters, and share lists with the people close to you — without the clutter.",
     "signIn": "Sign in with Google",
     "guestSignIn": "Continue as guest",
-    "guestHint": "No account — lists are stored only in this browser"
+    "guestHint": "Try it without signing up — your data stays on this device",
+    "previewTitle": "Groceries for the week",
+    "previewProgress": "{done} of {total}",
+    "previewShared": "Shared list",
+    "previewItems": {
+      "milk": "Milk",
+      "vegetables": "Vegetables and greens",
+      "coffee": "Coffee",
+      "bread": "Whole-grain bread"
+    },
+    "previewNote": "Get decaf"
   },
   "Guest": {
     "name": "Guest",

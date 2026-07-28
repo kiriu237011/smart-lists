@@ -1,10 +1,22 @@
 {
   "Auth": {
     "title": "Smart Lists",
-    "subtitle": "Đăng nhập để lưu danh sách của bạn",
+    "eyebrow": "Đơn giản. Nhanh chóng. Cùng nhau.",
+    "headline": "Mọi điều quan trọng trong một danh sách.",
+    "subtitle": "Ghi lại ý tưởng, lên kế hoạch và chia sẻ danh sách với những người thân thiết — thật gọn gàng.",
     "signIn": "Đăng nhập bằng Google",
     "guestSignIn": "Tiếp tục với tư cách khách",
-    "guestHint": "Không cần tài khoản — danh sách chỉ được lưu trong trình duyệt này"
+    "guestHint": "Dùng thử không cần đăng ký — dữ liệu được giữ trên thiết bị này",
+    "previewTitle": "Mua sắm trong tuần",
+    "previewProgress": "{done} trên {total}",
+    "previewShared": "Danh sách chung",
+    "previewItems": {
+      "milk": "Sữa",
+      "vegetables": "Rau củ và rau xanh",
+      "coffee": "Cà phê",
+      "bread": "Bánh mì nguyên cám"
+    },
+    "previewNote": "Chọn loại không caffeine"
   },
   "Guest": {
     "name": "Khách",
