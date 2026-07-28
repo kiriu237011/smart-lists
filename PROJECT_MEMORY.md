@@ -384,10 +384,15 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
 Доступ к AWS выдаётся через OIDC, долгоживущих ключей в репозитории нет.
 GitHub подписывает id-токен, роль `smart-lists-backup-ci` меняет его на временные
 креды и разрешает единственное действие — `s3:PutObject` в `backups/*`. Trust
-policy сверяет `sub` с `repo:kzhirikhin/smart-lists:ref:refs/heads/main`, поэтому
-форки и pull request'ы кредов не получают. Обратная сторона: переименование
-репозитория, смена владельца или ветки по умолчанию ломает обмен с `AccessDenied`
-— тогда нужно править условие в trust policy роли.
+policy сверяет `sub`, поэтому форки и pull request'ы кредов не получают.
+
+GitHub выдаёт `sub` в формате immutable subject claims — с числовыми
+идентификаторами вместо имён: `repo:kzhirikhin@175179463/smart-lists@1150633776:ref:refs/heads/main`.
+Человекочитаемый вариант `repo:owner/repo:...` не совпадёт, и обмен упадёт с
+`AccessDenied` без объяснения причины; фактический `sub` виден в CloudTrail в
+поле `userName` события `AssumeRoleWithWebIdentity`. Плюс формата в том, что
+переименование репозитория или владельца ничего не ломает: ID неизменны. Условие
+нужно править только при смене ветки, с которой идёт запуск.
 
 Секреты репозитория: `BACKUP_S3_BUCKET`, `BACKUP_AWS_ROLE_ARN` (плюс уже
 существовавший `DATABASE_URL`). Срок хранения задаётся lifecycle-правилом бакета
