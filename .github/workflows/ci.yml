@@ -155,3 +155,30 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # Секреты в истории. Дублирует push protection GitHub, но с другой стороны:
+  # тот знает шаблоны известных провайдеров, а gitleaks ловит и generic-строки
+  # вроде приватных ключей и строк подключения. Репозиторий публичный, поэтому
+  # проверка нужна и на PR со стороны.
+  secrets:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Вся история, а не последний коммит: секрет, добавленный и удалённый
+          # внутри одного PR, остаётся в промежуточных коммитах.
+          fetch-depth: 0
+
+      # Бинарь официального релиза вместо стороннего action: в job попадает
+      # только то, что мы явно назвали версией.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+
+      # --redact: найденное значение не печатается в лог, который публичен.
+      - name: Scan history
+        run: gitleaks git --redact --verbose .
