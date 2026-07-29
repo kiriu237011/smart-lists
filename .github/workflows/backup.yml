@@ -27,6 +27,9 @@ jobs:
           sudo apt-get install -y postgresql-client-17
 
       - name: Run pg_dump
+        env:
+          # Сохраняем verify-full и используем доверенные корневые CA раннера.
+          PGSSLROOTCERT: system
         run: |
           /usr/lib/postgresql/17/bin/pg_dump \
             --no-privileges \
