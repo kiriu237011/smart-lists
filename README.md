@@ -1,46 +1,47 @@
 # Smart Lists
 
-Smart Lists — локализованное веб-приложение для личных и совместных списков. Оно поддерживает пространства, группы, realtime-обновления, заметки, вложения и AI-инсайты, а также отдельный гостевой режим без регистрации.
+Smart Lists is a localized web application for personal and shared lists. It supports spaces, groups, realtime updates, notes, attachments and AI insights, plus a separate guest mode that requires no sign-up.
 
-## Возможности
+## Features
 
-- личные пространства и до пяти дополнительных пространств на пользователя;
-- списки с группами, поиском, оптимистичными обновлениями и отметкой выполненных записей;
-- совместное редактирование списков по приглашению;
-- realtime-синхронизация между участниками, вкладками и устройствами через Pusher;
-- текстовые заметки для списков и отдельных записей с защитой от конфликтов версий;
-- приватные вложения в S3: PNG, JPEG, TXT и PDF;
-- AI-инсайты по содержимому списка и его заметкам;
-- гостевой режим с хранением данных только в `localStorage`;
-- локали `ru`, `vi`, `en`, `ja` и автоматическое определение языка;
-- адаптивный интерфейс, светлая и тёмная темы.
+- personal space plus up to five additional spaces per user;
+- lists with groups, search, optimistic updates and completion tracking;
+- collaborative list editing by invitation;
+- realtime sync across members, tabs and devices via Pusher;
+- text notes for lists and individual items, protected against version conflicts;
+- private S3 attachments: PNG, JPEG, TXT and PDF;
+- AI insights over list content and its notes;
+- guest mode that stores data only in `localStorage`;
+- `ru`, `vi`, `en`, `ja` locales with automatic language detection;
+- responsive interface, light and dark themes.
 
-## Технологии
+## Tech stack
 
 - Next.js 16 App Router, React 19, TypeScript;
 - Tailwind CSS 4, Framer Motion, Lucide React;
-- Auth.js v5 и Google OAuth;
-- Prisma 6 и PostgreSQL;
+- Auth.js v5 with Google OAuth;
+- Prisma 6 and PostgreSQL;
 - next-intl, Zod, Pino;
-- Pusher, AWS S3, внешний FastAPI-сервис для AI.
+- Pusher, AWS S3, an external FastAPI service for AI;
+- Vitest, Playwright.
 
-## Требования
+## Requirements
 
-- Node.js 20 или новее;
+- Node.js 20 or newer;
 - npm;
 - PostgreSQL;
-- Google OAuth-приложение;
-- для полного набора функций: Pusher, AWS S3 и запущенный insights-сервис.
+- a Google OAuth application;
+- for the full feature set: Pusher, AWS S3 and a running insights service.
 
-## Локальный запуск
+## Local setup
 
-1. Установите зависимости:
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-2. Создайте в корне файл `.env` и заполните необходимые переменные:
+2. Create a `.env` file in the repository root and fill in the required variables:
 
 ```env
 DATABASE_URL=postgresql://user:password@localhost:5432/smart_lists
@@ -52,17 +53,17 @@ AUTH_GOOGLE_ID=google-client-id
 AUTH_GOOGLE_SECRET=google-client-secret
 ```
 
-`DATABASE_URL` и `DIRECT_URL` в локальной среде могут совпадать. В облачной среде первая переменная обычно использует pooled connection, а вторая — прямое соединение для миграций.
+`DATABASE_URL` and `DIRECT_URL` may be identical locally. In a cloud environment the first one usually uses a pooled connection, while the second is a direct connection used for migrations.
 
-> Важно: `.env` в корне — это конфигурация **среды разработки**. Prisma CLI читает переменные именно оттуда, поэтому боевые строки подключения в этот файл попадать не должны. Production-значения задаются только в environment variables хостинга и в GitHub Secrets. Это касается не только базы: Pusher и S3 в среде разработки тоже используют отдельные ресурсы. Подробнее — в разделе «Разделение сред».
+> Important: the root `.env` is **development** configuration. The Prisma CLI reads its variables from there, so production connection strings must never land in this file. Production values live only in the hosting provider's environment variables and in GitHub Secrets. This is not limited to the database: Pusher and S3 also use separate resources in development. See [Environment separation](#environment-separation).
 
-Для Google OAuth добавьте callback URL:
+For Google OAuth, add the callback URL:
 
 ```text
 http://localhost:3000/api/auth/callback/google
 ```
 
-3. Для realtime добавьте учётные данные Pusher:
+3. For realtime, add Pusher credentials:
 
 ```env
 PUSHER_APP_ID=pusher-app-id
@@ -71,7 +72,7 @@ NEXT_PUBLIC_PUSHER_KEY=pusher-key
 NEXT_PUBLIC_PUSHER_CLUSTER=pusher-cluster
 ```
 
-4. Для вложений настройте приватный S3-бакет и CORS для прямой загрузки из браузера:
+4. For attachments, configure a private S3 bucket and CORS for direct browser uploads:
 
 ```env
 S3_BUCKET_NAME=private-bucket-name
@@ -80,162 +81,237 @@ S3_ACCESS_KEY_ID=aws-access-key
 S3_SECRET_ACCESS_KEY=aws-secret-key
 ```
 
-5. Для AI-инсайтов укажите адрес отдельного сервиса и общий секрет:
+5. For AI insights, set the address of the separate service and the shared secret:
 
 ```env
 INSIGHTS_SERVICE_URL=http://localhost:8000
 INSIGHTS_SERVICE_SECRET=shared-service-secret
 ```
 
-Необязательный `LOG_LEVEL` задаёт уровень Pino; значение по умолчанию — `info`.
+The optional `LOG_LEVEL` sets the Pino level; the default is `info`.
 
-6. Примените существующие миграции:
+6. Apply the existing migrations:
 
 ```bash
 npx prisma migrate deploy
 ```
 
-7. Добавьте разрешённый Google email в таблицу `AllowedEmail`. Без записи в whitelist вход будет отклонён. Для локальной настройки удобно открыть Prisma Studio:
+7. Add an allowed Google email to the `AllowedEmail` table. Without a whitelist entry, sign-in is rejected. Prisma Studio is convenient for local setup:
 
 ```bash
 npx prisma studio
 ```
 
-8. При необходимости включите гостевой вход, создав в таблице `AppSetting` запись:
+8. If needed, enable guest sign-in by creating a row in the `AppSetting` table:
 
-| Поле | Значение |
+| Field | Value |
 | --- | --- |
 | `key` | `guestModeEnabled` |
 | `value` | `true` |
 
-Любое другое значение или отсутствие записи отключает гостевой вход. Гостевые данные при этом не удаляются из браузера.
+Any other value, or a missing row, disables guest sign-in. Guest data is not erased from the browser in that case.
 
-9. Запустите приложение:
+9. Start the application:
 
 ```bash
 npm run dev
 ```
 
-Откройте [http://localhost:3000](http://localhost:3000). Корневой маршрут перенаправит на локаль, а после входа — в последнее выбранное пространство.
+Open [http://localhost:3000](http://localhost:3000). The root route redirects to a locale and, after sign-in, to the last selected space.
 
-## Режимы доступа
+## Access modes
 
-Авторизованный пользователь получает серверное хранение, пространства, совместный доступ, realtime, вложения и AI. Вход разрешён только email-адресам из `AllowedEmail`.
+An authenticated user gets server-side storage, spaces, sharing, realtime, attachments and AI. Sign-in is permitted only for email addresses listed in `AllowedEmail`.
 
-Гостевой режим не требует аккаунта. Списки, записи, группы и заметки сохраняются в `localStorage` текущего браузера. Данные не синхронизируются и не переносятся автоматически в аккаунт.
+Guest mode requires no account. Lists, items, groups and notes are stored in the current browser's `localStorage`. This data is not synchronized and is not migrated into an account automatically.
 
-## Как устроено приложение
+## How it works
 
-- Основной маршрут авторизованного пользователя: `/{locale}/spaces/{spaceId}`.
-- Server Components загружают данные напрямую через Prisma.
-- Клиентские компоненты используют единый `ListsApi`: серверную реализацию для PostgreSQL или гостевую для `localStorage`.
-- Мутации выполняются Server Actions с проверкой сессии, пространства, прав и Zod-валидацией.
-- Вкладка-автор получает обновлённый RSC payload из ответа Action; остальные вкладки и участники получают событие Pusher `refresh`.
-- Вложения загружаются напрямую в S3 по presigned POST и становятся видимыми только после серверной проверки `HeadObject`.
+- The main authenticated route is `/{locale}/spaces/{spaceId}`.
+- Server Components load data directly through Prisma.
+- Client components use a single `ListsApi`: a server implementation backed by PostgreSQL, or a guest implementation backed by `localStorage`.
+- Mutations run as Server Actions with session, space and permission checks plus Zod validation.
+- The originating tab receives an updated RSC payload from the Action's response; other tabs and members receive a Pusher `refresh` event.
+- Attachments are uploaded straight to S3 via presigned POST and become visible only after a server-side `HeadObject` check.
 
-## Структура
+## Security architecture
+
+Three principles shape the security-relevant design decisions: defense in depth, least privilege, and a CI pipeline that holds no production credentials.
+
+### Defense in depth
+
+No single check is treated as sufficient. A request crosses several independent layers, and each one is able to reject it on its own.
+
+**Transport and browser surface.** Every response carries a fixed set of security headers — `X-Frame-Options: DENY` against clickjacking, `nosniff`, a restrictive `Referrer-Policy`, a `Permissions-Policy` that switches off camera, microphone and geolocation, and a one-year HSTS — declared once in [`next.config.ts`](next.config.ts#L6-L17).
+
+**Two authentication gates.** A valid Google account is not enough by itself: the `signIn` callback additionally requires the address to be present in the `AllowedEmail` table, and denies the login otherwise — see [`src/auth.ts`](src/auth.ts#L77-L88). The whitelist lives in the database, so access can be revoked without a deploy.
+
+**Authorization folded into the query.** Access checks are not a separate `if` that a future change might forget. The `listInSpaceWhere` filter is merged directly into the Prisma `where` clause, so fetching the data and proving the right to it are the same query — a list that is neither owned nor shared within that exact space simply does not come back. See [`src/lib/spaces.ts`](src/lib/spaces.ts#L40-L64).
+
+**Client-supplied identifiers are never trusted.** A Server Action re-verifies the session, resolves `spaceId` from the form against spaces actually owned by the user, validates the payload with Zod's `safeParse`, and only then touches the database — with `ownerId` taken from the session rather than the request. [`addItem`](src/app/actions/index.ts#L95-L140) is a representative example of the whole chain; client-side validation exists purely for UX.
+
+**Attachments are verified twice.** The presigned POST policy makes S3 itself reject a file whose size or content type is outside the allowed range, before a single byte is stored ([`src/lib/s3.ts`](src/lib/s3.ts#L105-L122)). On confirmation the server does not take the client's word for what was uploaded: `HeadObject` supplies the actual size and type, they are re-validated, and only an atomic `PENDING → UPLOADED` transition makes the file visible — see [`src/app/actions/attachments.ts`](src/app/actions/attachments.ts#L271-L302). Object keys are generated server-side as `lists/{listId}/{uuid}.ext`, which keeps user-supplied file names out of the key and rules out path traversal ([`src/lib/s3.ts`](src/lib/s3.ts#L80-L87)).
+
+**Realtime is authorized per channel.** Pusher subscriptions pass through an endpoint that permits exactly one channel per user — their own `private-user-<id>` — and answers 403 for anything else ([`src/app/api/pusher/auth/route.ts`](src/app/api/pusher/auth/route.ts#L36-L40)).
+
+**Logging discipline.** User identifiers are written through `hashId`, and secrets, tokens and private content never reach the logs.
+
+### Least privilege
+
+Every component holds the narrowest set of rights that still lets it do its job.
+
+**Storage.** The bucket is private and has no public URLs at all; downloads are issued as presigned GET links with a five-minute TTL. Each environment has its own IAM user, scoped to the `lists/*` prefix, and dev and production permissions are deliberately kept identical — if dev were broader, a key outside `lists/` would pass locally and fail in production.
+
+**Secrets stay on the server.** Only `NEXT_PUBLIC_*` variables reach the browser bundle: the client gets the Pusher key, while the Pusher secret and the AWS keys remain server-side. Modules that read privileged state are marked `import "server-only"` ([`src/lib/spaces.ts`](src/lib/spaces.ts#L1)), which turns an accidental client import into a build error rather than a leak.
+
+**Roles are separated by capability.** Ownership operations — deleting, renaming, managing access — keep an explicit `ownerId === session.user.id` condition, while content editing is available to members according to `ListShare`.
+
+**Guest mode is minimal by construction.** Guest data never leaves the browser, and the guest flag is an httpOnly cookie whose issuance the server re-checks against `AppSetting`, so a client cannot forge its way in when guest mode is off.
+
+**Rights are bounded in time and volume, too.** Presigned links expire in five minutes, AI insights are capped per user per UTC day, and `npm run build` deliberately has no migration step — only `build:deploy` may touch a schema. See [Limits](#limits).
+
+### Keyless CI/CD
+
+The CI pipeline never receives production credentials, so a compromised workflow, dependency or pull request has nothing to steal and nothing to reach.
+
+**No real secrets in CI.** The checks job runs with deliberately non-functional placeholder values, present only because `prisma generate` needs a datasource and Next inlines `NEXT_PUBLIC_*` at build time — the build never opens a database connection ([`.github/workflows/ci.yml`](.github/workflows/ci.yml#L24-L33)). The workflow token is restricted to `permissions: contents: read` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml#L17-L18)).
+
+**CI does not deploy and does not migrate.** Migrations are applied exclusively by `build:deploy`, which is Vercel's `buildCommand` in `vercel.json`, against the database configured for that Vercel environment. Nothing in CI invokes it.
+
+**Test databases are ephemeral and guarded.** Integration and E2E jobs run against throwaway PostgreSQL service containers. On top of that, global setup refuses to run when the target database name does not contain `test`, so a typo cannot point `migrate deploy` or `TRUNCATE` at a real database; the escape hatch is an explicit `ALLOW_NON_TEST_DB=1` ([`test/integration/global-setup.ts`](test/integration/global-setup.ts)).
+
+**The one exception is explicit.** The scheduled backup workflow is the only one that holds a real credential — `secrets.DATABASE_URL` for `pg_dump` ([`.github/workflows/backup.yml`](.github/workflows/backup.yml)). It is separate from CI, is not triggered by pull requests, and is the single place to audit when rotating that secret.
+
+Environment isolation is the other half of this story and is described in [Environment separation](#environment-separation).
+
+## Project structure
 
 ```text
-messages/                  переводы ru, vi, en, ja
+messages/                  ru, vi, en, ja translations
 prisma/
-  schema.prisma            модели PostgreSQL
-  migrations/              история миграций
+  schema.prisma            PostgreSQL models
+  migrations/              migration history
 src/
   app/
-    [locale]/              локализованные страницы
+    [locale]/              localized pages
     actions/               Server Actions
-    api/                   Auth.js и Pusher auth endpoints
+    api/                   Auth.js and Pusher auth endpoints
   components/
-    guest/                 гостевой экран
-    lists/                 списки, записи и связанные функции
-    providers/             ListsApi, темы и настройки
-    spaces/                пространства
-    ui/                    общие UI-компоненты
-  i18n/                    конфигурация next-intl
-  lib/                     Prisma, S3, Pusher и доменные helpers
+    guest/                 guest screen
+    lists/                 lists, items and related features
+    providers/             ListsApi, themes and settings
+    spaces/                spaces
+    ui/                    shared UI components
+  i18n/                    next-intl configuration
+  lib/                     Prisma, S3, Pusher and domain helpers
   auth.ts                  Auth.js
-  proxy.ts                 locale middleware для Next.js 16
+  proxy.ts                 locale middleware for Next.js 16
+test/
+  integration/             Server Action and access-control tests
+  e2e/                     Playwright user flows
 ```
 
-## Разделение сред
+## Environment separation
 
-Разработка не должна доставать до production. Разведены три внешних сервиса, которые способны изменить боевые данные: база, хранилище файлов и realtime.
+Development must not be able to reach production. Three external services can modify live data, and all three are split: the database, file storage and realtime.
 
-| Контур | База | Pusher | S3 |
+| Environment | Database | Pusher | S3 |
 | --- | --- | --- | --- |
-| Production | боевая ветка Neon | боевое приложение | боевой бакет |
-| Preview (Vercel) | ветка `dev` | dev-приложение | dev-бакет |
-| Локально | ветка `dev` | dev-приложение | dev-бакет |
+| Production | Neon production branch | production app | production bucket |
+| Preview (Vercel) | `dev` branch | dev app | dev bucket |
+| Local | `dev` branch | dev app | dev bucket |
 
-Общий остаётся только AI-сервис. Он безопасен: суточный лимит считается в таблице `AiInsightUsage`, то есть у каждой базы счётчик свой, и боевая квота из dev-среды не расходуется.
+Only the AI service stays shared. That is safe: the daily quota is counted in the `AiInsightUsage` table, so each database has its own counter and the production quota is not consumed from a dev environment.
 
-### База данных
+### Database
 
-Среда разработки — отдельная ветка Neon, созданная от основной: копия данных появляется мгновенно и живёт независимо.
+The development environment is a separate Neon branch created from the main one: a copy of the data appears instantly and then lives independently.
 
-- боевые `DATABASE_URL` и `DIRECT_URL` живут только в environment variables Vercel и в GitHub Secrets;
-- в локальном `.env` лежат строки подключения dev-ветки;
-- миграции на production применяются исключительно во время деплоя, через `build:deploy`;
-- на dev-ветке миграции разрабатываются командой `npx prisma migrate dev`;
-- когда нужны свежие данные, dev-ветка пересоздаётся от основной в консоли Neon.
+- production `DATABASE_URL` and `DIRECT_URL` exist only in Vercel environment variables and GitHub Secrets;
+- the local `.env` holds the dev branch connection strings;
+- production migrations are applied exclusively during deployment, via `build:deploy`;
+- migrations are developed against the dev branch with `npx prisma migrate dev`;
+- when fresh data is needed, the dev branch is recreated from the main one in the Neon console.
 
-Проверить, к какой базе подключена текущая среда, можно по хосту в `DATABASE_URL`: у каждой ветки Neon свой идентификатор endpoint.
+To check which database the current environment is connected to, look at the host in `DATABASE_URL`: every Neon branch has its own endpoint identifier.
 
-### Хранилище файлов
+### File storage
 
-Ключевой риск, ради которого разведён S3: база хранит только ключи объектов, а сами файлы существуют в одном экземпляре. Пока бакет был общим, удаление вложения в dev-среде стирало боевой файл.
+The key risk behind splitting S3: the database stores only object keys, while the files themselves exist in a single copy. While the bucket was shared, deleting an attachment in development erased the production file.
 
-- dev-бакет обслуживается отдельным IAM-пользователем;
-- его политика повторяет боевую и ограничена префиксом `lists/*` — права сред должны совпадать, иначе ключ вне `lists/` пройдёт локально и упадёт в production;
-- CORS dev-бакета разрешает `http://localhost:3000` и preview-адреса, боевого — только production-домен.
+- the dev bucket is served by a separate IAM user;
+- its policy mirrors the production one and is limited to the `lists/*` prefix — permissions must match across environments, otherwise a key outside `lists/` passes locally and fails in production;
+- the dev bucket's CORS allows `http://localhost:3000` and preview addresses; the production bucket allows only the production domain.
 
-После пересоздания dev-ветки старые вложения локально не открываются: строки указывают на объекты боевого бакета, которых в dev-бакете нет. Это ожидаемое поведение. Удаление такого вложения обращается к несуществующему ключу в dev-бакете и боевой файл не затрагивает.
+After the dev branch is recreated, older attachments will not open locally: the rows point at objects in the production bucket that do not exist in the dev one. This is expected. Deleting such an attachment targets a non-existent key in the dev bucket and leaves the production file untouched.
 
 ### Realtime
 
-Уведомления идут в персональные каналы вида `private-user-<id>`, а ID пользователей в копии базы те же самые. На общем приложении Pusher локальные изменения дёргали вкладки боевых пользователей, поэтому для разработки заведено отдельное приложение. Кластер у обоих совпадает: ключ и кластер связаны, при рассинхроне клиент не подключится.
+Notifications go to personal channels of the form `private-user-<id>`, and user IDs are identical in the copied database. On a shared Pusher app, local changes were refreshing the tabs of production users, so development has its own app. The cluster is the same for both: key and cluster are bound together, and a mismatch prevents the client from connecting.
 
-## Команды
+## Testing
 
-| Команда | Назначение |
+The test suite runs on three levels. Static checks and unit tests need neither a database nor secrets; the other two levels use a local PostgreSQL container.
+
+```bash
+npm run lint                  # ESLint
+npm run typecheck             # tsc --noEmit
+npm test                      # Vitest unit tests
+
+npm run test:integration:db   # start the test database (Docker)
+npm run test:integration      # Server Action and access-control tests
+
+npm run test:e2e:db           # start the E2E database (Docker)
+npm run test:e2e              # Playwright user flows
+```
+
+Unit tests live next to their subject as `src/lib/*.test.ts`; integration tests are in `test/integration/*.int.test.ts` and E2E specs in `test/e2e/*.e2e.ts`. Test selectors rely on `data-testid` rather than visible text, which is translated into four languages. E2E specs run in parallel under their own users, so they do not truncate tables between tests and filter every query by their own identifiers.
+
+The same three levels run in GitHub Actions on every branch and pull request. Behaviour that automated tests do not cover — OAuth, Pusher, attachments and AI — is verified manually.
+
+## Commands
+
+| Command | Purpose |
 | --- | --- |
-| `npm run dev` | Запустить dev server |
-| `npm run lint` | Выполнить ESLint |
-| `npm run build` | Собрать production bundle без миграций (безопасно локально) |
-| `npm run build:deploy` | Применить миграции и собрать bundle; используется хостингом |
-| `npm run migrate:deploy` | Применить существующие миграции к текущему `DATABASE_URL` |
-| `npm start` | Запустить готовую production-сборку |
-| `npx prisma migrate dev` | Создать и применить миграцию при разработке схемы |
-| `npx prisma studio` | Открыть интерфейс управления текущей БД |
+| `npm run dev` | Start the dev server |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Type-check without emitting |
+| `npm test` | Run unit tests (Vitest) |
+| `npm run test:integration` | Run integration tests against the test database |
+| `npm run test:e2e` | Run Playwright E2E tests |
+| `npm run build` | Build the production bundle without migrations (safe locally) |
+| `npm run build:deploy` | Apply migrations and build; used by the hosting provider |
+| `npm run migrate:deploy` | Apply existing migrations to the current `DATABASE_URL` |
+| `npm start` | Serve a built production bundle |
+| `npx prisma migrate dev` | Create and apply a migration during schema development |
+| `npx prisma studio` | Open a UI for the current database |
 
-> `npm run build` намеренно не трогает базу: локальная сборка не должна иметь возможности накатить миграцию. Миграции применяет только `build:deploy`, который прописан в `vercel.json` как `buildCommand`.
+> `npm run build` deliberately leaves the database alone: a local build must not be able to apply a migration. Migrations are applied only by `build:deploy`, which is registered as `buildCommand` in `vercel.json`.
 
-Отдельного автоматизированного test script в проекте пока нет.
+## Limits
 
-## Ограничения
+- additional spaces: at most 5 per user;
+- list or item note: up to 4000 characters;
+- attachment: up to 10 MiB;
+- attachments: up to 5 per list and up to 20 per uploading user;
+- AI insights: up to 15 requests per user per UTC day.
 
-- дополнительные пространства: не более 5 на пользователя;
-- заметка списка или записи: до 4000 символов;
-- вложение: до 10 MiB;
-- вложения: до 5 на список и до 20 на загрузившего пользователя;
-- AI-инсайты: до 15 запросов на пользователя в сутки по UTC.
+## Deployment
 
-## Развёртывание
+The project targets Vercel and uses the `sin1` region. The hosting build runs the `buildCommand` from `vercel.json` — `npm run build:deploy` — which means migrations are applied to whichever database is configured in that Vercel environment's variables. For preview deployments this implies their variables must not point at the production database.
 
-Проект рассчитан на Vercel и использует регион `sin1`. Сборку на хостинге выполняет `buildCommand` из `vercel.json` — `npm run build:deploy`, то есть миграции применяются к той базе, которая задана в environment variables соответствующего окружения Vercel. Для preview-деплоев это означает, что их переменные не должны указывать на production-базу.
+Before a production deploy:
 
-Перед production deploy:
+1. configure all required environment variables;
+2. make sure `DIRECT_URL` allows migrations to be applied;
+3. allow the production origin in Google OAuth, Pusher and the S3 CORS configuration;
+4. verify that PostgreSQL and, if those features are enabled, the insights service are reachable;
+5. run `npm run lint` and a production build in a safe environment.
 
-1. настройте все необходимые environment variables;
-2. убедитесь, что `DIRECT_URL` допускает применение миграций;
-3. разрешите production origin в Google OAuth, Pusher и CORS-конфигурации S3;
-4. проверьте доступность PostgreSQL и, если функции включены, insights-сервиса;
-5. запустите `npm run lint` и production build в безопасном окружении.
+Never publish `.env`, OAuth secrets, the Pusher secret, AWS keys or the AI service shared secret.
 
-Не публикуйте `.env`, OAuth secrets, Pusher secret, AWS keys и shared secret AI-сервиса.
+## Documentation for agents
 
-## Документация для агентов
-
-- `AGENTS.md` — обязательные правила работы в репозитории;
-- `PROJECT_MEMORY.md` — актуальная архитектура, инварианты и важные решения;
-- `CLAUDE.md` — импорт общих инструкций для Claude Code.
+- `AGENTS.md` — mandatory rules for working in this repository;
+- `PROJECT_MEMORY.md` — current architecture, invariants and key decisions;
+- `CLAUDE.md` — imports the shared instructions for Claude Code.
