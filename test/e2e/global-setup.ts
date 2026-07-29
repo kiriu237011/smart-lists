@@ -14,15 +14,17 @@
  */
 
 import { execSync } from "node:child_process";
-import { PrismaClient } from "@prisma/client";
+
+import type { PrismaClient } from "@/generated/prisma/client";
+import { createPrismaClient } from "@/lib/prisma-client";
 
 import { E2E_DATABASE_URL } from "./env";
 
 /**
  * Страховка: миграции и очистка применяются только к заведомо тестовой базе.
  *
- * Prisma CLI читает корневой `.env`, где лежит dev-подключение. Наш явный
- * `DATABASE_URL` его перекрывает, но одна опечатка не должна вести к
+ * prisma.config.ts читает DIRECT_URL из окружения или корневого `.env`.
+ * Setup передаёт адрес E2E-БД явно, но одна опечатка не должна вести к
  * `migrate deploy` и `TRUNCATE` против чужой базы. Признак тестовой базы —
  * имя, содержащее `test`. Обойти сознательно можно `ALLOW_NON_TEST_DB=1`.
  */
@@ -80,7 +82,7 @@ const TABLES = [
 export default async function globalSetup(): Promise<void> {
   assertTestDatabase(E2E_DATABASE_URL);
 
-  const prisma = new PrismaClient({ datasourceUrl: E2E_DATABASE_URL });
+  const prisma = createPrismaClient(E2E_DATABASE_URL);
   try {
     await waitForDatabase(prisma);
 

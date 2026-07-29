@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from "@/generated/prisma/client";
 import prisma from "@/lib/db";
 
 export const LAST_SPACE_COOKIE = "smart-lists-space";

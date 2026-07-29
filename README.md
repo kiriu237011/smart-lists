@@ -20,14 +20,14 @@ Smart Lists is a localized web application for personal and shared lists. It sup
 - Next.js 16 App Router, React 19, TypeScript;
 - Tailwind CSS 4, Framer Motion, Lucide React;
 - Auth.js v5 with Google OAuth;
-- Prisma 6 and PostgreSQL;
+- Prisma 7 with the node-postgres driver adapter, and PostgreSQL;
 - next-intl, Zod, Pino;
 - Pusher, AWS S3, an external FastAPI service for AI;
 - Vitest, Playwright.
 
 ## Requirements
 
-- Node.js 20 or newer;
+- Node.js `^20.19`, `^22.12` or `>=24`;
 - npm;
 - PostgreSQL;
 - a Google OAuth application;
@@ -35,13 +35,7 @@ Smart Lists is a localized web application for personal and shared lists. It sup
 
 ## Local setup
 
-1. Install dependencies:
-
-```bash
-npm install
-```
-
-2. Create a `.env` file in the repository root and fill in the required variables:
+1. Create a `.env` file in the repository root and fill in the required variables:
 
 ```env
 DATABASE_URL=postgresql://user:password@localhost:5432/smart_lists
@@ -53,9 +47,20 @@ AUTH_GOOGLE_ID=google-client-id
 AUTH_GOOGLE_SECRET=google-client-secret
 ```
 
-`DATABASE_URL` and `DIRECT_URL` may be identical locally. In a cloud environment the first one usually uses a pooled connection, while the second is a direct connection used for migrations.
+`DATABASE_URL` and `DIRECT_URL` may be identical locally. In a cloud environment the first one usually uses a pooled connection for the PrismaPg runtime adapter, while the second is loaded by `prisma.config.ts` and used by Prisma CLI for migrations.
+
+The runtime pool is deliberately limited to five connections per application instance, with finite connection and idle timeouts. This avoids inheriting node-postgres defaults that are unsafe for an unbounded number of serverless instances.
 
 > Important: the root `.env` is **development** configuration. The Prisma CLI reads its variables from there, so production connection strings must never land in this file. Production values live only in the hosting provider's environment variables and in GitHub Secrets. This is not limited to the database: Pusher and S3 also use separate resources in development. See [Environment separation](#environment-separation).
+
+2. Install dependencies. The `postinstall` hook generates Prisma Client and
+therefore expects `DIRECT_URL` to be available from the `.env` created above:
+
+```bash
+npm ci
+```
+
+No database connection is opened during client generation.
 
 For Google OAuth, add the callback URL:
 
@@ -180,7 +185,7 @@ The CI pipeline never receives production credentials, so a compromised workflow
 
 **Test databases are ephemeral and guarded.** Integration and E2E jobs run against throwaway PostgreSQL service containers. On top of that, global setup refuses to run when the target database name does not contain `test`, so a typo cannot point `migrate deploy` or `TRUNCATE` at a real database; the escape hatch is an explicit `ALLOW_NON_TEST_DB=1` ([`test/integration/global-setup.ts`](test/integration/global-setup.ts)).
 
-**The one exception is explicit.** The scheduled backup workflow is the only one that holds a real credential — `secrets.DATABASE_URL` for `pg_dump` ([`.github/workflows/backup.yml`](.github/workflows/backup.yml)). It is separate from CI, is not triggered by pull requests, and is the single place to audit when rotating that secret.
+**The one exception is explicit.** The scheduled backup workflow is the only one that holds a real database credential — `secrets.DIRECT_URL` for a direct `pg_dump` connection ([`.github/workflows/backup.yml`](.github/workflows/backup.yml)). It is separate from CI, is not triggered by pull requests, and is the single place to audit when rotating that secret.
 
 Environment isolation is the other half of this story and is described in [Environment separation](#environment-separation).
 
@@ -281,7 +286,7 @@ The same three levels run in GitHub Actions on every branch and pull request. Be
 | `npm run test:e2e` | Run Playwright E2E tests |
 | `npm run build` | Build the production bundle without migrations (safe locally) |
 | `npm run build:deploy` | Apply migrations and build; used by the hosting provider |
-| `npm run migrate:deploy` | Apply existing migrations to the current `DATABASE_URL` |
+| `npm run migrate:deploy` | Apply existing migrations to the current `DIRECT_URL` |
 | `npm start` | Serve a built production bundle |
 | `npx prisma migrate dev` | Create and apply a migration during schema development |
 | `npx prisma studio` | Open a UI for the current database |
@@ -298,7 +303,7 @@ The same three levels run in GitHub Actions on every branch and pull request. Be
 
 ## Deployment
 
-The project targets Vercel and uses the `sin1` region. The hosting build runs the `buildCommand` from `vercel.json` — `npm run build:deploy` — which means migrations are applied to whichever database is configured in that Vercel environment's variables. For preview deployments this implies their variables must not point at the production database.
+The project targets Vercel and uses the `sin1` region. The hosting build runs the `buildCommand` from `vercel.json` — `npm run build:deploy` — which means migrations are applied through the `DIRECT_URL` configured in that Vercel environment. For preview deployments this implies their variables must not point at the production database.
 
 Before a production deploy:
 

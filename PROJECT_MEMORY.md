@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-07-28
+**Последнее обновление:** 2026-07-29
 **Состояние:** активная разработка
 
 ## Назначение
@@ -16,10 +16,11 @@ Smart Lists — локализованное веб-приложение для 
 
 ## Актуальный стек
 
-- Next.js `16.1.4`, App Router, Server Components и Server Actions;
+- Next.js `16.2.12`, App Router, Server Components и Server Actions;
 - React `19.2.3`, TypeScript strict, Tailwind CSS 4, Framer Motion и dnd-kit;
 - Auth.js v5 с Google OAuth и Prisma Adapter;
-- Prisma `6.19.2` и PostgreSQL;
+- Prisma `7.9.1`, генератор `prisma-client`, `@prisma/adapter-pg` и PostgreSQL;
+- runtime-пул `pg`: максимум 5 соединений на экземпляр, connect timeout 5 секунд, idle timeout 10 секунд;
 - `next-intl`: `ru`, `vi`, `en`, `ja`; default locale — `en`;
 - Pusher, приватный S3-бакет и внешний FastAPI-сервис AI-инсайтов;
 - Zod, Pino, React Hot Toast, `next-themes` и `lucide-react`;
@@ -182,7 +183,9 @@ Smart Lists — локализованное веб-приложение для 
 
 Секретные значения никогда не записываются в репозиторий.
 
-- БД: `DATABASE_URL`, `DIRECT_URL`;
+- БД: `DATABASE_URL` для runtime через PrismaPg, `DIRECT_URL` для Prisma CLI
+  через `prisma.config.ts`; локально обе переменные загружает корневой `.env`,
+  в Vercel они задаются окружением;
 - Auth.js: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, при необходимости `AUTH_URL`;
 - Pusher: `PUSHER_APP_ID`, `PUSHER_SECRET`, `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER`;
 - S3: `S3_BUCKET_NAME`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`;
@@ -193,7 +196,7 @@ Smart Lists — локализованное веб-приложение для 
 
 Разработка не имеет доступа к боевым данным. Разведены три сервиса, способные их изменить; для каждого production, Preview на Vercel и локальная среда используют свой ресурс.
 
-- БД — отдельная ветка Neon. Prisma CLI читает корневой `.env`, поэтому боевой URL в нём означал бы, что любая локальная команда Prisma работает с production. Боевые строки подключения существуют только в environment variables Vercel и в GitHub Secrets.
+- БД — отдельная ветка Neon. `prisma.config.ts` загружает `DIRECT_URL` из корневого `.env`, поэтому боевой URL в нём означал бы, что любая локальная команда Prisma работает с production. Боевые строки подключения существуют только в environment variables Vercel и в GitHub Secrets.
 - S3 — отдельный бакет и отдельный IAM-пользователь. Причина: база хранит только ключи, файл существует в одном экземпляре, и на общем бакете удаление вложения в dev-среде стирало боевой файл. Политика dev-пользователя повторяет боевую и ограничена префиксом `lists/*`: расхождение в правах дало бы ключ, работающий локально и падающий в production.
 - Pusher — отдельное приложение. Уведомления идут в каналы `private-user-<id>`, а ID пользователей в копии базы совпадают с боевыми, поэтому на общем приложении локальные мутации дёргали вкладки реальных пользователей.
 - AI-сервис общий и разделения не требует: суточный лимит считается в `AiInsightUsage`, у каждой базы счётчик свой.
@@ -206,9 +209,9 @@ Smart Lists — локализованное веб-приложение для 
 - `npm run lint` — ESLint;
 - `npm run build` — production build Next.js без обращения к БД;
 - `npm run build:deploy` — `prisma migrate deploy`, затем build; вызывается только хостингом через `buildCommand` в `vercel.json`;
-- `npm run migrate:deploy` — применить миграции к текущему `DATABASE_URL` осознанно и вручную;
+- `npm run migrate:deploy` — применить миграции к текущему `DIRECT_URL` осознанно и вручную;
 - `npm start` — запуск production build;
-- `npm run postinstall` — генерация Prisma Client;
+- `npm run postinstall` — генерация Prisma Client в игнорируемый `src/generated/prisma`;
 - `npm run typecheck` — `tsc --noEmit`, быстрая проверка типов без сборки;
 - `npm test` — прогон юнит-тестов Vitest;
 - `npm run test:watch` — те же тесты в watch-режиме;
@@ -344,7 +347,7 @@ OAuth. Следствие: колбэк `signIn` и whitelist `AllowedEmail` E2E
 
 `.github/workflows/ci.yml` на каждый push и pull request запускает четыре job.
 `checks` — lint, typecheck, юнит-тесты и `npm run build` с заведомо нерабочими
-`DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_PUSHER_*` (сборка в БД не ходит).
+`DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_PUSHER_*` (сборка в БД не ходит).
 `integration` — интеграционные тесты против service-контейнера `postgres:17`;
 `prisma migrate deploy` там применяется только к эфемерной базе раннера.
 `e2e` — Playwright с Chromium против такого же service-контейнера на порту 5434;

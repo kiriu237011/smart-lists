@@ -9,7 +9,7 @@
  */
 
 import type { Browser, BrowserContext, Page } from "@playwright/test";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@/generated/prisma/client";
 
 import { expect, signInAs, test } from "./fixtures";
 import { makeItems, makeList, makeUser, type E2EUser } from "./factories";

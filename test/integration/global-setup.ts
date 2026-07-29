@@ -8,7 +8,8 @@
  */
 
 import { execSync } from "node:child_process";
-import { PrismaClient } from "@prisma/client";
+
+import { createPrismaClient } from "@/lib/prisma-client";
 
 const DATABASE_URL =
   process.env.DATABASE_URL ??
@@ -16,7 +17,7 @@ const DATABASE_URL =
 
 /** Пингует БД с ретраями: контейнер может быть ещё не готов к подключению. */
 async function waitForDatabase(): Promise<void> {
-  const prisma = new PrismaClient({ datasourceUrl: DATABASE_URL });
+  const prisma = createPrismaClient(DATABASE_URL);
   const deadline = Date.now() + 45_000;
   let lastError: unknown;
 
@@ -43,8 +44,8 @@ async function waitForDatabase(): Promise<void> {
 /**
  * Страховка: миграции применяются только к заведомо тестовой БД.
  *
- * Prisma CLI читает корневой `.env`, где лежит dev- или боевое подключение.
- * Наш явный `DATABASE_URL` его перекрывает, но одна опечатка не должна вести к
+ * prisma.config.ts читает DIRECT_URL из окружения или корневого `.env`.
+ * Setup передаёт адрес тестовой БД явно, но одна опечатка не должна вести к
  * `migrate deploy` против чужой базы. Признак тестовой базы — имя, содержащее
  * `test`. Обойти сознательно можно переменной `ALLOW_NON_TEST_DB=1`.
  */
