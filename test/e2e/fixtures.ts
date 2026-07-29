@@ -16,7 +16,9 @@
 
 import { randomUUID } from "node:crypto";
 import { test as base, type BrowserContext } from "@playwright/test";
-import { PrismaClient } from "@prisma/client";
+
+import type { PrismaClient } from "@/generated/prisma/client";
+import { createPrismaClient } from "@/lib/prisma-client";
 
 import { E2E_BASE_URL, E2E_DATABASE_URL, SESSION_COOKIE } from "./env";
 import { makeUser, type E2EUser } from "./factories";
@@ -37,7 +39,7 @@ export const anonymousTest = base.extend<object, WorkerFixtures>({
     // Playwright требует именно деструктуризацию в первом аргументе: по её
     // ключам он определяет зависимости фикстуры. Здесь зависимостей нет.
     async ({}, use) => {
-      const db = new PrismaClient({ datasourceUrl: E2E_DATABASE_URL });
+      const db = createPrismaClient(E2E_DATABASE_URL);
       await use(db);
       await db.$disconnect();
     },

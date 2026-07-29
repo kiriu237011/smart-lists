@@ -2,10 +2,11 @@
 // Конфигурация генератора Prisma Client
 // =============================================================================
 
-/// Генератор создаёт TypeScript-клиент (`@prisma/client`) на основе этой схемы.
+/// Генератор создаёт TypeScript-клиент в `src/generated/prisma` на основе этой схемы.
 /// Запускается командой: `npx prisma generate`
 generator client {
-  provider        = "prisma-client-js"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
   // relationJoins: позволяет relationLoadStrategy: "join" — вложенные связи
   // грузятся ОДНИМ SQL-запросом (LATERAL JOIN) вместо серии последовательных.
   // Критично при удалённой БД: каждый лишний запрос = +RTT до Сингапура.
@@ -17,12 +18,10 @@ generator client {
 // =============================================================================
 
 /// Подключение к базе данных PostgreSQL.
-/// URL хранится в переменной окружения DATABASE_URL (файл .env.local).
-/// Формат: postgresql://USER:PASSWORD@HOST:PORT/DATABASE
+/// Runtime-подключение задаётся адаптеру через DATABASE_URL.
+/// Prisma CLI получает прямое подключение DIRECT_URL из корневого prisma.config.ts.
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 
 // =============================================================================

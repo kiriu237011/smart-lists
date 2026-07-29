@@ -46,7 +46,7 @@ import {
   deleteObject,
   isS3Configured,
 } from "@/lib/s3";
-import type { FileCategory } from "@prisma/client";
+import type { FileCategory } from "@/generated/prisma/client";
 
 /** Результат запроса на загрузку: данные для прямого POST в S3. */
 interface RequestUploadResult {

@@ -138,6 +138,8 @@ jobs:
       # он же поднимает сборку и сервер. Имя базы содержит "test" — проходит
       # защиту global-setup от прогона против не-тестовой базы.
       E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5434/smartlists_e2e_test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5434/smartlists_e2e_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5434/smartlists_e2e_test
 
     steps:
       - uses: actions/checkout@v4

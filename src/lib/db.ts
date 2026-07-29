@@ -13,14 +13,19 @@
  * В production этот трюк не нужен, т.к. модули инициализируются только один раз.
  */
 
-import { PrismaClient } from "@prisma/client";
+import { createPrismaClient } from "@/lib/prisma-client";
 
 /**
  * Фабричная функция, создающая новый экземпляр PrismaClient.
  * Вынесена отдельно, чтобы TypeScript мог вывести корректный тип через ReturnType<>.
  */
 const prismaClientSingleton = () => {
-  return new PrismaClient({
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("Для Prisma Client не задана переменная окружения DATABASE_URL.");
+  }
+
+  return createPrismaClient(databaseUrl, {
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "error", "warn"]

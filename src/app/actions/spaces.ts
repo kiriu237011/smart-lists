@@ -3,7 +3,7 @@
 import { after } from "next/server";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { auth } from "@/auth";
 import prisma from "@/lib/db";

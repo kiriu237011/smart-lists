@@ -32,7 +32,7 @@ jobs:
             --no-privileges \
             --no-owner \
             -Fc \
-            -d "${{ secrets.DATABASE_URL }}" \
+            -d "${{ secrets.DIRECT_URL }}" \
             -f backup.dump
 
       - name: Verify dump
