@@ -459,14 +459,23 @@ describe("moveListInGroup", () => {
     await prisma.listGroupMembership.createMany({
       data: [
         { groupId: group.id, listId: lists[0].id, position: 1 },
-        {
-          groupId: group.id,
-          listId: lists[1].id,
-          position: 1 + Number.EPSILON,
-        },
+        { groupId: group.id, listId: lists[1].id, position: 2 },
         { groupId: group.id, listId: lists[2].id, position: 3 },
       ],
     });
+    // Соседний double выставляем литералом в SQL, а не параметром Prisma.
+    // Prisma сериализует числовые параметры примерно с 16 значащими цифрами,
+    // поэтому `1 + Number.EPSILON` (17 цифр) доезжал до колонки как ровно 1.
+    // Позиции A и B совпадали, порядок начинал решать тайбрейк по `createdAt`,
+    // а списки создаются конкурентно — и тест падал в четверти прогонов из-за
+    // того, какая вставка закоммитилась первой. Литерал Postgres разбирает
+    // точно, позиции остаются различимы, и середина между ними совпадает с
+    // границей — то самое исчерпание точности, ради которого тест и написан.
+    await prisma.$executeRawUnsafe(
+      `UPDATE "_ListGroupMembers" SET position = 1.0000000000000002 WHERE "A" = $1 AND "B" = $2`,
+      lists[1].id,
+      group.id,
+    );
     setSessionUser(user.id);
 
     const result = await moveListInGroup(

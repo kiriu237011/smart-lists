@@ -3,6 +3,12 @@ name: CI
 # Проверка каждой ветки и каждого PR. Ничего не деплоит и не трогает боевые
 # ресурсы: миграции применяет только `build:deploy`, назначенный buildCommand
 # в vercel.json, а он здесь не вызывается.
+#
+# Ветка, живущая в самом репозитории, уже покрыта событием `push`, поэтому её
+# PR давал второй прогон того же коммита — вдвое больше минут и два одинаковых
+# набора статусов. Условие на каждой job оставляет `pull_request` только для
+# форков: их веток здесь нет, и push-событие для них не приходит. Статус всё
+# равно виден в PR, потому что проверки привязаны к коммиту, а не к событию.
 on:
   push:
     branches: ['**']
@@ -20,6 +26,8 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    # Свои ветки проверяет `push`; здесь остаются только PR из форков.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
 
     # Заведомо нерабочие значения. Нужны, потому что `prisma generate` читает
     # datasource из схемы, а Next при сборке подставляет NEXT_PUBLIC_* в бандл.
@@ -64,6 +72,8 @@ jobs:
   # эфемерной базе service-контейнера, а не к боевой.
   integration:
     runs-on: ubuntu-latest
+    # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
 
     services:
       postgres:
@@ -105,6 +115,8 @@ jobs:
   # тоже эфемерный service-контейнер; боевые ресурсы не затрагиваются.
   e2e:
     runs-on: ubuntu-latest
+    # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
 
     services:
       postgres:
@@ -162,6 +174,8 @@ jobs:
   # проверка нужна и на PR со стороны.
   secrets:
     runs-on: ubuntu-latest
+    # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
 
     steps:
       - uses: actions/checkout@v4

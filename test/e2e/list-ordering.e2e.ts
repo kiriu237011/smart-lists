@@ -98,23 +98,30 @@ test("карточки перетаскиваются между колонка�
     lists[3].id,
     undefined,
     async () => {
-      await expect(
-        page.locator(
-          `[data-testid="list-sortable"][data-list-id="${lists[6].id}"]`,
-        ),
-      ).toHaveCount(2);
-      const [columnBox, firstCardBox] = await Promise.all([
-        page.getByTestId("lists-column").first().boundingBox(),
-        page
-          .locator(
-            `[data-testid="list-sortable"][data-list-id="${lists[0].id}"]`,
-          )
-          .boundingBox(),
-      ]);
-      if (!columnBox || !firstCardBox) {
-        throw new Error("Не удалось измерить раскладку после межколоночного drop");
-      }
-      expect(Math.abs(firstCardBox.y - columnBox.y)).toBeLessThan(2);
+      // Раньше здесь стояло ожидание двух копий карточки G: старая доигрывает
+      // exit-анимацию, пока новая уже смонтирована. Это состояние транзиентное,
+      // и на быстром прогоне оно успевало закончиться до первой проверки —
+      // счётчик уже не мог стать равным двум, и тест падал примерно в четверти
+      // прогонов CI, ожидая момент вместо инварианта.
+      //
+      // Проверяемое свойство от анимации не зависит: уходящая копия не должна
+      // занимать место в потоке и сдвигать A вниз, то есть A обязан оказаться
+      // прижат к верху первой колонки. Дожидаемся именно этого. Если копия
+      // вернётся в поток, A останется смещённым и ожидание не сойдётся.
+      await expect
+        .poll(async () => {
+          const [columnBox, firstCardBox] = await Promise.all([
+            page.getByTestId("lists-column").first().boundingBox(),
+            page
+              .locator(
+                `[data-testid="list-sortable"][data-list-id="${lists[0].id}"]`,
+              )
+              .boundingBox(),
+          ]);
+          if (!columnBox || !firstCardBox) return null;
+          return Math.abs(firstCardBox.y - columnBox.y) < 2;
+        })
+        .toBe(true);
     },
   );
 
