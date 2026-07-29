@@ -2,8 +2,16 @@ name: Database Backup
 
 on:
   schedule:
-    - cron: '0 3 * * 1'  # каждый понедельник в 3:00 ночи (UTC)
+    # 15:00 UTC = 00:00 следующего дня в Токио (JST = UTC+9, перехода на летнее
+    # время в Японии нет, поэтому смещение постоянное). GitHub исполняет
+    # расписание с задержкой до полутора часов — точное время не гарантировано.
+    - cron: '0 15 * * *'
   workflow_dispatch:       # эта строка позволяет запустить вручную
+
+# id-token нужен для OIDC-обмена с AWS; доступ к самому репозиторию не требуется,
+# потому что checkout здесь не выполняется.
+permissions:
+  id-token: write
 
 jobs:
   backup:
@@ -27,9 +35,30 @@ jobs:
             -d "${{ secrets.DATABASE_URL }}" \
             -f backup.dump
 
-      - name: Upload backup as artifact
-        uses: actions/upload-artifact@v4
+      - name: Verify dump
+        run: |
+          # Битый или обрезанный дамп обнаруживается только при восстановлении,
+          # когда он уже нужен. Читаем оглавление сразу: это ловит порчу архива.
+          /usr/lib/postgresql/17/bin/pg_restore --list backup.dump > /dev/null
+          echo "dump size: $(stat -c%s backup.dump) bytes"
+
+      # OIDC вместо долгоживущих ключей: GitHub подписывает токен, AWS меняет его
+      # на временные креды. Роль доверяет только ветке main этого репозитория,
+      # поэтому форки и pull request'ы получить их не могут.
+      - name: Configure AWS credentials
+        # Пин по SHA, а не по тегу: тег можно передвинуть на другой коммит, и job
+        # с правом получить AWS-креды выполнил бы чужой код. Обновлять вручную.
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
-          name: backup-${{ github.run_id }}
-          path: backup.dump
-          retention-days: 90
+          role-to-assume: ${{ secrets.BACKUP_AWS_ROLE_ARN }}
+          aws-region: ap-northeast-1
+
+      # Дамп содержит email пользователей, OAuth-токены и всё содержимое списков,
+      # поэтому уходит только в приватный бакет. Артефакты Actions для этого не
+      # годятся: в публичном репозитории их может скачать любой желающий.
+      - name: Upload to S3
+        run: |
+          # Имя по токийской дате: запуск в 15:00 UTC относится уже к следующим
+          # суткам JST, и по UTC-дате файлы отставали бы на день от расписания.
+          KEY="backups/smart-lists-$(TZ=Asia/Tokyo date +%Y-%m-%d).dump"
+          aws s3 cp backup.dump "s3://${{ secrets.BACKUP_S3_BUCKET }}/${KEY}" --no-progress
