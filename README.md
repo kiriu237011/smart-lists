@@ -218,15 +218,39 @@ test/
 
 ## Environment separation
 
-Development must not be able to reach production. Three external services can modify live data, and all three are split: the database, file storage and realtime.
+Development must not be able to reach production. Authentication and the three external services that can modify live data are split between environments.
 
-| Environment | Database | Pusher | S3 |
-| --- | --- | --- | --- |
-| Production | Neon production branch | production app | production bucket |
-| Preview (Vercel) | `dev` branch | dev app | dev bucket |
-| Local | `dev` branch | dev app | dev bucket |
+| Environment | Authentication | Database | Pusher | S3 |
+| --- | --- | --- | --- | --- |
+| Production | production secret and Google client | Neon production branch | production app | production bucket |
+| Preview (Vercel) | preview secret and Google client | `dev` branch | dev app | dev bucket |
+| Local | values from the local `.env` | `dev` branch | dev app | dev bucket |
 
 Only the AI service stays shared. That is safe: the daily quota is counted in the `AiInsightUsage` table, so each database has its own counter and the production quota is not consumed from a dev environment.
+
+### Preview authentication
+
+Vercel gives every Git branch a stable branch URL, but Google OAuth requires an exact callback and does not accept a wildcard for arbitrary preview branches. Auth.js therefore uses the permanent `preview` branch as a redirect proxy for every Preview deployment.
+
+The `preview` branch is infrastructure, not a feature-development branch. Keep it available and update it from `main` when authentication routes or Auth.js change. Its stable URL is:
+
+```text
+https://smart-lists-git-preview-kirills-projects-ed9814e1.vercel.app
+```
+
+The Preview Google OAuth client registers exactly this callback:
+
+```text
+https://smart-lists-git-preview-kirills-projects-ed9814e1.vercel.app/api/auth/callback/google
+```
+
+Vercel defines the following variable for the Preview environment only:
+
+```env
+AUTH_REDIRECT_PROXY_URL=https://smart-lists-git-preview-kirills-projects-ed9814e1.vercel.app/api/auth
+```
+
+Auth.js appends the provider callback path and securely returns the browser to the Preview deployment that initiated sign-in. This flow requires all Preview deployments and the proxy branch to share the same **Preview-only** `AUTH_SECRET`. Production has a different `AUTH_SECRET` and a different Google OAuth client; never expose either production credential to Preview.
 
 ### Database
 
