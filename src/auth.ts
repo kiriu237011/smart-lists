@@ -29,6 +29,7 @@ import Google from "next-auth/providers/google";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import prisma from "@/lib/db";
 import { logger, hashId } from "@/lib/logger";
+import { deniedSignInLogContext } from "@/lib/auth-errors";
 import { ensureSpaceState } from "@/lib/spaces";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -81,7 +82,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         select: { id: true },
       });
       if (!allowed) {
-        logger.warn({ action: "signIn.denied", email }, "Попытка входа с неразрешённого email");
+        logger.warn(
+          deniedSignInLogContext(email),
+          "Попытка входа с неразрешённого email",
+        );
         return false;
       }
       logger.info({ action: "signIn", uid: hashId(user.id ?? "") }, "Успешный вход");
