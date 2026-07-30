@@ -41,9 +41,11 @@ jobs:
       NEXT_PUBLIC_PUSHER_CLUSTER: ap1
 
     steps:
-      - uses: actions/checkout@v4
+      # Полные SHA не позволяют владельцу action незаметно передвинуть тег.
+      # Комментарий с версией оставлен для Dependabot и ручных обновлений.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -97,9 +99,9 @@ jobs:
       DIRECT_URL: postgresql://postgres:postgres@localhost:5433/smartlists_test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -142,9 +144,9 @@ jobs:
       DIRECT_URL: postgresql://postgres:postgres@localhost:5434/smartlists_e2e_test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -164,7 +166,7 @@ jobs:
       # разобрать падение, которое не воспроизводится локально.
       - name: Upload report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-report
           path: playwright-report/
@@ -180,7 +182,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Вся история, а не последний коммит: секрет, добавленный и удалённый
           # внутри одного PR, остаётся в промежуточных коммитах.
@@ -191,9 +193,16 @@ jobs:
       - name: Install gitleaks
         env:
           GITLEAKS_VERSION: 8.30.1
+          # SHA-256 из официального gitleaks_8.30.1_checksums.txt.
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin gitleaks
+          ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          ARCHIVE_PATH="${RUNNER_TEMP}/${ARCHIVE}"
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${ARCHIVE}" \
+            --output "${ARCHIVE_PATH}"
+          echo "${GITLEAKS_SHA256}  ${ARCHIVE_PATH}" | sha256sum --check -
+          sudo tar -xzf "${ARCHIVE_PATH}" -C /usr/local/bin gitleaks
 
       # --redact: найденное значение не печатается в лог, который публичен.
       - name: Scan history
