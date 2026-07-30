@@ -2,6 +2,8 @@
 
 Smart Lists is a localized web application for personal and shared lists. It supports spaces, groups, realtime updates, notes, attachments and AI insights, plus a separate guest mode that requires no sign-up.
 
+**Live app:** [smart-lists-iota.vercel.app](https://smart-lists-iota.vercel.app/)
+
 ## Features
 
 - personal space plus up to five additional spaces per user;
@@ -179,7 +181,7 @@ Every component holds the narrowest set of rights that still lets it do its job.
 
 The CI pipeline never receives production credentials, so a compromised workflow, dependency or pull request has nothing to steal and nothing to reach.
 
-**No real secrets in CI.** The checks job runs with deliberately non-functional placeholder values, present only because `prisma generate` needs a datasource and Next inlines `NEXT_PUBLIC_*` at build time — the build never opens a database connection ([`.github/workflows/ci.yml`](.github/workflows/ci.yml#L24-L33)). The workflow token is restricted to `permissions: contents: read` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml#L17-L18)).
+**No real secrets in CI.** The checks job runs with deliberately non-functional placeholder values, present only because `prisma generate` needs a datasource and Next inlines `NEXT_PUBLIC_*` at build time — the build never opens a database connection ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The workflow token is restricted to `permissions: contents: read` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 **CI does not deploy and does not migrate.** Migrations are applied exclusively by `build:deploy`, which is Vercel's `buildCommand` in `vercel.json`, against the database configured for that Vercel environment. Nothing in CI invokes it.
 
