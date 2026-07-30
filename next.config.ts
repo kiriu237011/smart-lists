@@ -16,7 +16,8 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
 ];
 
-const nextConfig: NextConfig = {
+export const nextConfig: NextConfig = {
+  poweredByHeader: false,
   async headers() {
     return [
       {

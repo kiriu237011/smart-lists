@@ -129,6 +129,8 @@ Smart Lists — локализованное веб-приложение для 
 - Клиент подписывается на `private-user-<userId>`; endpoint `/api/pusher/auth` разрешает только собственный канал.
 - Событие `refresh` вызывает `router.refresh()`; вкладка-автор исключается по `socketId`.
 - Ошибка Pusher логируется и не отменяет успешную запись в БД.
+- Отклонённое имя Pusher-канала в лог не попадает: для корреляции сохраняются
+  только короткие хеши пользователя и присланного имени канала.
 - Мутация, затрагивающая два списка сразу, уведомляет участников обоих через `notifyListsMembers`: наборы получателей у списков разные, а объединение в один Set не даёт задвоенный `refresh` тем, кто состоит в обоих.
 
 ### Гостевой режим
@@ -223,7 +225,8 @@ Smart Lists — локализованное веб-приложение для 
 
 - `npm run dev` — локальный dev server;
 - `npm run lint` — ESLint;
-- `npm run build` — production build Next.js без обращения к БД;
+- `npm run build` — production build Next.js без обращения к БД; production
+  response не публикует служебный заголовок `X-Powered-By`;
 - `npm run build:deploy` — `prisma migrate deploy`, затем build; вызывается только хостингом через `buildCommand` в `vercel.json`;
 - `npm run migrate:deploy` — применить миграции к текущему `DIRECT_URL` осознанно и вручную;
 - `npm start` — запуск production build;
@@ -231,10 +234,12 @@ Smart Lists — локализованное веб-приложение для 
 - `npm run typecheck` — `tsc --noEmit`, быстрая проверка типов без сборки;
 - `npm test` — прогон юнит-тестов Vitest;
 - `npm run test:watch` — те же тесты в watch-режиме;
-- `npm run test:integration:db` — поднять тестовый PostgreSQL в Docker (порт 5433);
+- `npm run test:integration:db` — поднять тестовый PostgreSQL в Docker
+  (порт 5433 доступен только через `127.0.0.1`);
 - `npm run test:integration` — интеграционные тесты Server Actions против этой БД;
 - `npm run test:integration:db:down` — погасить тестовый контейнер;
-- `npm run test:e2e:db` — поднять базу E2E в Docker (порт 5434, профиль `e2e`);
+- `npm run test:e2e:db` — поднять базу E2E в Docker (порт 5434 доступен
+  только через `127.0.0.1`, профиль `e2e`);
 - `npm run test:e2e` — E2E-тесты Playwright; собирают приложение и поднимают его сами;
 - `npm run test:e2e:ui` — те же тесты в UI-режиме Playwright;
 - `npm run test:e2e:db:down` — погасить базу E2E.
@@ -429,7 +434,7 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 нужно править только при смене ветки, с которой идёт запуск.
 
 Секреты репозитория: `BACKUP_S3_BUCKET`, `BACKUP_AWS_ROLE_ARN` (плюс уже
-существовавший `DATABASE_URL`). Срок хранения задаётся lifecycle-правилом бакета
+существовавший `DIRECT_URL`). Срок хранения задаётся lifecycle-правилом бакета
 `expire-backups-30d`, а не workflow.
 
 ## Важные решения

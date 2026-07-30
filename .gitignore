@@ -29,6 +29,12 @@
 # misc
 .DS_Store
 *.pem
+*.key
+*.p12
+*.pfx
+*.dump
+*.sqlite
+*.sqlite3
 
 # debug
 npm-debug.log*
