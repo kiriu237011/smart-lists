@@ -10,8 +10,12 @@
  */
 
 import { auth } from "@/auth";
-import { pusherServer } from "@/lib/pusher-server";
 import { logger, hashId } from "@/lib/logger";
+import {
+  buildDeniedPusherChannelLogContext,
+  pusherChannelName,
+} from "@/lib/pusher-auth";
+import { pusherServer } from "@/lib/pusher-server";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
@@ -33,9 +37,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Разрешаем подписку только на собственный канал пользователя
-  const expectedChannel = `private-user-${session.user.id}`;
+  const expectedChannel = pusherChannelName(session.user.id);
   if (channelName !== expectedChannel) {
-    logger.warn({ uid: hashId(session.user.id), channelName, action: "pusherAuth" }, "Попытка подписки на чужой Pusher-канал");
+    logger.warn(
+      buildDeniedPusherChannelLogContext(session.user.id, channelName),
+      "Попытка подписки на чужой Pusher-канал",
+    );
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
