@@ -221,6 +221,50 @@ Smart Lists — локализованное веб-приложение для 
 
 Следствие для пересоздания dev-ветки: приехавшие из прода строки `Attachment` указывают на объекты боевого бакета, которых в dev-бакете нет. Такие вложения локально не открываются, а их удаление обращается к несуществующему ключу и боевой файл не затрагивает.
 
+## Заголовки безопасности
+
+Задаются в `next.config.ts` через `headers()` на `/:path*`, поэтому попадают на
+все ответы, включая `/api/*` и `/auth-error` — оба исключены из матчера
+`proxy.ts`. Состав закреплён тестами в `test/next-config.test.ts`.
+
+`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`
+(camera/microphone/geolocation отключены), `Strict-Transport-Security` на год.
+
+Content Security Policy заведена частично — только директивы, не требующие
+per-request nonce:
+
+```
+base-uri 'self'; object-src 'none'; frame-ancestors 'none';
+form-action 'self' https://accounts.google.com
+```
+
+- `default-src`, `script-src`, `style-src`, `connect-src` и `img-src`
+  намеренно НЕ заданы. Без `default-src` браузер эти типы ресурсов не
+  ограничивает, поэтому заголовок статический и не влияет на рендеринг.
+- `accounts.google.com` в `form-action` обязателен. Проверено в Chromium:
+  без JS форма входа уходит обычным POST, Auth.js отвечает редиректом на
+  Google, и Chrome применяет `form-action` к цели редиректа, а не только к
+  `action` формы. С `form-action 'self'` вход ломается. В Preview цель та же —
+  redirect proxy Auth.js подменяет только `redirect_uri`
+  (`@auth/core/lib/actions/signin/authorization-url.js`), а не адрес, куда
+  уходит браузер.
+- `frame-ancestors 'none'` дублирует `X-Frame-Options`; старый заголовок
+  оставлен для браузеров, не знающих директиву.
+
+Что нужно для полной политики (issue #31) и почему это отдельная задача:
+`script-src` требует nonce на каждый запрос — Next.js инлайнит bootstrap и RSC
+payload, их содержимое меняется от запроса к запросу, и hash-подход
+неприменим. Nonce выдаётся только из `proxy.ts`, что переводит страницы в
+динамический рендеринг и оставляет без политики исключённые из матчера
+маршруты. Инвентаризация источников на момент 2026-07-30:
+`img-src` — `flagcdn.com` (флаги локалей); `connect-src` — Pusher
+(`wss://ws-<cluster>.pusher.com`, `https://sockjs-<cluster>.pusher.com`) и хост
+S3-бакета (клиент делает прямой POST в presigned URL); `font-src 'self'`
+(`next/font` самохостит Geist); `style-src` потребует `'unsafe-inline'` —
+React прокидывает `style={{...}}`, framer-motion пишет inline-стили.
+AI-сервис вызывается с сервера и в политику не входит.
+
 ## Команды и проверка
 
 - `npm run dev` — локальный dev server;
@@ -439,6 +483,15 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-07-30: CSP введена частично — только nonce-независимые директивы
+  (см. «Заголовки безопасности»). Полная политика отложена сознательно:
+  живой поверхности XSS сейчас нет (`dangerouslySetInnerHTML` в `src/` не
+  используется, `react-markdown` работает без `rehype-raw` и экранирует HTML,
+  `eval` отсутствует, внешние скрипты не грузятся), поэтому `script-src` —
+  страховка от будущей регрессии и скомпрометированной зависимости, а не
+  закрытие дыры. Разделение даёт ценность сразу и без риска: `base-uri` был
+  единственным непокрытым пробелом, а цена ошибки в `script-src` — белый экран
+  на проде.
 - 2026-07-30: для OAuth во всех Vercel Preview deployments оставлен один
   Preview Google client через встроенный redirect proxy Auth.js. Постоянная
   ветка `preview` даёт единственный стабильный callback; исходный адрес
