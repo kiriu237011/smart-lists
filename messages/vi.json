@@ -48,6 +48,8 @@
     "deleteListAction": "Xóa danh sách",
     "collapseAction": "Thu gọn danh sách",
     "expandAction": "Mở rộng danh sách",
+    "collapsePanel": "Thu gọn bảng điều khiển",
+    "expandPanel": "Mở rộng bảng điều khiển",
     "moveEarlierAction": "Di chuyển lên trước",
     "moveLaterAction": "Di chuyển xuống sau",
     "ariaDragList": "Kéo danh sách {title}",

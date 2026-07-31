@@ -236,6 +236,10 @@ export default function ListsContainer({
   // Ключи localStorage для UI-настроек: у гостя свои, чтобы значения
   // (например, ID активной группы) не пересекались с аккаунтом в этом браузере
   const tabStorageKey = api.isGuest ? "guest:activeTab" : "activeTab";
+  // Свёрнутость верхней панели общая для всех пространств, как и активная
+  // вкладка: панель одна и та же везде, а её состояние — привычка работы с
+  // интерфейсом на этом устройстве, а не свойство конкретного пространства.
+  const panelStorageKey = api.isGuest ? "guest:topPanel" : "topPanel";
   const groupStorageKey = api.isGuest
     ? "guest:activeGroupId"
     : `activeGroupId:${spaceId}`;
@@ -306,6 +310,26 @@ export default function ListsContainer({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  /**
+   * Свёрнута ли верхняя панель создания и поиска.
+   *
+   * По умолчанию раскрыта, поэтому серверная разметка совпадает с первым
+   * клиентским рендером: сохранённое значение приезжает эффектом после
+   * гидрации, как активная вкладка и набор свёрнутых карточек.
+   */
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+
+  /**
+   * Разрешена ли анимация сворачивания панели.
+   *
+   * Сохранённое значение приезжает эффектом после гидрации: сервер отрисовал
+   * панель раскрытой, и её закрытие на загрузке — восстановление, а не действие
+   * пользователя. Анимировать там нечего: 180 мс схлопывания в самом верху
+   * страницы сдвигают всё под ней и читаются как сбой. Флаг включает первое же
+   * переключение руками.
+   */
+  const [isPanelAnimated, setIsPanelAnimated] = useState(false);
+
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   // isPending: true пока React рендерит результаты поиска (низкоприоритетный переход)
@@ -334,9 +358,32 @@ export default function ListsContainer({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsSearchOpen(localStorage.getItem(tabStorageKey) === "search");
+    setIsPanelCollapsed(localStorage.getItem(panelStorageKey) === "collapsed");
     const savedGroupId = localStorage.getItem(groupStorageKey);
     if (savedGroupId) setActiveGroupId(savedGroupId);
-  }, [tabStorageKey, groupStorageKey]);
+  }, [tabStorageKey, panelStorageKey, groupStorageKey]);
+
+  /** Сворачивает или разворачивает верхнюю панель, запоминая выбор. */
+  const handleTogglePanel = useCallback(() => {
+    setIsPanelAnimated(true);
+    setIsPanelCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(panelStorageKey, next ? "collapsed" : "expanded");
+      return next;
+    });
+  }, [panelStorageKey]);
+
+  /**
+   * Раскрывает панель при переключении вкладки.
+   *
+   * Вкладки видны и в свёрнутом виде, поэтому клик по ним обязан что-то
+   * показывать: иначе переключение выглядит как сломанная кнопка.
+   */
+  const expandPanel = useCallback(() => {
+    setIsPanelAnimated(true);
+    setIsPanelCollapsed(false);
+    localStorage.setItem(panelStorageKey, "expanded");
+  }, [panelStorageKey]);
 
   /**
    * Эффект: чтение свёрнутых карточек и уборка ID исчезнувших списков.
@@ -1369,21 +1416,28 @@ export default function ListsContainer({
         listDropTargetGroupId={listDropTargetGroupId}
       />
 
-      {/* Панель с вкладками Создать/Поиск и переключателем авторов */}
+      {/* Панель с вкладками Создать/Поиск */}
       <ListsTopPanel
         isSearchOpen={isSearchOpen}
         searchInput={searchInput}
         isSearching={isSearching}
         isPending={isPending}
+        isCollapsed={isPanelCollapsed}
+        animateCollapse={isPanelAnimated}
         searchInputRef={searchInputRef}
+        onToggleCollapse={handleTogglePanel}
         onTabCreate={() => {
           setIsSearchOpen(false);
           setSearchInput("");
+          expandPanel();
           localStorage.setItem(tabStorageKey, "create");
         }}
         onTabSearch={() => {
           setIsSearchOpen(true);
+          expandPanel();
           localStorage.setItem(tabStorageKey, "search");
+          // Поле монтируется вместе с раскрытием панели, поэтому фокус ставится
+          // следующим кадром — к этому моменту оно уже в DOM.
           requestAnimationFrame(() => searchInputRef.current?.focus());
         }}
         onSearchChange={(value) => setSearchInput(value)}
