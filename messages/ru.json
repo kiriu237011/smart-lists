@@ -48,6 +48,8 @@
     "deleteListAction": "Удалить список",
     "collapseAction": "Свернуть список",
     "expandAction": "Развернуть список",
+    "collapsePanel": "Свернуть панель",
+    "expandPanel": "Развернуть панель",
     "moveEarlierAction": "Переместить раньше",
     "moveLaterAction": "Переместить позже",
     "ariaDragList": "Перетащить список {title}",

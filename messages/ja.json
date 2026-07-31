@@ -48,6 +48,8 @@
     "deleteListAction": "リストを削除",
     "collapseAction": "リストを折りたたむ",
     "expandAction": "リストを展開",
+    "collapsePanel": "パネルを折りたたむ",
+    "expandPanel": "パネルを展開",
     "moveEarlierAction": "前へ移動",
     "moveLaterAction": "後ろへ移動",
     "ariaDragList": "リスト「{title}」をドラッグ",

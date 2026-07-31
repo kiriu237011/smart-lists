@@ -31,6 +31,7 @@ import { useTranslations } from "next-intl";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
 import SmartList from "@/components/lists/SmartList";
+import CollapseChevron from "@/components/ui/CollapseChevron";
 import Highlight from "@/components/ui/Highlight";
 import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
 import AiInsight, { AiInsightButton } from "@/components/lists/AiInsight";
@@ -154,11 +155,6 @@ export type ListCardProps = {
   onMoveInGroup?: (listId: string, direction: "earlier" | "later") => void;
 };
 
-/**
- * Шеврон сворачивания: вниз у раскрытой карточки, вправо у свёрнутой.
- * Поворот делается CSS-трансформом, а не второй иконкой, — так переход между
- * состояниями читается как одно движение.
- */
 /** Зазор между кнопкой и её меню. */
 const MENU_GAP = 4;
 
@@ -168,27 +164,6 @@ const MENU_GAP = 4;
  * обрезанным даже когда влезло целиком.
  */
 const MENU_EDGE_GAP = 12;
-
-function CollapseChevron({ isCollapsed }: { isCollapsed: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      className={`transition-transform duration-150 ${
-        isCollapsed ? "-rotate-90" : ""
-      }`}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
 
 /**
  * Мемоизированная карточка одного списка.

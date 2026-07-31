@@ -48,6 +48,8 @@
     "deleteListAction": "Delete list",
     "collapseAction": "Collapse list",
     "expandAction": "Expand list",
+    "collapsePanel": "Collapse panel",
+    "expandPanel": "Expand panel",
     "moveEarlierAction": "Move earlier",
     "moveLaterAction": "Move later",
     "ariaDragList": "Drag list {title}",
