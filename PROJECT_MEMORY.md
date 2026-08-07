@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-07-31
+**Последнее обновление:** 2026-08-07
 **Состояние:** активная разработка
 
 ## Назначение
@@ -16,7 +16,7 @@ Smart Lists — локализованное веб-приложение для 
 
 ## Актуальный стек
 
-- Next.js `16.2.12`, App Router, Server Components и Server Actions;
+- Next.js `16.3.0`, App Router, Server Components и Server Actions;
 - React `19.2.3`, TypeScript strict, Tailwind CSS 4, Framer Motion и dnd-kit;
 - Auth.js v5 с Google OAuth и Prisma Adapter;
 - Prisma `7.9.1`, генератор `prisma-client`, `@prisma/adapter-pg` и PostgreSQL;
@@ -446,7 +446,11 @@ OAuth. Следствие: колбэк `signIn` и whitelist `AllowedEmail` E2E
 
 ### CI
 
-`.github/workflows/ci.yml` на каждый push и pull request запускает четыре job.
+`.github/workflows/ci.yml` запускает четыре job на каждый push обычной ветки и
+на pull request из форка или от Dependabot. Для внутренних пользовательских
+веток pull_request-прогон пропускается как дубль push-прогона; для
+`dependabot/**`, наоборот, push отключён, потому что бот его не создаёт, и
+используется pull_request-прогон.
 `checks` — lint, typecheck, юнит-тесты и `npm run build` с заведомо нерабочими
 `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_PUSHER_*` (сборка в БД не ходит).
 `integration` — интеграционные тесты против service-контейнера `postgres:17`;
