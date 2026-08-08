@@ -355,7 +355,9 @@ function SubItemsList({
   label: string;
   children: ReactNode;
 }) {
-  const className = "mt-1 ml-2 border-l border-gray-200 pl-3 dark:border-zinc-700";
+  // Уровень читается по отступу и по колонке номера «x.y»; вертикальная линия
+  // добавляла третий признак того же самого и утяжеляла карточку.
+  const className = "mt-1 ml-2 pl-3";
 
   if (!reorderable) {
     return (
@@ -1131,15 +1133,15 @@ export default function SmartList({
      * 3rem. Менять классы колонок — менять и эти значения, иначе заметка
      * съедет относительно текста.
      */
+    // У подпункта колонка ручки есть всегда — пустая, когда ручки нет.
+    const hasHandleColumn = Boolean(dragControls) || isSubItem;
     const rowIndent = showItemNumbers
-      ? dragControls
+      ? hasHandleColumn
         ? isSubItem
           ? "ml-[6.75rem]"
           : "ml-[5.5rem]"
-        : isSubItem
-          ? "ml-[5rem]"
-          : "ml-[3.75rem]"
-      : dragControls
+        : "ml-[3.75rem]"
+      : hasHandleColumn
         ? "ml-[3.75rem]"
         : "ml-8";
 
@@ -1151,8 +1153,14 @@ export default function SmartList({
                 жест доступен только мышью и пальцем, а с клавиатуры порядок
                 меняется пунктами «Переместить выше/ниже» в меню действий —
                 они и есть доступная альтернатива. touch-none обязателен:
-                без него палец на ручке скроллил бы страницу вместо жеста. */}
-            {dragControls && (
+                без него палец на ручке скроллил бы страницу вместо жеста.
+
+                У подпункта без ручки колонка сохраняется пустой — как колонка
+                номера у выполненной записи. Иначе отступ блока зависел бы от
+                того, можно ли сейчас перетаскивать: единственный подпункт,
+                выполненный подпункт и подпункт при активном поиске ручки не
+                получают и «уезжали» бы влево, вплотную к своему пункту. */}
+            {dragControls ? (
               <button
                 type="button"
                 aria-hidden
@@ -1166,6 +1174,8 @@ export default function SmartList({
               >
                 <GripIcon />
               </button>
+            ) : (
+              isSubItem && <span aria-hidden className="-ml-1 h-6 w-5 shrink-0" />
             )}
 
             {/* Порядковый номер в виде «1.» — как в обычном нумерованном
