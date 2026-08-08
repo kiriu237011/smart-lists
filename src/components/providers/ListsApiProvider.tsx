@@ -64,7 +64,16 @@ export type ListsApi = {
   leaveSharedList: (listId: string) => Promise<ActionResult>;
 
   // ---- Записи ----
-  addItem: (listId: string, itemName: string) => Promise<ActionResult>;
+  /**
+   * Добавляет запись в конец списка. `parentItemId` создаёт подпункт указанного
+   * пункта — вложенность ровно одна, поэтому родитель сам обязан быть пунктом
+   * верхнего уровня; проверяет это реализация, а не вызывающий код.
+   */
+  addItem: (
+    listId: string,
+    itemName: string,
+    parentItemId?: string | null,
+  ) => Promise<ActionResult>;
   renameItem: (itemId: string, itemName: string) => Promise<ActionResult>;
   updateItemNote: (itemId: string, note: string, expectedVersion: number) => Promise<NoteActionResult>;
   deleteItem: (itemId: string) => Promise<void>;
@@ -84,10 +93,12 @@ export type ListsApi = {
   ) => Promise<ActionResult>;
   /**
    * Переносит (`move`) или копирует (`copy`) запись в другой список того же
-   * пространства. Запись встаёт в конец списка-получателя.
+   * пространства вместе с её подпунктами. Запись встаёт в конец
+   * списка-получателя.
    *
    * Целевой список проверяется на стороне реализации: перенос в тот же список
    * отклоняется, как и список, недоступный пользователю в текущем пространстве.
+   * Отдельный подпункт перенести нельзя — он принадлежит родителю.
    */
   moveItemToList: (
     itemId: string,

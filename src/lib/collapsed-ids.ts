@@ -1,14 +1,16 @@
 /**
- * @file collapsed-lists.ts
- * @description Набор свёрнутых карточек списков в localStorage.
+ * @file collapsed-ids.ts
+ * @description Набор свёрнутых сущностей в localStorage.
  *
- * Клиентский модуль (значение читает и пишет `ListsContainer`).
+ * Клиентский модуль. Потребителей два, и оба читают и пишут через
+ * `ListsContainer`: свёрнутые карточки списков (`collapsedLists:<spaceId>`,
+ * у гостя `guest:collapsedLists`) и свёрнутые блоки подпунктов
+ * (`collapsedItems:<spaceId>`, у гостя `guest:collapsedItems`).
  *
  * Свёрнутость — персональная настройка отображения на устройство, а не свойство
- * списка: она не попадает в БД и не видна другим участникам расшаренного
- * списка. Поэтому набор живёт в localStorage, ключ — на пространство
- * (`collapsedLists:<spaceId>`, у гостя `guest:collapsedLists`), как и ID
- * активной группы.
+ * списка или записи: она не попадает в БД и не видна другим участникам
+ * расшаренного списка. Поэтому набор живёт в localStorage, ключ — на
+ * пространство, как и ID активной группы.
  *
  * Хранится JSON-массив ID. Разбор намеренно терпимый: в localStorage может
  * лежать что угодно — значение от прошлой версии формата, обрезанная строка,
@@ -21,12 +23,12 @@
  * Разбирает сохранённое значение в набор ID.
  *
  * Нестроковые элементы отбрасываются поштучно: один мусорный элемент не должен
- * стирать остальные, иначе одна ручная правка ключа сбрасывала бы все свёрнутые
- * карточки сразу.
+ * стирать остальные, иначе одна ручная правка ключа сбрасывала бы всю
+ * сохранённую свёрнутость сразу.
  *
  * @param raw - Значение из localStorage; null, если ключа нет.
  */
-export function parseCollapsedLists(raw: string | null): Set<string> {
+export function parseCollapsedIds(raw: string | null): Set<string> {
   if (!raw) return new Set();
 
   try {
@@ -42,7 +44,7 @@ export function parseCollapsedLists(raw: string | null): Set<string> {
 }
 
 /** Сериализует набор для записи в localStorage. */
-export function serializeCollapsedLists(ids: Set<string>): string {
+export function serializeCollapsedIds(ids: Set<string>): string {
   return JSON.stringify([...ids]);
 }
 
@@ -52,26 +54,24 @@ export function serializeCollapsedLists(ids: Set<string>): string {
  * Возвращает новый набор, не мутируя исходный: значение лежит в состоянии React
  * и должно меняться иммутабельно.
  */
-export function toggleCollapsedList(
-  ids: Set<string>,
-  listId: string,
-): Set<string> {
+export function toggleCollapsedId(ids: Set<string>, id: string): Set<string> {
   const next = new Set(ids);
-  if (!next.delete(listId)) next.add(listId);
+  if (!next.delete(id)) next.add(id);
   return next;
 }
 
 /**
- * Отсеивает ID списков, которых больше нет.
+ * Отсеивает ID сущностей, которых больше нет.
  *
- * Без этого набор растёт вечно: удалённый список исчезает из выборки, а его ID
- * остаётся в localStorage навсегда. Ключ привязан к пространству, поэтому
- * сравнение с текущей выборкой безопасно — чужие ID в него не попадают.
+ * Без этого набор растёт вечно: удалённый список или запись исчезает из
+ * выборки, а его ID остаётся в localStorage навсегда. Ключ привязан к
+ * пространству, поэтому сравнение с текущей выборкой безопасно — чужие ID в
+ * него не попадают.
  *
  * Возвращает исходный набор без изменений, если отсеивать нечего: вызывающий
  * по этому признаку решает, нужна ли запись в localStorage.
  */
-export function pruneCollapsedLists(
+export function pruneCollapsedIds(
   ids: Set<string>,
   existingIds: Iterable<string>,
 ): Set<string> {

@@ -56,13 +56,26 @@ const STORAGE_KEY = "guest-data-v1";
 /** Фиктивный ID гостя: подставляется в ownerId/addedBy вместо ID из БД. */
 export const GUEST_USER_ID = "guest";
 
-/** Запись в гостевом списке (минимальный набор полей). */
-const storedItemSchema = z.object({
+/** Подпункт: та же запись, но своих подпунктов иметь не может. */
+const storedSubItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   isCompleted: z.boolean(),
   note: z.string().nullable().optional(),
   noteVersion: z.number().int().nonnegative().optional(),
+});
+
+/**
+ * Запись в гостевом списке.
+ *
+ * Подпункты вложены прямо в родителя, а не лежат плоско с `parentId`, как на
+ * сервере. Причины две. Первая: у гостя порядок задаёт сам массив, и вложение
+ * делает «подпункты следуют за родителем» свойством структуры — при переносе
+ * и удалении пункта с ними не нужно делать ничего. Вторая: одна вложенность
+ * закреплена самой схемой, потому что у подпункта поля `subItems` нет.
+ */
+const storedItemSchema = storedSubItemSchema.extend({
+  subItems: z.array(storedSubItemSchema).default([]),
 });
 
 /** Гостевой список. Порядок в массиве = порядок отображения (новые сверху). */
@@ -100,6 +113,8 @@ const guestDataSchema = z.object({
 export type GuestData = z.infer<typeof guestDataSchema>;
 type StoredList = z.infer<typeof storedListSchema>;
 type StoredGroup = z.infer<typeof storedGroupSchema>;
+type StoredItem = z.infer<typeof storedItemSchema>;
+type StoredSubItem = z.infer<typeof storedSubItemSchema>;
 
 // ---------------------------------------------------------------------------
 // Чтение / запись localStorage
@@ -190,6 +205,62 @@ function getValidationError(error: ZodError): string {
   return error.issues.some((i) => i.code === "too_big") ? "tooLong" : "validationError";
 }
 
+/**
+ * Найденная запись вместе с её окружением: списком, родителем и уровнем.
+ *
+ * Тип размеченный по `parent`: у записи верхнего уровня есть поле `subItems`,
+ * у подпункта его нет и быть не может. Проверка `location.parent` сразу даёт
+ * нужный тип и избавляет операции от приведения типов.
+ *
+ * Поле `siblings` — массив, в котором лежит запись, то есть её уровень. Его
+ * порядок и есть порядок отображения, поэтому перемещение работает с ним.
+ */
+type ItemLocation =
+  | {
+      list: StoredList;
+      parent: null;
+      item: StoredItem;
+      siblings: StoredSubItem[];
+    }
+  | {
+      list: StoredList;
+      parent: StoredItem;
+      item: StoredSubItem;
+      siblings: StoredSubItem[];
+    };
+
+/**
+ * Находит запись любого уровня по ID.
+ *
+ * Операции над записью не знают заранее, пункт это или подпункт: клиент
+ * присылает только ID, ровно как Server Action получает его из FormData.
+ */
+function locateItem(data: GuestData, itemId: string): ItemLocation | null {
+  for (const list of data.lists) {
+    const item = list.items.find((entry) => entry.id === itemId);
+    if (item) return { list, parent: null, item, siblings: list.items };
+
+    for (const parent of list.items) {
+      const subItem = parent.subItems.find((entry) => entry.id === itemId);
+      if (subItem) {
+        return { list, parent, item: subItem, siblings: parent.subItems };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Приводит отметку родителя в соответствие с подпунктами — гостевой аналог
+ * `syncParentCompletion` из Server Actions и того же правила в `item-tree`.
+ *
+ * Родитель без подпунктов сохраняет своё значение: оно снова его собственное.
+ */
+function syncParentCompletion(parent: StoredItem): void {
+  if (parent.subItems.length === 0) return;
+  parent.isCompleted = parent.subItems.every((subItem) => subItem.isCompleted);
+}
+
 // ---------------------------------------------------------------------------
 // Преобразование в формат компонентов
 // ---------------------------------------------------------------------------
@@ -215,14 +286,29 @@ function storedListToListData(
     noteVersion: list.noteVersion ?? 0,
     ownerId: GUEST_USER_ID,
     owner: { name: guestName, email: "" },
-    items: list.items.map((item) => ({
-      id: item.id,
-      name: item.name,
-      isCompleted: item.isCompleted,
-      note: item.note ?? null,
-      noteVersion: item.noteVersion ?? 0,
-      addedBy: guestUser,
-    })),
+    // Компоненты работают с плоским массивом и полем parentId: дерево они
+    // собирают сами через `buildItemTree`. Вложенное хранение разворачивается
+    // здесь — подпункты идут сразу за своим родителем.
+    items: list.items.flatMap((item) => [
+      {
+        id: item.id,
+        name: item.name,
+        isCompleted: item.isCompleted,
+        note: item.note ?? null,
+        noteVersion: item.noteVersion ?? 0,
+        parentId: null,
+        addedBy: guestUser,
+      },
+      ...item.subItems.map((subItem) => ({
+        id: subItem.id,
+        name: subItem.name,
+        isCompleted: subItem.isCompleted,
+        note: subItem.note ?? null,
+        noteVersion: subItem.noteVersion ?? 0,
+        parentId: item.id,
+        addedBy: guestUser,
+      })),
+    ]),
     sharedWith: [],
     groups: groups
       .filter((group) => list.groupIds.includes(group.id))
@@ -369,21 +455,41 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
 
     // ---- Записи ----
 
-    addItem: async (listId, itemName) => {
-      const parsed = createItemSchema.safeParse({ listId, itemName });
+    addItem: async (listId, itemName, parentItemId) => {
+      const parsed = createItemSchema.safeParse({
+        listId,
+        itemName,
+        parentItemId: parentItemId ?? null,
+      });
       if (!parsed.success) {
         return { success: false, error: getValidationError(parsed.error) };
       }
       return mutate((data) => {
         const list = data.lists.find((l) => l.id === parsed.data.listId);
         if (!list) return { success: false, error: "Список не найден" };
-        list.items.push({
+
+        const created: StoredSubItem = {
           id: guestId(),
           name: parsed.data.itemName,
           isCompleted: false,
           note: null,
           noteVersion: 0,
-        });
+        };
+
+        if (parsed.data.parentItemId) {
+          // Родитель ищется только среди пунктов верхнего уровня, поэтому
+          // вторая вложенность недостижима: ID подпункта тут не найдётся.
+          const parent = list.items.find(
+            (entry) => entry.id === parsed.data.parentItemId,
+          );
+          if (!parent) return { success: false, error: "Пункт не найден" };
+          parent.subItems.push(created);
+          // Новый подпункт невыполненный, значит и родитель заведомо тоже.
+          parent.isCompleted = false;
+          return { success: true };
+        }
+
+        list.items.push({ ...created, subItems: [] });
         return { success: true };
       });
     },
@@ -394,11 +500,9 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         return { success: false, error: getValidationError(parsed.error) };
       }
       return mutate((data) => {
-        const item = data.lists
-          .flatMap((l) => l.items)
-          .find((i) => i.id === parsed.data.itemId);
-        if (!item) return { success: false, error: "Запись не найдена" };
-        item.name = parsed.data.itemName;
+        const location = locateItem(data, parsed.data.itemId);
+        if (!location) return { success: false, error: "Запись не найдена" };
+        location.item.name = parsed.data.itemName;
         return { success: true };
       });
     },
@@ -411,9 +515,7 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
       let savedNote: string | null = null;
       let savedVersion = expectedVersion;
       const result = mutate((data) => {
-        const item = data.lists
-          .flatMap((l) => l.items)
-          .find((i) => i.id === parsed.data.itemId);
+        const item = locateItem(data, parsed.data.itemId)?.item;
         if (!item) return { success: false, error: "Запись не найдена" };
         const currentVersion = item.noteVersion ?? 0;
         if (currentVersion !== parsed.data.expectedVersion) {
@@ -434,9 +536,17 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
 
     deleteItem: async (itemId) => {
       mutate((data) => {
-        for (const list of data.lists) {
-          list.items = list.items.filter((i) => i.id !== itemId);
-        }
+        const location = locateItem(data, itemId);
+        if (!location) return { success: true };
+
+        // Подпункты удаляемого пункта уходят вместе с ним: они лежат внутри
+        // него — это гостевой эквивалент каскада по составному ключу в БД.
+        location.siblings.splice(
+          location.siblings.findIndex((entry) => entry.id === itemId),
+          1,
+        );
+        // Удалённый подпункт мог быть последним невыполненным.
+        if (location.parent) syncParentCompletion(location.parent);
         return { success: true };
       });
     },
@@ -445,6 +555,10 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
      * Перемещение записи у гостя — это перестановка в массиве: порядок
      * элементов и есть порядок отображения, отдельного поля position тут нет.
      * Контракт с UI тот же, что у серверной реализации.
+     *
+     * Перестановка идёт внутри уровня записи: подпункт двигается среди
+     * подпунктов своего родителя, пункт — среди пунктов списка. Сосед с
+     * другого уровня в этом массиве просто не найдётся и вернёт `stale`.
      */
     moveItem: async (itemId, previousItemId, nextItemId) => {
       const parsed = moveItemSchema.safeParse({ itemId, previousItemId, nextItemId });
@@ -452,19 +566,18 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         return { success: false, error: getValidationError(parsed.error) };
       }
       return mutate((data) => {
-        const list = data.lists.find((l) =>
-          l.items.some((i) => i.id === parsed.data.itemId),
-        );
-        if (!list) return { success: false, error: "Запись не найдена" };
+        const location = locateItem(data, parsed.data.itemId);
+        if (!location) return { success: false, error: "Запись не найдена" };
+        const siblings = location.siblings;
 
         // Сначала изымаем запись: соседи ищутся уже в массиве без неё, иначе
         // индекс вставки съедет на единицу при движении вниз.
-        const currentIndex = list.items.findIndex((i) => i.id === parsed.data.itemId);
-        const [moved] = list.items.splice(currentIndex, 1);
+        const currentIndex = siblings.findIndex((i) => i.id === parsed.data.itemId);
+        const [moved] = siblings.splice(currentIndex, 1);
 
         let insertAt: number;
         if (parsed.data.previousItemId) {
-          const previousIndex = list.items.findIndex(
+          const previousIndex = siblings.findIndex(
             (i) => i.id === parsed.data.previousItemId,
           );
           // Сосед пропал — представление UI устарело. mutate не сохранит
@@ -472,16 +585,16 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
           if (previousIndex === -1) return { success: false, error: "stale" };
           insertAt = previousIndex + 1;
         } else if (parsed.data.nextItemId) {
-          const nextIndex = list.items.findIndex(
+          const nextIndex = siblings.findIndex(
             (i) => i.id === parsed.data.nextItemId,
           );
           if (nextIndex === -1) return { success: false, error: "stale" };
           insertAt = nextIndex;
         } else {
-          insertAt = list.items.length;
+          insertAt = siblings.length;
         }
 
-        list.items.splice(insertAt, 0, moved);
+        siblings.splice(insertAt, 0, moved);
         return { success: true };
       });
     },
@@ -493,6 +606,8 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
      *
      * Как и на сервере, запись встаёт в конец списка-получателя, копия теряет
      * отметку о выполнении и начинает историю заметки с нулевой версии.
+     * Подпункты едут за родителем — здесь буквально, потому что лежат внутри
+     * него. Отдельный подпункт перенести нельзя: он принадлежит родителю.
      */
     moveItemToList: async (itemId, targetListId, mode) => {
       const parsed = moveItemToListSchema.safeParse({ itemId, targetListId, mode });
@@ -500,11 +615,11 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         return { success: false, error: getValidationError(parsed.error) };
       }
       return mutate((data) => {
-        const source = data.lists.find((l) =>
-          l.items.some((i) => i.id === parsed.data.itemId),
-        );
-        if (!source) return { success: false, error: "Запись не найдена" };
+        const location = locateItem(data, parsed.data.itemId);
+        if (!location) return { success: false, error: "Запись не найдена" };
+        if (location.parent) return { success: false, error: "subItem" };
 
+        const source = location.list;
         if (source.id === parsed.data.targetListId) {
           return { success: false, error: "sameList" };
         }
@@ -512,11 +627,13 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
         const target = data.lists.find((l) => l.id === parsed.data.targetListId);
         if (!target) return { success: false, error: "Список не найден" };
 
-        const index = source.items.findIndex((i) => i.id === parsed.data.itemId);
-        const item = source.items[index];
+        const item = location.item;
 
         if (parsed.data.mode === "move") {
-          source.items.splice(index, 1);
+          source.items.splice(
+            source.items.findIndex((i) => i.id === item.id),
+            1,
+          );
           target.items.push(item);
         } else {
           target.items.push({
@@ -525,17 +642,43 @@ export function createGuestListsApi(refresh: () => void, guestName: string): Lis
             isCompleted: false,
             note: item.note ?? null,
             noteVersion: 0,
+            // У копий подпунктов свои ID и своя история заметки — как у копии
+            // самого пункта.
+            subItems: item.subItems.map((subItem) => ({
+              id: guestId(),
+              name: subItem.name,
+              isCompleted: false,
+              note: subItem.note ?? null,
+              noteVersion: 0,
+            })),
           });
         }
         return { success: true };
       });
     },
 
+    /**
+     * Отметка выполнения с тем же правилом синхронизации, что на сервере:
+     * у пункта с подпунктами собственной отметки нет, она производная, поэтому
+     * клик по нему проставляет значение всем подпунктам, а клик по подпункту
+     * пересчитывает родителя.
+     */
     toggleItem: async (itemId, isCompleted) => {
       mutate((data) => {
-        const item = data.lists.flatMap((l) => l.items).find((i) => i.id === itemId);
+        const location = locateItem(data, itemId);
+        if (!location) return { success: true };
+
         // Сохраняем инверсию ТЕКУЩЕГО значения — как в Server Action toggleItem
-        if (item) item.isCompleted = !isCompleted;
+        const next = !isCompleted;
+        location.item.isCompleted = next;
+
+        if (location.parent) {
+          syncParentCompletion(location.parent);
+        } else {
+          for (const subItem of location.item.subItems) {
+            subItem.isCompleted = next;
+          }
+        }
         return { success: true };
       });
     },

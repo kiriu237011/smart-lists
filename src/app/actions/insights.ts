@@ -26,6 +26,7 @@ import {
   MAX_INSIGHT_ITEM_NOTES,
   MAX_INSIGHT_ITEM_NOTES_CHARS,
   MAX_INSIGHT_ITEMS,
+  MAX_INSIGHT_SUB_ITEMS,
   MAX_NOTE_LENGTH,
 } from "@/lib/notes";
 
@@ -99,52 +100,124 @@ export async function getListInsight(
   // Заметка списка имеет отдельный гарантированный бюджет. Заметки записей
   // выбираются независимо от первых 50 обычных записей: важная заметка не
   // исчезнет только потому, что её запись находится ниже в длинном списке.
-  const [baseItems, noteCandidates, totalItemNotes] = await Promise.all([
-    prisma.item.findMany({
-      where: { listId },
-      // Тот же порядок, что видит пользователь: невыполненные сверху,
-      // внутри группы — по позиции.
-      orderBy: [{ isCompleted: "asc" }, { position: "asc" }, { createdAt: "asc" }],
-      take: MAX_INSIGHT_ITEMS,
-      select: { id: true, name: true, isCompleted: true },
-    }),
-    prisma.item.findMany({
-      where: { listId, note: { not: null } },
-      orderBy: [
-        { isCompleted: "asc" },
-        { noteUpdatedAt: "desc" },
-        { position: "asc" },
-        { createdAt: "asc" },
-      ],
-      take: MAX_INSIGHT_ITEM_NOTES,
-      select: { id: true, name: true, isCompleted: true, note: true },
-    }),
-    prisma.item.count({ where: { listId, note: { not: null } } }),
-  ]);
+  //
+  // Пункты и подпункты выбираются раздельно. Общая выборка «первые 50 записей»
+  // после появления подпунктов означала бы разное для разных списков: один
+  // длинный блок вытеснил бы из контекста половину списка.
+  const [topLevelItems, subItemRows, noteCandidates, totalItemNotes] =
+    await Promise.all([
+      prisma.item.findMany({
+        where: { listId, parentId: null },
+        // Тот же порядок, что видит пользователь: невыполненные сверху,
+        // внутри группы — по позиции.
+        orderBy: [{ isCompleted: "asc" }, { position: "asc" }, { createdAt: "asc" }],
+        take: MAX_INSIGHT_ITEMS,
+        select: { id: true, name: true, isCompleted: true },
+      }),
+      prisma.item.findMany({
+        where: { listId, parentId: { not: null } },
+        // Позиции сравнимы только внутри своего родителя, поэтому общая
+        // сортировка задаёт не глобальный порядок, а лишь то, какие подпункты
+        // попадут в бюджет: сначала невыполненные и стоящие выше у себя в
+        // блоке. Внутри каждого родителя порядок при этом верен.
+        orderBy: [{ isCompleted: "asc" }, { position: "asc" }, { createdAt: "asc" }],
+        take: MAX_INSIGHT_SUB_ITEMS,
+        select: { id: true, name: true, isCompleted: true, parentId: true },
+      }),
+      prisma.item.findMany({
+        where: { listId, note: { not: null } },
+        orderBy: [
+          { isCompleted: "asc" },
+          { noteUpdatedAt: "desc" },
+          { position: "asc" },
+          { createdAt: "asc" },
+        ],
+        take: MAX_INSIGHT_ITEM_NOTES,
+        select: {
+          id: true,
+          name: true,
+          isCompleted: true,
+          note: true,
+          parentId: true,
+        },
+      }),
+      prisma.item.count({ where: { listId, note: { not: null } } }),
+    ]);
 
+  // Символьный бюджет заметок общий на оба уровня: для модели заметка
+  // подпункта ничем не отличается от заметки пункта.
   let itemNotesChars = 0;
-  const selectedNoteItems: typeof noteCandidates = [];
+  const noteByItemId = new Map<string, string>();
   for (const item of noteCandidates) {
     const safeNote = item.note?.slice(0, MAX_NOTE_LENGTH) ?? "";
     if (!safeNote) continue;
     if (itemNotesChars + safeNote.length > MAX_INSIGHT_ITEM_NOTES_CHARS) break;
     itemNotesChars += safeNote.length;
-    selectedNoteItems.push({ ...item, note: safeNote });
+    noteByItemId.set(item.id, safeNote);
   }
 
+  // Пункты с заметками идут первыми — тот же приоритет, что и раньше.
   const selectedItems = new Map<
     string,
-    { id: string; name: string; isCompleted: boolean; note: string | null }
+    { id: string; name: string; isCompleted: boolean }
   >();
-  for (const item of selectedNoteItems) {
-    selectedItems.set(item.id, item);
-  }
-  for (const item of baseItems) {
+  for (const item of noteCandidates) {
+    if (item.parentId !== null || !noteByItemId.has(item.id)) continue;
     if (selectedItems.size >= MAX_INSIGHT_ITEMS) break;
-    if (!selectedItems.has(item.id)) selectedItems.set(item.id, { ...item, note: null });
+    selectedItems.set(item.id, {
+      id: item.id,
+      name: item.name,
+      isCompleted: item.isCompleted,
+    });
+  }
+  for (const item of topLevelItems) {
+    if (selectedItems.size >= MAX_INSIGHT_ITEMS) break;
+    if (!selectedItems.has(item.id)) selectedItems.set(item.id, item);
   }
 
-  const includedItemNotes = selectedNoteItems.length;
+  // Подпункт попадает в контекст только вместе со своим пунктом: сам по себе
+  // он бессмысленнен, а «Купить продукты» без «Приготовить ужин» ещё и
+  // вводит модель в заблуждение.
+  const subItemsByParent = new Map<string, typeof subItemRows>();
+  for (const subItem of subItemRows) {
+    if (!subItem.parentId || !selectedItems.has(subItem.parentId)) continue;
+    const siblings = subItemsByParent.get(subItem.parentId);
+    if (siblings) {
+      siblings.push(subItem);
+    } else {
+      subItemsByParent.set(subItem.parentId, [subItem]);
+    }
+  }
+
+  const contextItems = [...selectedItems.values()].map((item) => {
+    const subItems = subItemsByParent.get(item.id) ?? [];
+    return {
+      name: item.name.slice(0, 200),
+      // Отметка пункта с подпунктами производная — см. `src/lib/item-tree.ts`.
+      // Считается по подпунктам, а не по полю строки: в контексте для модели
+      // денормализованному кешу доверять незачем.
+      is_completed:
+        subItems.length > 0
+          ? subItems.every((subItem) => subItem.isCompleted)
+          : item.isCompleted,
+      note: noteByItemId.get(item.id) ?? null,
+      sub_items: subItems.map((subItem) => ({
+        name: subItem.name.slice(0, 200),
+        is_completed: subItem.isCompleted,
+        note: noteByItemId.get(subItem.id) ?? null,
+      })),
+    };
+  });
+
+  // Считаем ровно те заметки, что действительно уехали: заметка подпункта,
+  // чей пункт не попал в контекст, в бюджет вошла, а в запрос — нет.
+  const includedItemNotes = contextItems.reduce(
+    (total, item) =>
+      total +
+      (item.note ? 1 : 0) +
+      item.sub_items.filter((subItem) => subItem.note).length,
+    0,
+  );
   const omittedItemNotes = Math.max(0, totalItemNotes - includedItemNotes);
 
   // --- Rate limiting ---
@@ -197,11 +270,10 @@ export async function getListInsight(
       body: JSON.stringify({
         title: list.title.slice(0, 200),
         list_note: list.note?.slice(0, MAX_NOTE_LENGTH) ?? null,
-        items: [...selectedItems.values()].map((item) => ({
-          name: item.name.slice(0, 200),
-          is_completed: item.isCompleted,
-          note: item.note,
-        })),
+        // `items` сохраняет прежний смысл — записи верхнего уровня, — поэтому
+        // сервис, ничего не знающий о подпунктах, продолжает работать как
+        // работал: он просто не увидит поле `sub_items`.
+        items: contextItems,
         notes_meta: {
           list_note_included: Boolean(list.note),
           included_item_notes: includedItemNotes,

@@ -44,6 +44,7 @@ import {
   NoteRemoveIcon,
   TrashIcon,
 } from "@/components/lists/Notes";
+import { buildItemTree } from "@/lib/item-tree";
 import { ArrowDown, ArrowUp } from "lucide-react";
 
 /** Пользователь, которому предоставлен доступ к списку. */
@@ -59,13 +60,22 @@ export type ListOwner = {
   email: string;
 };
 
-/** Запись внутри списка. */
+/**
+ * Запись внутри списка.
+ *
+ * Уровень задаётся полем `parentId`, а массив записей остаётся плоским: дерево
+ * собирает `buildItemTree` при рендере. Плоское представление нужно
+ * оптимистичному состоянию — обычные `map`/`filter` по одному массиву вместо
+ * рекурсии по вложенным.
+ */
 export type Item = {
   id: string;
   name: string;
   note: string | null;
   noteVersion: number;
   isCompleted: boolean;
+  /** ID родительского пункта. null — пункт верхнего уровня. */
+  parentId: string | null;
   addedBy: { id: string; name: string | null; email: string } | null;
 };
 
@@ -389,13 +399,19 @@ const ListCard = memo(function ListCard({
   const isBodyHidden = isCollapsed && !isTemp && !searchQuery.trim();
 
   /**
-   * Выполненные записи: сводка в шапке свёрнутой карточки.
+   * Выполненные записи: сводка в шапке карточки.
    *
    * Считаются именно выполненные, а не оставшиеся: «N / M» в списке задач
    * читается как прогресс, и обратный счёт сбивал бы с толку — отметка записи
    * уменьшала бы первое число.
+   *
+   * Счёт идёт только по верхнему уровню, и частично выполненный пункт
+   * считается невыполненным. Это не приблизительность: отметка такого пункта
+   * производная от подпунктов, поэтому счётчик показывает ровно то же, что
+   * видно в его чекбоксе.
    */
-  const completedItemsCount = list.items.filter((item) => item.isCompleted).length;
+  const { completedCount: completedItemsCount, totalCount: itemsCount } =
+    buildItemTree(list.items);
 
   const bodyId = `list-body-${list.id}`;
 
@@ -568,16 +584,16 @@ const ListCard = memo(function ListCard({
                 становится полем ввода, и ему нужна вся ширина. Числа со
                 слэшем переводить нечего, локали получает только подпись для
                 скринридера. */}
-            {showItemsCounter && !isEditing && list.items.length > 0 && (
+            {showItemsCounter && !isEditing && itemsCount > 0 && (
               <span
                 data-testid="list-items-counter"
                 aria-label={t("ariaItemsCounter", {
                   done: completedItemsCount,
-                  total: list.items.length,
+                  total: itemsCount,
                 })}
                 className="mr-1 text-xs tabular-nums text-gray-400 dark:text-zinc-500"
               >
-                {completedItemsCount} / {list.items.length}
+                {completedItemsCount} / {itemsCount}
               </span>
             )}
 
@@ -851,6 +867,7 @@ const ListCard = memo(function ListCard({
             currentUserEmail={currentUserEmail}
             showAuthors={showAuthors}
             showItemNumbers={showItemNumbers}
+            showItemsCounter={showItemsCounter}
             visibleItemIds={visibleItemIds}
             searchQuery={searchQuery}
           />

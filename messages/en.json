@@ -122,6 +122,13 @@
     "moveDown": "Move down",
     "deleteItemAction": "Delete item",
     "moveToListAction": "Move to list…",
+    "splitIntoSubItems": "Break into sub-items",
+    "addSubItem": "Add sub-item",
+    "subItemPlaceholder": "Sub-item name",
+    "subItemsLabel": "Sub-items of {name}",
+    "closeSubItemInput": "Close sub-item input",
+    "ariaSubItemsToggle": "Show or hide sub-items of {name}",
+    "ariaSubItemsCounter": "Sub-items completed: {done} of {total}",
     "moveToList": {
       "groupsTitle": "Select a group",
       "searchPlaceholder": "Search lists",
@@ -140,6 +147,7 @@
     "deleteModal": {
       "title": "Delete item?",
       "body": "Are you sure you want to delete the item \"{name}\"?",
+      "bodyWithSubItems": "Are you sure you want to delete the item \"{name}\"? {count, plural, one {# sub-item} other {# sub-items}} will be deleted with it.",
       "cancel": "Cancel",
       "confirm": "Delete"
     },
