@@ -65,6 +65,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
 import { ListsDirectoryProvider } from "@/components/providers/ListsDirectoryProvider";
+import { CollapsedItemsProvider } from "@/components/providers/CollapsedItemsProvider";
 import toast from "react-hot-toast";
 import CreateListForm from "@/components/lists/CreateListForm";
 import { useTranslations } from "next-intl";
@@ -78,11 +79,12 @@ import {
 } from "@/lib/drag-gate";
 import { randomUUID } from "@/lib/uuid";
 import {
-  parseCollapsedLists,
-  pruneCollapsedLists,
-  serializeCollapsedLists,
-  toggleCollapsedList,
-} from "@/lib/collapsed-lists";
+  parseCollapsedIds,
+  pruneCollapsedIds,
+  serializeCollapsedIds,
+  toggleCollapsedId,
+} from "@/lib/collapsed-ids";
+import { buildItemTree } from "@/lib/item-tree";
 import { listsInGroupOrder, splitIntoColumns } from "@/lib/list-columns";
 import { useMediaQuery } from "@/lib/use-media-query";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
@@ -246,6 +248,9 @@ export default function ListsContainer({
   const collapsedStorageKey = api.isGuest
     ? "guest:collapsedLists"
     : `collapsedLists:${spaceId}`;
+  const collapsedItemsStorageKey = api.isGuest
+    ? "guest:collapsedItems"
+    : `collapsedItems:${spaceId}`;
 
   /**
    * Список, ожидающий подтверждения удаления.
@@ -303,6 +308,17 @@ export default function ListsContainer({
    * порядком, что и активная группа, — одним ключом на пространство.
    */
   const [collapsedListIds, setCollapsedListIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  /**
+   * ID пунктов со свёрнутыми подпунктами.
+   *
+   * Живут здесь по той же причине, что и свёрнутые карточки, плюс одна своя:
+   * уборка исчезнувших ID требует знать все записи пространства сразу, а
+   * отдельный `SmartList` видит только свой список.
+   */
+  const [collapsedItemIds, setCollapsedItemIds] = useState<Set<string>>(
     () => new Set(),
   );
 
@@ -394,15 +410,15 @@ export default function ListsContainer({
    * запись выполняется, только если что-то действительно отсеялось.
    */
   useEffect(() => {
-    const stored = parseCollapsedLists(
+    const stored = parseCollapsedIds(
       localStorage.getItem(collapsedStorageKey),
     );
-    const pruned = pruneCollapsedLists(
+    const pruned = pruneCollapsedIds(
       stored,
       allLists.map((list) => list.id),
     );
     if (pruned !== stored) {
-      localStorage.setItem(collapsedStorageKey, serializeCollapsedLists(pruned));
+      localStorage.setItem(collapsedStorageKey, serializeCollapsedIds(pruned));
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCollapsedListIds(pruned);
@@ -418,15 +434,65 @@ export default function ListsContainer({
   const handleToggleCollapse = useCallback(
     (listId: string) => {
       setCollapsedListIds((prev) => {
-        const next = toggleCollapsedList(prev, listId);
+        const next = toggleCollapsedId(prev, listId);
         localStorage.setItem(
           collapsedStorageKey,
-          serializeCollapsedLists(next),
+          serializeCollapsedIds(next),
         );
         return next;
       });
     },
     [collapsedStorageKey],
+  );
+
+  /**
+   * Эффект: чтение свёрнутых блоков подпунктов и уборка исчезнувших записей.
+   *
+   * Записей сильно больше, чем списков, поэтому без уборки набор рос бы быстрее
+   * всего именно здесь. Сравнение идёт со всеми записями пространства: свернуть
+   * можно только пункт с подпунктами, но лишняя проверка ничего не стоит и не
+   * зависит от того, есть ли у записи подпункты прямо сейчас.
+   */
+  useEffect(() => {
+    const stored = parseCollapsedIds(
+      localStorage.getItem(collapsedItemsStorageKey),
+    );
+    const pruned = pruneCollapsedIds(
+      stored,
+      allLists.flatMap((list) => list.items.map((item) => item.id)),
+    );
+    if (pruned !== stored) {
+      localStorage.setItem(
+        collapsedItemsStorageKey,
+        serializeCollapsedIds(pruned),
+      );
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCollapsedItemIds(pruned);
+  }, [collapsedItemsStorageKey, allLists]);
+
+  /** Сворачивает или разворачивает блок подпунктов, сохраняя выбор. */
+  const handleToggleItemCollapse = useCallback(
+    (itemId: string) => {
+      setCollapsedItemIds((prev) => {
+        const next = toggleCollapsedId(prev, itemId);
+        localStorage.setItem(
+          collapsedItemsStorageKey,
+          serializeCollapsedIds(next),
+        );
+        return next;
+      });
+    },
+    [collapsedItemsStorageKey],
+  );
+
+  /**
+   * Значение контекста стабильно между рендерами, пока набор не менялся:
+   * иначе каждый рендер контейнера перерисовывал бы все `SmartList`.
+   */
+  const collapsedItems = useMemo(
+    () => ({ collapsedIds: collapsedItemIds, toggle: handleToggleItemCollapse }),
+    [collapsedItemIds, handleToggleItemCollapse],
   );
 
   /**
@@ -1389,8 +1455,12 @@ export default function ListsContainer({
       ? uniqueLists.find((list) => list.id === activeDrag.id) ?? null
       : null;
 
+  /** Прогресс перетаскиваемого списка для overlay — по тем же правилам, что в шапке. */
+  const draggedListProgress = buildItemTree(draggedList?.items ?? []);
+
   return (
     <ListsDirectoryProvider directory={directory}>
+      <CollapsedItemsProvider value={collapsedItems}>
       <DndContext
         sensors={dndSensors}
         collisionDetection={collisionDetection}
@@ -1665,16 +1735,18 @@ export default function ListsContainer({
             <span className="min-w-0 flex-1 truncate font-semibold">
               {draggedList.title}
             </span>
-            {draggedList.items.length > 0 && (
+            {/* Тот же счётчик, что в шапке карточки: только верхний уровень. */}
+            {draggedListProgress.totalCount > 0 && (
               <span className="flex-shrink-0 text-xs tabular-nums text-gray-400 dark:text-zinc-500">
-                {draggedList.items.filter((item) => item.isCompleted).length} /{" "}
-                {draggedList.items.length}
+                {draggedListProgress.completedCount} /{" "}
+                {draggedListProgress.totalCount}
               </span>
             )}
           </div>
         ) : null}
       </DragOverlay>
       </DndContext>
+      </CollapsedItemsProvider>
     </ListsDirectoryProvider>
   );
 }

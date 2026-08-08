@@ -122,6 +122,13 @@
     "moveDown": "Di chuyển xuống",
     "deleteItemAction": "Xóa mục",
     "moveToListAction": "Chuyển sang danh sách…",
+    "splitIntoSubItems": "Chia thành mục con",
+    "addSubItem": "Thêm mục con",
+    "subItemPlaceholder": "Tên mục con",
+    "subItemsLabel": "Mục con của {name}",
+    "closeSubItemInput": "Đóng ô thêm mục con",
+    "ariaSubItemsToggle": "Hiện hoặc ẩn mục con của {name}",
+    "ariaSubItemsCounter": "Mục con đã hoàn thành: {done} trên {total}",
     "moveToList": {
       "groupsTitle": "Chọn nhóm",
       "searchPlaceholder": "Tìm danh sách",
@@ -140,6 +147,7 @@
     "deleteModal": {
       "title": "Xóa ghi chú?",
       "body": "Bạn có chắc muốn xóa ghi chú «{name}»?",
+      "bodyWithSubItems": "Bạn có chắc muốn xóa mục «{name}»? {count} mục con sẽ bị xóa cùng.",
       "cancel": "Hủy",
       "confirm": "Xóa"
     },

@@ -122,6 +122,13 @@
     "moveDown": "Переместить ниже",
     "deleteItemAction": "Удалить запись",
     "moveToListAction": "Переместить в список…",
+    "splitIntoSubItems": "Разбить на подпункты",
+    "addSubItem": "Добавить подпункт",
+    "subItemPlaceholder": "Название подпункта",
+    "subItemsLabel": "Подпункты записи {name}",
+    "closeSubItemInput": "Закрыть добавление подпункта",
+    "ariaSubItemsToggle": "Показать или скрыть подпункты записи {name}",
+    "ariaSubItemsCounter": "Выполнено подпунктов: {done} из {total}",
     "moveToList": {
       "groupsTitle": "Выберите группу",
       "searchPlaceholder": "Поиск по спискам",
@@ -140,6 +147,7 @@
     "deleteModal": {
       "title": "Удалить запись?",
       "body": "Вы действительно хотите удалить запись «{name}»?",
+      "bodyWithSubItems": "Вы действительно хотите удалить запись «{name}»? Вместе с ней будут удалены {count, plural, one {# подпункт} few {# подпункта} other {# подпунктов}}.",
       "cancel": "Отмена",
       "confirm": "Удалить"
     },

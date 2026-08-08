@@ -86,10 +86,69 @@ export async function addItem(card: Locator, name: string): Promise<void> {
 /** Открывает меню действий записи. */
 export async function openItemMenu(card: Locator, itemId: string): Promise<Locator> {
   const row = itemRow(card, itemId);
-  await row.getByTestId("item-menu-trigger").click();
-  const menu = row.getByTestId("item-menu");
+  // Меню подпункта живёт внутри строки родителя, поэтому у пункта совпадений
+  // было бы два — своё и вложенное. Берём ближайшее к самой строке.
+  await row.getByTestId("item-menu-trigger").first().click();
+  const menu = row.getByTestId("item-menu").first();
   await expect(menu).toBeVisible();
   return menu;
+}
+
+/**
+ * Собственный элемент строки пункта.
+ *
+ * Подпункты лежат внутри строки родителя и используют те же `data-testid`,
+ * поэтому у пункта с подпунктами совпадений несколько. Разметка родителя идёт
+ * первой, так что `first()` — это ровно его собственный элемент.
+ */
+export function ownControl(
+  card: Locator,
+  itemId: string,
+  testId: string,
+): Locator {
+  return itemRow(card, itemId).getByTestId(testId).first();
+}
+
+/**
+ * Строка подпункта. Отличается от `itemRow` по testid: пункты верхнего уровня
+ * остаются `item`, поэтому подсчёт записей в старых тестах не сбивается.
+ */
+export function subItemRow(card: Locator, itemId: string): Locator {
+  return card.locator(`[data-testid="sub-item"][data-item-id="${itemId}"]`);
+}
+
+/** Названия подпунктов конкретного пункта в порядке отображения. */
+export async function subItemNames(
+  card: Locator,
+  parentId: string,
+): Promise<string[]> {
+  return itemRow(card, parentId)
+    .getByTestId("sub-item")
+    .getByTestId("item-name")
+    .allInnerTexts();
+}
+
+/**
+ * Добавляет подпункт через меню пункта и ждёт, когда он сохранится.
+ *
+ * Ждать появления названия недостаточно: оптимистичная строка возникает
+ * мгновенно, ещё до ответа сервера, и следующее действие теста работало бы с
+ * недосохранённым состоянием. Признак завершения — исчезновение временного ID.
+ */
+export async function addSubItem(
+  card: Locator,
+  parentId: string,
+  name: string,
+): Promise<void> {
+  const row = itemRow(card, parentId);
+  const menu = await openItemMenu(card, parentId);
+  await menu.getByTestId("item-add-sub-item").click();
+  await row.getByTestId("add-sub-item-input").fill(name);
+  await row.getByTestId("add-sub-item-submit").click();
+  await expect(
+    row.getByTestId("sub-item").getByTestId("item-name").filter({ hasText: name }),
+  ).toBeVisible();
+  await expect(row.locator('[data-item-id^="temp-"]')).toHaveCount(0);
 }
 
 /** Открывает меню действий списка. */
@@ -113,9 +172,44 @@ export async function dragItemOnto(
   sourceItemId: string,
   targetItemId: string,
 ): Promise<void> {
-  const handle = itemRow(card, sourceItemId).getByTestId("item-drag-handle");
+  await dragRowOnto(
+    page,
+    itemRow(card, sourceItemId),
+    itemRow(card, targetItemId),
+  );
+}
+
+/**
+ * Перетаскивает подпункт на место другого подпункта.
+ *
+ * Отдельно от `dragItemOnto`, потому что строки подпунктов помечены другим
+ * `data-testid` и лежат внутри строки родителя: тот же локатор нашёл бы и
+ * пункт, и его подпункты.
+ */
+export async function dragSubItemOnto(
+  page: Page,
+  card: Locator,
+  sourceItemId: string,
+  targetItemId: string,
+): Promise<void> {
+  await dragRowOnto(
+    page,
+    subItemRow(card, sourceItemId),
+    subItemRow(card, targetItemId),
+  );
+}
+
+/** Общая механика жеста: ручка строки-источника едет на строку-получателя. */
+async function dragRowOnto(
+  page: Page,
+  sourceRow: Locator,
+  targetRow: Locator,
+): Promise<void> {
+  // Ручки подпунктов лежат внутри строки родителя, поэтому берём первую —
+  // она принадлежит самой строке.
+  const handle = sourceRow.getByTestId("item-drag-handle").first();
   const handleBox = await handle.boundingBox();
-  const targetBox = await itemRow(card, targetItemId).boundingBox();
+  const targetBox = await targetRow.boundingBox();
   if (!handleBox || !targetBox) {
     throw new Error("Не удалось получить геометрию строк для перетаскивания");
   }

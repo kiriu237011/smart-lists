@@ -117,6 +117,29 @@ export async function makeItems(
   return items;
 }
 
+/**
+ * Подпункты одного пункта в заданном порядке.
+ *
+ * Позиции считаются внутри родителя: у подпунктов и пунктов независимые
+ * последовательности, и позиция 1 у подпункта не спорит с позицией 1 у пункта.
+ */
+export async function makeSubItems(
+  db: PrismaClient,
+  listId: string,
+  parentId: string,
+  names: string[],
+) {
+  const items = [];
+  for (const [index, name] of names.entries()) {
+    items.push(
+      await db.item.create({
+        data: { listId, parentId, name, position: index + 1 },
+      }),
+    );
+  }
+  return items;
+}
+
 /** Расшаривает список получателю с размещением в его пространстве. */
 export async function shareListWith(
   db: PrismaClient,

@@ -69,6 +69,37 @@ function getValidationError(error: ZodError): string {
   return error.issues.some((i) => i.code === "too_big") ? "tooLong" : "validationError";
 }
 
+/**
+ * Приводит кеш отметки родителя в соответствие с его подпунктами.
+ *
+ * Возвращает две операции, а не выполняет их: вызывающий код кладёт их в тот же
+ * `$transaction`, что и собственное изменение подпункта, и весь пересчёт
+ * укладывается в один round-trip до БД. Условия взаимоисключающие, поэтому
+ * ровно одна из операций затрагивает строку, а вторая ничего не делает.
+ *
+ * Отметка родителя производная (см. `src/lib/item-tree.ts`), и в строке лежит
+ * лишь кеш для запросов, которые дерево не собирают. Поэтому атомарность с
+ * изменением подпункта желательна, но не критична: расхождение кеша
+ * пользователю не видно.
+ *
+ * Родитель, оставшийся вовсе без подпунктов, сохраняет прежнее значение —
+ * с этого момента оно снова его собственное. Отсюда условие `some: {}` в
+ * первой операции: без него удаление последнего подпункта отметило бы пункт
+ * выполненным, потому что «все ноль подпунктов выполнены».
+ */
+function syncParentCompletion(parentId: string) {
+  return [
+    prisma.item.updateMany({
+      where: { id: parentId, children: { some: {}, none: { isCompleted: false } } },
+      data: { isCompleted: true },
+    }),
+    prisma.item.updateMany({
+      where: { id: parentId, children: { some: { isCompleted: false } } },
+      data: { isCompleted: false },
+    }),
+  ];
+}
+
 /** Проверяет, что spaceId из формы принадлежит текущему пользователю. */
 async function resolveActionSpace(userId: string, formData: FormData) {
   const spaceId = formData.get("spaceId");
@@ -88,8 +119,9 @@ async function resolveActionSpace(userId: string, formData: FormData) {
  * сохраняет его в БД в фоне.
  *
  * @param formData - FormData с полями:
- *   - `itemName` {string} — название записи (1–100 символов).
- *   - `listId`   {string} — ID списка, к которому добавляется запись.
+ *   - `itemName`     {string} — название записи (1–100 символов).
+ *   - `listId`       {string} — ID списка, к которому добавляется запись.
+ *   - `parentItemId` {string} — ID родительского пункта для подпункта ("" — обычный пункт).
  * @returns `{ success: true }` или `{ success: false, error: string }`.
  */
 export async function addItem(formData: FormData) {
@@ -106,6 +138,8 @@ export async function addItem(formData: FormData) {
     const rawData = {
       itemName: formData.get("itemName"),
       listId: formData.get("listId"),
+      // FormData не умеет передавать null: пустая строка означает обычный пункт.
+      parentItemId: formData.get("parentItemId") || null,
     };
 
     // safeParse не бросает исключение, а возвращает { success, data | error }
@@ -116,43 +150,97 @@ export async function addItem(formData: FormData) {
       return { success: false, error: getValidationError(result.error) };
     }
 
-    // Проверяем, что пользователь является владельцем или участником списка.
-    // Заодно забираем максимальную позицию в списке: новая запись встаёт в
-    // конец. Отдельным запросом это стоило бы лишнего round-trip до БД,
-    // поэтому берём его тем же запросом, что и проверку доступа.
-    const list = await prisma.list.findFirst({
-      where: {
-        id: result.data.listId,
-        ...listInSpaceWhere(session.user.id, space.id),
-      },
-      select: {
-        id: true,
-        items: {
-          orderBy: { position: "desc" },
-          take: 1,
-          select: { position: true },
-        },
-      },
-    });
+    const { listId, itemName, parentItemId } = result.data;
 
-    if (!list) {
-      return { success: false, error: "Список не найден" };
-    }
-
+    // Позиция значима внутри своего уровня, поэтому максимум берётся по
+    // соседям будущей записи: у подпункта это подпункты того же родителя,
+    // у обычного пункта — пункты верхнего уровня списка.
+    //
     // Два одновременных добавления могут прочитать один и тот же максимум и
     // получить равные позиции. Это допустимо: порядок доопределяет тайбрейк по
     // createdAt и id при выборке, список не ломается.
-    const position = (list.items[0]?.position ?? 0) + POSITION_STEP;
+    let position: number;
+
+    if (parentItemId) {
+      // Один запрос закрывает четыре проверки сразу: доступ к списку,
+      // существование родителя ИМЕННО в этом списке, запрет второго уровня
+      // вложенности (`parentId: null` у родителя) — и отдаёт максимальную
+      // позицию среди уже существующих подпунктов.
+      const parent = await prisma.item.findFirst({
+        where: {
+          id: parentItemId,
+          listId,
+          parentId: null,
+          list: listInSpaceWhere(session.user.id, space.id),
+        },
+        select: {
+          id: true,
+          children: {
+            orderBy: { position: "desc" },
+            take: 1,
+            select: { position: true },
+          },
+        },
+      });
+
+      if (!parent) {
+        return { success: false, error: "Пункт не найден" };
+      }
+
+      position = (parent.children[0]?.position ?? 0) + POSITION_STEP;
+    } else {
+      // Проверяем, что пользователь является владельцем или участником списка.
+      // Заодно забираем максимальную позицию верхнего уровня: новая запись
+      // встаёт в конец. Отдельным запросом это стоило бы лишнего round-trip
+      // до БД, поэтому берём его тем же запросом, что и проверку доступа.
+      const list = await prisma.list.findFirst({
+        where: {
+          id: listId,
+          ...listInSpaceWhere(session.user.id, space.id),
+        },
+        select: {
+          id: true,
+          items: {
+            where: { parentId: null },
+            orderBy: { position: "desc" },
+            take: 1,
+            select: { position: true },
+          },
+        },
+      });
+
+      if (!list) {
+        return { success: false, error: "Список не найден" };
+      }
+
+      position = (list.items[0]?.position ?? 0) + POSITION_STEP;
+    }
 
     // После safeParse TypeScript точно знает, что result.data.itemName — string
-    await prisma.item.create({
+    const create = prisma.item.create({
       data: {
-        name: result.data.itemName,
-        listId: result.data.listId,
+        name: itemName,
+        listId,
+        parentId: parentItemId,
         addedById: session.user.id,
         position,
       },
     });
+
+    if (parentItemId) {
+      // Новый подпункт всегда невыполненный, поэтому родитель заведомо
+      // перестаёт быть выполненным — пересчитывать нечего, достаточно снять
+      // кеш. Обе операции идут одним батчем: лишний round-trip до БД дороже.
+      await prisma.$transaction([
+        create,
+        prisma.item.updateMany({
+          where: { id: parentItemId },
+          data: { isCompleted: false },
+        }),
+      ]);
+    } else {
+      await create;
+    }
 
     // Инвалидируем весь layout-дерево (/ и все локали) → перефетч Server Component
     revalidatePath("/", "layout");
@@ -194,21 +282,32 @@ export async function deleteItem(formData: FormData) {
     return;
   }
 
-  // Получаем listId до удаления и одновременно проверяем права доступа
+  // Получаем listId до удаления и одновременно проверяем права доступа.
+  // parentId нужен, чтобы после удаления подпункта пересчитать родителя.
   const item = await prisma.item.findFirst({
     where: {
       id: result.data.itemId,
       list: listInSpaceWhere(session.user.id, space.id),
     },
-    select: { listId: true },
+    select: { listId: true, parentId: true },
   });
 
   // Если item не найден или нет доступа — молча выходим
   if (!item) return;
 
-  await prisma.item.delete({
+  // Подпункты удаляемого пункта уходят каскадом на уровне БД (составной FK
+  // с onDelete: Cascade), поэтому отдельного запроса на них нет.
+  const remove = prisma.item.delete({
     where: { id: result.data.itemId },
   });
+
+  if (item.parentId) {
+    // Удалённый подпункт мог быть последним невыполненным — тогда родитель
+    // становится выполненным. Пересчёт идёт тем же батчем, что и удаление.
+    await prisma.$transaction([remove, ...syncParentCompletion(item.parentId)]);
+  } else {
+    await remove;
+  }
 
   revalidatePath("/", "layout");
   // Уведомление после ответа (after), без эха вкладке автора (socketId)
@@ -225,6 +324,13 @@ export async function deleteItem(formData: FormData) {
  * `formData.get("isCompleted") === "true"` → `true | false`.
  *
  * Логика: мы передаём ТЕКУЩЕЕ значение `isCompleted`, а в БД сохраняем ИНВЕРСИЮ.
+ * Присланное значение — то, что видел пользователь на экране: если чужая
+ * правка успела прийти раньше, результат всё равно соответствует его намерению.
+ *
+ * Подпункты меняют смысл операции в обе стороны:
+ *   - у пункта с подпунктами собственной отметки нет, она производная, поэтому
+ *     клик по нему означает «проставить это значение всем подпунктам»;
+ *   - клик по подпункту меняет только его, а родитель пересчитывается по итогу.
  *
  * @param formData - FormData с полями:
  *   - `itemId`      {string} — ID записи.
@@ -250,23 +356,46 @@ export async function toggleItem(formData: FormData) {
     return;
   }
 
-  // Проверяем права доступа перед обновлением
+  // Проверяем права доступа перед обновлением. Заодно узнаём положение записи
+  // в дереве: подпункт она или пункт, и есть ли у неё свои подпункты.
   const item = await prisma.item.findFirst({
     where: {
       id: result.data.itemId,
       list: listInSpaceWhere(session.user.id, space.id),
     },
-    select: { listId: true },
+    select: {
+      listId: true,
+      parentId: true,
+      _count: { select: { children: true } },
+    },
   });
 
   if (!item) return;
 
-  await prisma.item.update({
+  const isCompleted = !result.data.isCompleted; // Инвертируем текущее значение
+
+  const updateSelf = prisma.item.update({
     where: { id: result.data.itemId },
-    data: {
-      isCompleted: !result.data.isCompleted, // Инвертируем текущее значение
-    },
+    data: { isCompleted },
   });
+
+  if (item._count.children > 0) {
+    // Каскад вниз. Собственное поле пункта пишется вместе с подпунктами: на
+    // чтении оно не используется, но остаётся согласованным кешем.
+    await prisma.$transaction([
+      prisma.item.updateMany({
+        where: { parentId: result.data.itemId },
+        data: { isCompleted },
+      }),
+      updateSelf,
+    ]);
+  } else if (item.parentId) {
+    // Каскад вверх. Операции идут по порядку в одной транзакции, поэтому
+    // пересчёт родителя видит уже изменённый подпункт.
+    await prisma.$transaction([updateSelf, ...syncParentCompletion(item.parentId)]);
+  } else {
+    await updateSelf;
+  }
 
   revalidatePath("/", "layout");
   // Уведомление после ответа (after), без эха вкладке автора (socketId)
@@ -392,7 +521,7 @@ export async function moveItem(formData: FormData) {
         id: true,
         items: {
           orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-          select: { id: true, position: true },
+          select: { id: true, position: true, parentId: true },
         },
       },
     });
@@ -401,13 +530,23 @@ export async function moveItem(formData: FormData) {
       return { success: false, error: "Запись не найдена" };
     }
 
+    // Перемещение всегда идёт внутри своего уровня: подпункт остаётся у своего
+    // родителя, пункт — среди пунктов списка. Позиции сравнимы только внутри
+    // этой группы, поэтому и соседи ищутся только среди неё: сосед с другого
+    // уровня означает устаревшее или подделанное представление клиента.
+    const moving = list.items.find((item) => item.id === itemId);
+    if (!moving) {
+      return { success: false, error: "Запись не найдена" };
+    }
+    const siblings = list.items.filter((item) => item.parentId === moving.parentId);
+
     // `?? null` приводит «сосед не запрошен» и «сосед не найден» к одному типу:
-    // различает их проверка ниже, а дальше по коду null означает край списка.
+    // различает их проверка ниже, а дальше по коду null означает край уровня.
     const previous = previousItemId
-      ? (list.items.find((item) => item.id === previousItemId) ?? null)
+      ? (siblings.find((item) => item.id === previousItemId) ?? null)
       : null;
     const next = nextItemId
-      ? (list.items.find((item) => item.id === nextItemId) ?? null)
+      ? (siblings.find((item) => item.id === nextItemId) ?? null)
       : null;
 
     // Сосед не найден — другой участник успел удалить запись, и представление
@@ -418,8 +557,8 @@ export async function moveItem(formData: FormData) {
     }
 
     // Записи уже отсортированы по позиции, поэтому края берутся без обхода.
-    const lowestPosition = list.items[0].position;
-    const highestPosition = list.items[list.items.length - 1].position;
+    const lowestPosition = siblings[0].position;
+    const highestPosition = siblings[siblings.length - 1].position;
 
     let newPosition: number;
     if (previous && next) {
@@ -429,14 +568,14 @@ export async function moveItem(formData: FormData) {
     } else if (next) {
       newPosition = lowestPosition - POSITION_STEP;
     } else {
-      // Соседей нет вовсе: в списке одна запись, двигать её некуда.
+      // Соседей нет вовсе: на этом уровне одна запись, двигать её некуда.
       return { success: true };
     }
 
     // Середина не легла строго между соседями — double исчерпал мантиссу.
     // Практически недостижимо (нужно ~50 вставок подряд между одной и той же
     // парой), но молча получить одинаковые позиции нельзя, поэтому здесь
-    // список перенумеровывается целиком. Проверка идёт по факту, а не по
+    // перенумеровывается весь уровень. Проверка идёт по факту, а не по
     // произвольному эпсилону: так она верна при любых значениях позиций.
     const needsRebalance =
       previous !== null &&
@@ -444,11 +583,17 @@ export async function moveItem(formData: FormData) {
       (newPosition <= previous.position || newPosition >= next.position);
 
     if (needsRebalance) {
-      const reordered = list.items.filter((item) => item.id !== itemId);
+      // Перенумеровываются только соседи по уровню: позиции подпунктов и
+      // пунктов независимы, и трогать чужой уровень незачем.
+      const reordered = siblings.filter((item) => item.id !== itemId);
       const insertAt = previous
         ? reordered.findIndex((item) => item.id === previous.id) + 1
         : 0;
-      reordered.splice(insertAt, 0, { id: itemId, position: newPosition });
+      reordered.splice(insertAt, 0, {
+        id: itemId,
+        position: newPosition,
+        parentId: moving.parentId,
+      });
 
       await prisma.$transaction(
         reordered.map((item, index) =>
@@ -493,10 +638,19 @@ export async function moveItem(formData: FormData) {
  *
  * Перенос — это одна запись в БД: у существующей строки меняются `listId` и
  * `position`. Заметка, её версия, автор и `createdAt` едут со строкой сами.
+ * Подпункты тоже: составной внешний ключ `(parentId, listId)` объявлен с
+ * ON UPDATE CASCADE, поэтому смена `listId` у родителя переносит их на уровне
+ * БД. Их позиции значимы внутри родителя и потому не меняются.
+ *
  * Копирование создаёт новую строку: `noteVersion` начинается с нуля (у новой
  * строки свой счётчик optimistic concurrency), автором становится тот, кто
  * копировал, а отметка о выполнении сбрасывается — копию заводят, чтобы
- * сделать дело заново в другом списке.
+ * сделать дело заново в другом списке. Подпункты копируются по тем же
+ * правилам и сохраняют свой порядок.
+ *
+ * Сам подпункт перенести нельзя: он принадлежит родителю, а не списку.
+ * Интерфейс такого пункта меню не показывает, но присланному ID доверять
+ * нельзя, поэтому проверка есть и здесь.
  *
  * Запись встаёт в конец целевого списка, как при обычном добавлении.
  *
@@ -535,11 +689,29 @@ export async function moveItemToList(formData: FormData) {
         id: itemId,
         list: listInSpaceWhere(session.user.id, space.id),
       },
-      select: { id: true, name: true, note: true, listId: true },
+      select: {
+        id: true,
+        name: true,
+        note: true,
+        listId: true,
+        parentId: true,
+        // Подпункты нужны только при копировании, но отдельный запрос ради
+        // этого стоил бы round-trip: список подпунктов у записи короткий.
+        children: {
+          orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+          select: { name: true, note: true, position: true },
+        },
+      },
     });
 
     if (!item) {
       return { success: false, error: "Запись не найдена" };
+    }
+
+    // Подпункт принадлежит родителю: переносить его отдельно в другой список
+    // нельзя, туда он поедет только вместе с ним.
+    if (item.parentId) {
+      return { success: false, error: "subItem" };
     }
 
     // Клиент такой пункт и не показывает, но присланному ID доверять нельзя.
@@ -557,6 +729,7 @@ export async function moveItemToList(formData: FormData) {
       select: {
         id: true,
         items: {
+          where: { parentId: null },
           orderBy: { position: "desc" },
           take: 1,
           select: { position: true },
@@ -571,23 +744,49 @@ export async function moveItemToList(formData: FormData) {
     const position = (targetList.items[0]?.position ?? 0) + POSITION_STEP;
 
     if (mode === "move") {
+      // Подпункты едут за родителем сами: ON UPDATE CASCADE на составном
+      // ключе (parentId, listId) переписывает им listId. Позиции подпунктов
+      // значимы внутри родителя, поэтому остаются прежними.
       await prisma.item.update({
         where: { id: itemId },
         data: { listId: targetListId, position },
       });
     } else {
-      await prisma.item.create({
-        data: {
-          name: item.name,
-          note: item.note,
-          // У копии своя история заметки: версия начинается с нуля, а отметка
-          // времени ставится по факту создания — по ней AI отбирает контекст.
-          noteUpdatedAt: item.note ? new Date() : null,
-          listId: targetListId,
-          addedById: session.user.id,
-          position,
-        },
-      });
+      // Внутри колбэка транзакции сужение типа сессии теряется, поэтому ID
+      // автора берётся здесь, где он ещё проверен.
+      const authorId = session.user.id;
+      const copyData = {
+        name: item.name,
+        note: item.note,
+        // У копии своя история заметки: версия начинается с нуля, а отметка
+        // времени ставится по факту создания — по ней AI отбирает контекст.
+        noteUpdatedAt: item.note ? new Date() : null,
+        listId: targetListId,
+        addedById: authorId,
+        position,
+      };
+
+      if (item.children.length === 0) {
+        await prisma.item.create({ data: copyData });
+      } else {
+        // ID копии известен только после её создания, поэтому подпункты
+        // пишутся вторым запросом — но в одной транзакции: половина
+        // скопированного пункта хуже, чем не скопированный вовсе.
+        await prisma.$transaction(async (tx) => {
+          const copy = await tx.item.create({ data: copyData, select: { id: true } });
+          await tx.item.createMany({
+            data: item.children.map((child) => ({
+              name: child.name,
+              note: child.note,
+              noteUpdatedAt: child.note ? new Date() : null,
+              listId: targetListId,
+              parentId: copy.id,
+              addedById: authorId,
+              position: child.position,
+            })),
+          });
+        });
+      }
     }
 
     revalidatePath("/", "layout");
@@ -905,6 +1104,7 @@ export async function createList(formData: FormData) {
         note: string | null;
         noteVersion: number;
         isCompleted: boolean;
+        parentId: string | null;
         addedBy: { id: string; name: string | null; email: string } | null;
       }[];
     };
@@ -944,6 +1144,7 @@ export async function createList(formData: FormData) {
           note: item.note,
           noteVersion: item.noteVersion,
           isCompleted: item.isCompleted,
+          parentId: item.parentId,
           addedBy: item.addedBy
             ? {
                 id: item.addedBy.id,

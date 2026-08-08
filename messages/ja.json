@@ -122,6 +122,13 @@
     "moveDown": "下へ移動",
     "deleteItemAction": "項目を削除",
     "moveToListAction": "別のリストへ移動…",
+    "splitIntoSubItems": "サブ項目に分ける",
+    "addSubItem": "サブ項目を追加",
+    "subItemPlaceholder": "サブ項目の名前",
+    "subItemsLabel": "{name}のサブ項目",
+    "closeSubItemInput": "サブ項目の入力を閉じる",
+    "ariaSubItemsToggle": "{name}のサブ項目を表示または非表示",
+    "ariaSubItemsCounter": "完了したサブ項目：{total}件中{done}件",
     "moveToList": {
       "groupsTitle": "グループを選択",
       "searchPlaceholder": "リストを検索",
@@ -140,6 +147,7 @@
     "deleteModal": {
       "title": "項目を削除しますか？",
       "body": "項目「{name}」を本当に削除しますか？",
+      "bodyWithSubItems": "項目「{name}」を本当に削除しますか？サブ項目{count}件も一緒に削除されます。",
       "cancel": "キャンセル",
       "confirm": "削除"
     },

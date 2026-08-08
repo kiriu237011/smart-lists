@@ -44,6 +44,11 @@ export default async function ListsDataFetcher({
           // Порядок задаёт position. createdAt и id — тайбрейк на случай, когда
           // две записи получили одинаковую позицию (конкурентное добавление):
           // порядок остаётся детерминированным, а не «как ляжет».
+          //
+          // Записи всех уровней приходят одним плоским массивом: позиции
+          // сравнимы только внутри своей группы (listId, parentId), а общая
+          // сортировка оставляет каждую группу в её собственном порядке —
+          // этого достаточно, чтобы `buildItemTree` собрал дерево верно.
           orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
           select: {
             id: true,
@@ -51,6 +56,7 @@ export default async function ListsDataFetcher({
             note: true,
             noteVersion: true,
             isCompleted: true,
+            parentId: true,
             addedBy: {
               select: { id: true, name: true, email: true },
             },
