@@ -34,7 +34,10 @@ import { logger } from "@/lib/logger";
 let impersonatedClient: Impersonated | null = null;
 let clientInitialized = false;
 
-/** Все четыре значения несекретные: номер проекта, ID пула, ID провайдера и email SA. */
+/**
+ * Все четыре значения несекретные: номер проекта, ID пула, ID провайдера и email SA.
+ * Заданы только в Production — там же, где заданы `INSIGHTS_SERVICE_*`.
+ */
 function buildClient(): Impersonated | null {
   const projectNumber = process.env.GCP_PROJECT_NUMBER;
   const poolId = process.env.GCP_WORKLOAD_IDENTITY_POOL_ID;
@@ -75,11 +78,11 @@ function buildClient(): Impersonated | null {
  * @param audience базовый URL сервиса — именно его Cloud Run сверяет с `aud`.
  * @returns токен либо `null`, если федерация не настроена или обмен не удался.
  *
- * Возврат `null` вместо исключения сознателен. Локальная разработка OIDC-токена
- * не получает (решение 2026-08-09: AI локально не проверяем), и падать там
- * незачем — вызов просто уйдёт без ID-токена и получит от Cloud Run отказ.
- * Это же свойство делало безопасным сам переход: пока `allUsers` оставался на
- * месте, отсутствие токена ничего не ломало.
+ * Возврат `null` вместо исключения сознателен. Федерация настроена только на
+ * production, поэтому ни локальная разработка, ни Preview токена не получают —
+ * им он и не нужен: переменные AI-сервиса там не заданы, и до этого места
+ * выполнение не доходит. Это же свойство делало безопасным сам переход: пока
+ * `allUsers` оставался на месте, отсутствие токена ничего не ломало.
  */
 export async function getCloudRunIdToken(
   audience: string,
