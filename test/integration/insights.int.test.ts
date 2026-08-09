@@ -18,6 +18,19 @@ import { MAX_INSIGHT_ITEMS } from "@/lib/notes";
 import { prisma, setSessionUser } from "./setup";
 import { makeItem, makeList, makeUser } from "./factories";
 
+/**
+ * Федерация в тестах не поднимается: настоящий обмен пошёл бы в STS Google.
+ * Подменяем сам выпуск токена — проверяем не его получение, а то, каким
+ * запрос уходит с токеном и без него.
+ */
+const { idTokenMock } = vi.hoisted(() => ({
+  idTokenMock: vi.fn<() => Promise<string | null>>(),
+}));
+
+vi.mock("@/lib/gcp-auth", () => ({
+  getCloudRunIdToken: idTokenMock,
+}));
+
 /** Форма запроса к сервису — ровно то, что проверяют тесты. */
 type InsightRequest = {
   title: string;
@@ -41,6 +54,10 @@ let fetchSpy: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   process.env.INSIGHTS_SERVICE_URL = "https://insights.test";
   process.env.INSIGHTS_SERVICE_SECRET = "test-secret";
+
+  // По умолчанию токена нет — так выглядит локальная разработка.
+  idTokenMock.mockReset();
+  idTokenMock.mockResolvedValue(null);
 
   fetchSpy = vi.fn(async () => ({
     ok: true,
@@ -218,5 +235,63 @@ describe("контекст AI — заметки", () => {
     const request = lastRequest();
     expect(request.notes_meta.included_item_notes).toBe(0);
     expect(request.notes_meta.omitted_item_notes).toBe(1);
+  });
+});
+
+describe("аутентификация вызова Cloud Run", () => {
+  /** Заголовки последнего запроса к сервису. */
+  function lastHeaders(): Record<string, string> {
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0] as [
+      string,
+      { headers: Record<string, string> },
+    ];
+    return init.headers;
+  }
+
+  it("шлёт ID-токен отдельным заголовком, не трогая shared secret", async () => {
+    idTokenMock.mockResolvedValue("id-token-value");
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    setSessionUser(user.id);
+
+    await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    const headers = lastHeaders();
+    // Два слоя, а не замена одного другим: Cloud Run проверяет свой заголовок
+    // и вырезает подпись, сервис проверяет секрет в своём.
+    expect(headers["X-Serverless-Authorization"]).toBe("Bearer id-token-value");
+    expect(headers.Authorization).toBe("Bearer test-secret");
+  });
+
+  it("audience токена — базовый URL сервиса, а не путь запроса", async () => {
+    idTokenMock.mockResolvedValue("id-token-value");
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    setSessionUser(user.id);
+
+    await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    // Cloud Run сверяет `aud` с адресом сервиса; `/insights` в нём быть не должно.
+    expect(idTokenMock).toHaveBeenCalledWith("https://insights.test");
+  });
+
+  it("без токена запрос всё равно уходит и секрет сохраняется", async () => {
+    idTokenMock.mockResolvedValue(null);
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    setSessionUser(user.id);
+
+    await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    // Так выглядит локальная разработка и так выглядел переходный период, пока
+    // `allUsers` ещё оставался: отсутствие токена ничего не ломает на стороне
+    // приложения, отказ приходит от Cloud Run.
+    const headers = lastHeaders();
+    expect(headers["X-Serverless-Authorization"]).toBeUndefined();
+    expect(headers.Authorization).toBe("Bearer test-secret");
   });
 });
