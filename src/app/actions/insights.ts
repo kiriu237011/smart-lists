@@ -3,8 +3,10 @@
  * @description Server Action для получения AI-инсайта по списку.
  *
  * Вызывает FastAPI-сервис, который формирует промпт и обращается к AI API.
- * Авторизация между сервисами двухслойная: Cloud Run проверяет Google ID-токен
- * до того, как запрос дойдёт до сервиса, а сам сервис проверяет shared secret.
+ * Авторизация между сервисами — Google ID-токен, выпущенный через Workload
+ * Identity Federation. Его проверяют дважды и независимо: Cloud Run до того,
+ * как запрос дойдёт до сервиса, и сам сервис — по подписи, audience и email
+ * вызывающего. Статических секретов на этом пути нет.
  *
  * Предусловия:
  *   - Пользователь должен быть авторизован через NextAuth.
@@ -15,6 +17,7 @@
  *   - Проверяется членство пользователя в списке (владелец или ListShare).
  *   - userMessage ограничен 500 символами (защита от cost abuse).
  *   - Rate limiting: не более 15 запросов в день на пользователя (через AiInsightUsage).
+ *   - Вызов сервиса подписан ID-токеном; без него запрос не отправляется вовсе.
  */
 
 "use server";
@@ -92,10 +95,9 @@ export async function getListInsight(
   // Конфиг сервиса проверяем тоже ДО rate limiting — иначе при отсутствии
   // env-переменных квота списывалась бы впустую.
   const serviceUrl = process.env.INSIGHTS_SERVICE_URL;
-  const secret = process.env.INSIGHTS_SERVICE_SECRET;
 
-  if (!serviceUrl || !secret) {
-    logger.error({ action: "getListInsight" }, "INSIGHTS_SERVICE_URL или INSIGHTS_SERVICE_SECRET не заданы");
+  if (!serviceUrl) {
+    logger.error({ action: "getListInsight" }, "INSIGHTS_SERVICE_URL не задан");
     return { error: "Service not configured" };
   }
 
@@ -262,34 +264,35 @@ export async function getListInsight(
   // Hard cap на длину вопроса — защита от cost abuse
   const safeUserMessage = userMessage?.slice(0, MAX_USER_MESSAGE_LENGTH);
 
-  // Cloud Run проверяет вызывающего сам и до кода сервиса. Google-токен едет
-  // отдельным заголовком: `Authorization` уже занят нашим shared secret, а
-  // `X-Serverless-Authorization` существует ровно для этого случая — Cloud Run
-  // проверяет его на своей стороне и вырезает подпись, прежде чем передать
-  // запрос контейнеру, поэтому переиспользовать токен из приложения нельзя.
-  // Секрет при этом остаётся вторым слоем: платформа проверяет, кто пришёл,
-  // сервис — что пришли по делу.
+  // Токен едет в обычном `Authorization`, а не в `X-Serverless-Authorization`,
+  // и это осознанно. Cloud Run принимает оба, но из второго вырезает подпись
+  // перед передачей в контейнер — сервис увидел бы claims, которые не может
+  // проверить. Из `Authorization` токен доходит целым, поэтому сервис проверяет
+  // подпись сам и получается два независимых слоя: платформа отвечает на вопрос
+  // «можно ли звать», сервис — «кто именно позвал».
+  //
+  // Статического секрета здесь больше нет: он был третьим ответом на тот же
+  // вопрос, только неизменным годами и хранимым в двух местах сразу.
   const idToken = await getCloudRunIdToken(serviceUrl);
 
-  const requestHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${secret}`,
-  };
-  if (idToken) {
-    requestHeaders["X-Serverless-Authorization"] = `Bearer ${idToken}`;
-  } else {
-    // Ожидаемо локально и в тестах; в бою означает сломанную федерацию, и
-    // тогда Cloud Run ответит 403 — поэтому пишем предупреждение заранее.
-    logger.warn(
-      { action: "getListInsight" },
-      "ID-токен Cloud Run не получен, запрос уйдёт без него",
+  if (!idToken) {
+    // Без токена запрос гарантированно получит отказ от Cloud Run. Отвечаем
+    // сразу и понятной ошибкой, а не ждём 403 из сети: рвётся федерация, а не
+    // сервис, и в логе должно быть видно именно это.
+    logger.error(
+      { uid: hashId(session.user.id), action: "getListInsight" },
+      "ID-токен Cloud Run не получен — запрос не отправлен",
     );
+    return { error: "Service not configured" };
   }
 
   try {
     const response = await fetch(`${serviceUrl}/insights`, {
       method: "POST",
-      headers: requestHeaders,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
       body: JSON.stringify({
         title: list.title.slice(0, 200),
         list_note: list.note?.slice(0, MAX_NOTE_LENGTH) ?? null,

@@ -55,9 +55,10 @@ beforeEach(() => {
   process.env.INSIGHTS_SERVICE_URL = "https://insights.test";
   process.env.INSIGHTS_SERVICE_SECRET = "test-secret";
 
-  // По умолчанию токена нет — так выглядит локальная разработка.
+  // По умолчанию токен выпускается: это нормальное состояние, и без него
+  // запрос к сервису вообще не уходит. Отсутствие токена проверяется отдельно.
   idTokenMock.mockReset();
-  idTokenMock.mockResolvedValue(null);
+  idTokenMock.mockResolvedValue("test-id-token");
 
   fetchSpy = vi.fn(async () => ({
     ok: true,
@@ -249,7 +250,7 @@ describe("аутентификация вызова Cloud Run", () => {
     return init.headers;
   }
 
-  it("шлёт ID-токен отдельным заголовком, не трогая shared secret", async () => {
+  it("шлёт ID-токен в обычном Authorization и больше ничего", async () => {
     idTokenMock.mockResolvedValue("id-token-value");
     const user = await makeUser();
     const list = await makeList(user.id, user.defaultSpaceId);
@@ -259,10 +260,10 @@ describe("аутентификация вызова Cloud Run", () => {
     await getListInsight(list.id, undefined, user.defaultSpaceId);
 
     const headers = lastHeaders();
-    // Два слоя, а не замена одного другим: Cloud Run проверяет свой заголовок
-    // и вырезает подпись, сервис проверяет секрет в своём.
-    expect(headers["X-Serverless-Authorization"]).toBe("Bearer id-token-value");
-    expect(headers.Authorization).toBe("Bearer test-secret");
+    // Именно Authorization: из X-Serverless-Authorization Cloud Run вырезает
+    // подпись, и сервис не смог бы проверить токен сам.
+    expect(headers.Authorization).toBe("Bearer id-token-value");
+    expect(headers["X-Serverless-Authorization"]).toBeUndefined();
   });
 
   it("audience токена — базовый URL сервиса, а не путь запроса", async () => {
@@ -278,8 +279,25 @@ describe("аутентификация вызова Cloud Run", () => {
     expect(idTokenMock).toHaveBeenCalledWith("https://insights.test");
   });
 
-  it("без токена запрос всё равно уходит и секрет сохраняется", async () => {
+  it("без токена запрос не отправляется вовсе", async () => {
     idTokenMock.mockResolvedValue(null);
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    setSessionUser(user.id);
+
+    const result = await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    // Отправлять нечего: без токена Cloud Run ответит отказом гарантированно.
+    // Ошибка приходит от приложения, чтобы в логе была видна сломанная
+    // федерация, а не безымянный 403 из сети.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.error).toBe("Service not configured");
+  });
+
+  it("секрет сервиса больше не участвует в запросе", async () => {
+    process.env.INSIGHTS_SERVICE_SECRET = "должен-остаться-неиспользованным";
+    idTokenMock.mockResolvedValue("id-token-value");
     const user = await makeUser();
     const list = await makeList(user.id, user.defaultSpaceId);
     await makeItem(list.id, { name: "Пункт" });
@@ -287,11 +305,8 @@ describe("аутентификация вызова Cloud Run", () => {
 
     await getListInsight(list.id, undefined, user.defaultSpaceId);
 
-    // Так выглядит локальная разработка и так выглядел переходный период, пока
-    // `allUsers` ещё оставался: отсутствие токена ничего не ломает на стороне
-    // приложения, отказ приходит от Cloud Run.
-    const headers = lastHeaders();
-    expect(headers["X-Serverless-Authorization"]).toBeUndefined();
-    expect(headers.Authorization).toBe("Bearer test-secret");
+    // Переменная может ещё существовать в окружении до её удаления, но код
+    // обязан её игнорировать: иначе «секрет удалён» осталось бы намерением.
+    expect(JSON.stringify(lastHeaders())).not.toContain("должен-остаться");
   });
 });
