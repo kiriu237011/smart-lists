@@ -79,6 +79,8 @@
     "noGroupsHint": "Create a group in the filter above",
     "errors": {
       "createFailed": "Failed to create the list",
+      "listLimitReached": "This space already holds {max} lists",
+      "groupLimitReached": "This space already holds {max} groups",
       "createLoadFailed": "The list was created, but an error occurred while loading data",
       "renameFailed": "Failed to rename the list",
       "deleteFailed": "Failed to delete the list",
@@ -156,7 +158,9 @@
       "addFailed": "Failed to add the item",
       "tooLong": "The name is too long (200 characters max)",
       "moveFailed": "Failed to move the item",
-      "moveToListFailed": "Failed to move the item to another list"
+      "moveToListFailed": "Failed to move the item to another list",
+      "itemLimitReached": "This list already holds {max} items",
+      "subItemLimitReached": "This item already holds {max} sub-items"
     }
   },
   "Notes": {

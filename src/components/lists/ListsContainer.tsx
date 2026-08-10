@@ -87,6 +87,7 @@ import {
 import { buildItemTree } from "@/lib/item-tree";
 import { listsInGroupOrder, splitIntoColumns } from "@/lib/list-columns";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { MAX_GROUPS_PER_SPACE, MAX_LISTS_PER_SPACE } from "@/lib/limits";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
 import ListsTopPanel from "@/components/lists/ListsTopPanel";
 import ConfirmModal from "@/components/ui/ConfirmModal";
@@ -801,7 +802,9 @@ export default function ListsContainer({
       toast.error(
         result.error === "tooLong"
           ? t("errors.tooLong")
-          : t("errors.groupCreateFailed"),
+          : result.error === "groupLimitReached"
+            ? t("errors.groupLimitReached", { max: MAX_GROUPS_PER_SPACE })
+            : t("errors.groupCreateFailed"),
       );
     }
   }, [api, t]);
@@ -1235,7 +1238,9 @@ export default function ListsContainer({
         toast.error(
           result?.error === "tooLong"
             ? t("errors.tooLong")
-            : t("errors.createFailed"),
+            : result?.error === "listLimitReached"
+              ? t("errors.listLimitReached", { max: MAX_LISTS_PER_SPACE })
+              : t("errors.createFailed"),
         );
         return { success: false };
       }
