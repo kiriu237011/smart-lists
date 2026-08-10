@@ -804,7 +804,9 @@ export default function ListsContainer({
           ? t("errors.tooLong")
           : result.error === "groupLimitReached"
             ? t("errors.groupLimitReached", { max: MAX_GROUPS_PER_SPACE })
-            : t("errors.groupCreateFailed"),
+            : result.error === "dailyLimitReached"
+              ? t("errors.dailyLimitReached")
+              : t("errors.groupCreateFailed"),
       );
     }
   }, [api, t]);
@@ -1240,7 +1242,9 @@ export default function ListsContainer({
             ? t("errors.tooLong")
             : result?.error === "listLimitReached"
               ? t("errors.listLimitReached", { max: MAX_LISTS_PER_SPACE })
-              : t("errors.createFailed"),
+              : result?.error === "dailyLimitReached"
+                ? t("errors.dailyLimitReached")
+                : t("errors.createFailed"),
         );
         return { success: false };
       }

@@ -80,6 +80,7 @@
     "errors": {
       "createFailed": "Failed to create the list",
       "listLimitReached": "This space already holds {max} lists",
+      "dailyLimitReached": "Daily action limit reached — changes will save again after UTC midnight",
       "groupLimitReached": "This space already holds {max} groups",
       "createLoadFailed": "The list was created, but an error occurred while loading data",
       "renameFailed": "Failed to rename the list",
@@ -160,7 +161,8 @@
       "moveFailed": "Failed to move the item",
       "moveToListFailed": "Failed to move the item to another list",
       "itemLimitReached": "This list already holds {max} items",
-      "subItemLimitReached": "This item already holds {max} sub-items"
+      "subItemLimitReached": "This item already holds {max} sub-items",
+      "dailyLimitReached": "Daily action limit reached — changes will save again after UTC midnight"
     }
   },
   "Notes": {
@@ -245,6 +247,7 @@
       "invalidFileType": "Invalid file type",
       "fileTooLarge": "The file is too large (10 MB max)",
       "listQuotaExceeded": "File limit for this list reached",
+      "dailyLimitReached": "Daily action limit reached — changes will save again after UTC midnight",
       "userQuotaExceeded": "Your overall file limit reached",
       "uploadFailed": "Failed to upload the file",
       "deleteFailed": "Failed to delete the file",

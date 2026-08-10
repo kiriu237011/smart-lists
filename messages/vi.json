@@ -80,6 +80,7 @@
     "errors": {
       "createFailed": "Không thể tạo danh sách",
       "listLimitReached": "Không gian này đã có {max} danh sách",
+      "dailyLimitReached": "Đã đạt giới hạn thao tác trong ngày — thay đổi sẽ được lưu lại sau nửa đêm UTC",
       "groupLimitReached": "Không gian này đã có {max} nhóm",
       "createLoadFailed": "Danh sách đã được tạo nhưng có lỗi khi tải dữ liệu",
       "renameFailed": "Không thể đổi tên danh sách",
@@ -160,7 +161,8 @@
       "moveFailed": "Không thể di chuyển mục",
       "moveToListFailed": "Không thể chuyển mục sang danh sách khác",
       "itemLimitReached": "Danh sách này đã có {max} mục",
-      "subItemLimitReached": "Mục này đã có {max} mục con"
+      "subItemLimitReached": "Mục này đã có {max} mục con",
+      "dailyLimitReached": "Đã đạt giới hạn thao tác trong ngày — thay đổi sẽ được lưu lại sau nửa đêm UTC"
     }
   },
   "Notes": {
@@ -245,6 +247,7 @@
       "invalidFileType": "Loại tệp không hợp lệ",
       "fileTooLarge": "Tệp quá lớn (tối đa 10 MB)",
       "listQuotaExceeded": "Đã đạt giới hạn tệp trong danh sách",
+      "dailyLimitReached": "Đã đạt giới hạn thao tác trong ngày — thay đổi sẽ được lưu lại sau nửa đêm UTC",
       "userQuotaExceeded": "Đã đạt tổng giới hạn tệp của bạn",
       "uploadFailed": "Không thể tải tệp lên",
       "deleteFailed": "Không thể xóa tệp",

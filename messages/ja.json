@@ -80,6 +80,7 @@
     "errors": {
       "createFailed": "リストを作成できませんでした",
       "listLimitReached": "このスペースにはすでにリストが{max}件あります",
+      "dailyLimitReached": "1日の操作上限に達しました。UTCの深夜を過ぎると再び保存されます",
       "groupLimitReached": "このスペースにはすでにグループが{max}件あります",
       "createLoadFailed": "リストは作成されましたが、データの読み込み中にエラーが発生しました",
       "renameFailed": "リストの名前を変更できませんでした",
@@ -160,7 +161,8 @@
       "moveFailed": "項目を移動できませんでした",
       "moveToListFailed": "項目を別のリストへ移動できませんでした",
       "itemLimitReached": "このリストにはすでに項目が{max}件あります",
-      "subItemLimitReached": "この項目にはすでにサブ項目が{max}件あります"
+      "subItemLimitReached": "この項目にはすでにサブ項目が{max}件あります",
+      "dailyLimitReached": "1日の操作上限に達しました。UTCの深夜を過ぎると再び保存されます"
     }
   },
   "Notes": {
@@ -245,6 +247,7 @@
       "invalidFileType": "無効なファイル形式です",
       "fileTooLarge": "ファイルが大きすぎます（最大10 MB）",
       "listQuotaExceeded": "リストのファイル数上限に達しました",
+      "dailyLimitReached": "1日の操作上限に達しました。UTCの深夜を過ぎると再び保存されます",
       "userQuotaExceeded": "あなたのファイル総数の上限に達しました",
       "uploadFailed": "ファイルをアップロードできませんでした",
       "deleteFailed": "ファイルを削除できませんでした",

@@ -424,6 +424,8 @@ export default function SmartList({
         return t("errors.itemLimitReached", { max: MAX_ITEMS_PER_LIST });
       case "subItemLimitReached":
         return t("errors.subItemLimitReached", { max: MAX_SUB_ITEMS_PER_ITEM });
+      case "dailyLimitReached":
+        return t("errors.dailyLimitReached");
       default:
         return t("errors.addFailed");
     }

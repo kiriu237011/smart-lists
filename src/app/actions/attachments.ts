@@ -47,6 +47,7 @@ import {
   isS3Configured,
 } from "@/lib/s3";
 import type { FileCategory } from "@/generated/prisma/client";
+import { consumeMutationBudget } from "@/lib/usage";
 
 /** Результат запроса на загрузку: данные для прямого POST в S3. */
 interface RequestUploadResult {
@@ -85,6 +86,12 @@ export async function requestUpload(input: {
       return { success: false, error: "unauthorized" };
     }
 
+    // Загрузка стоит двух единиц бюджета — эта и `confirmUpload`. Так и должно
+    // быть: обе половины создают запись в БД, а вторая ещё и ходит в S3.
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
+
     // S3 не настроен — нет смысла создавать PENDING-строку, которую некуда залить.
     if (!isS3Configured()) {
       logger.error({ action: "requestUpload" }, "S3 не сконфигурирован (env)");
@@ -115,7 +122,7 @@ export async function requestUpload(input: {
     // --- Транзакция с row-lock: проверка квоты без гонок (TOCTOU) ---
     // Лочим строку List (SELECT ... FOR UPDATE): параллельные запросы на тот же
     // список выстраиваются в очередь и видят актуальный COUNT, а не одинаковый
-    // устаревший. Тот же приём, что у AiInsightUsage.
+    // устаревший. Тот же приём, что у UserDailyUsage.
     const txResult = await prisma.$transaction(async (tx) => {
       // Лок + проверка существования списка
       const locked = await tx.$queryRaw<
@@ -246,6 +253,9 @@ export async function confirmUpload(input: {
       return { success: false, error: "unauthorized" };
     }
     const userId = session.user.id;
+    if (!(await consumeMutationBudget(userId))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
 
     const result = confirmUploadSchema.safeParse(input);
     if (!result.success) {
@@ -343,6 +353,9 @@ export async function deleteAttachment(input: {
       return { success: false, error: "unauthorized" };
     }
     const userId = session.user.id;
+    if (!(await consumeMutationBudget(userId))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
 
     const result = deleteAttachmentSchema.safeParse(input);
     if (!result.success) {

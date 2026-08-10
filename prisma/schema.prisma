@@ -65,8 +65,8 @@ model User {
   /// Группы списков, созданные этим пользователем.
   listGroups ListGroup[]
 
-  /// Счётчики запросов к AI-инсайтам (для rate limiting).
-  aiInsightUsage AiInsightUsage[]
+  /// Суточные счётчики: AI-инсайты и мутации (для rate limiting).
+  dailyUsage UserDailyUsage[]
 
   /// Вложения, загруженные этим пользователем.
   /// При удалении аккаунта связь обнуляется (onDelete: SetNull) — файл
@@ -434,19 +434,26 @@ model AppSetting {
 // RATE LIMITING
 // =============================================================================
 
-/// Счётчик запросов к AI-инсайтам — один ряд на пользователя в день.
-/// Тип поля `date` — DateTime; нормализация до UTC-полуночи строго в Server Action
+/// Суточные счётчики пользователя — один ряд на пользователя в день.
+/// Тип поля `date` — DateTime; нормализация до UTC-полуночи строго в коде
 /// (setUTCHours(0,0,0,0)). Postgres не накладывает ограничений на timestamp.
 /// Уникальный индекс (userId, date) гарантирует атомарность upsert.
-model AiInsightUsage {
+///
+/// Счётчиков два, но ряд один: отдельная таблица под мутации означала бы
+/// вторую строку на пользователя в день с той же проблемой накопления.
+/// Старые ряды убираются лениво — см. `src/lib/usage.ts`.
+model UserDailyUsage {
   id     String @id @default(cuid())
   userId String
 
-  /// Дата в UTC (нормализована до 00:00:00.000 в Server Action перед записью).
+  /// Дата в UTC (нормализована до 00:00:00.000 перед записью).
   date DateTime
 
-  /// Количество запросов за этот день.
-  count Int @default(0)
+  /// Запросов к AI-инсайтам за этот день.
+  insights Int @default(0)
+
+  /// Мутаций (создание, изменение, удаление) за этот день.
+  mutations Int @default(0)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

@@ -189,6 +189,8 @@ export default function Attachments({
         return t("errors.listQuotaExceeded");
       case "userQuotaExceeded":
         return t("errors.userQuotaExceeded");
+      case "dailyLimitReached":
+        return t("errors.dailyLimitReached");
       default:
         return t("errors.uploadFailed");
     }
