@@ -49,6 +49,7 @@ import {
   TrashIcon,
 } from "@/components/lists/Notes";
 import { getNoteExcerpt } from "@/lib/notes";
+import { MAX_ITEMS_PER_LIST, MAX_SUB_ITEMS_PER_ITEM } from "@/lib/limits";
 import { applyCompletion, buildItemTree, type ItemNode } from "@/lib/item-tree";
 import { useCollapsedItems } from "@/components/providers/CollapsedItemsProvider";
 import CollapseChevron from "@/components/ui/CollapseChevron";
@@ -406,6 +407,27 @@ export default function SmartList({
 }: SmartListProps) {
   const t = useTranslations("SmartList");
   const notesT = useTranslations("Notes");
+
+  /**
+   * Сообщение об отказе при добавлении записи.
+   *
+   * Добавление вызывается из двух мест — форма списка и форма подпунктов, —
+   * и раньше каждое разбирало коды само. С появлением потолков вариантов
+   * стало четыре, и разбор вынесен сюда: иначе новый код ошибки пришлось бы
+   * не забыть добавить в оба места.
+   */
+  const addItemErrorMessage = (code?: string): string => {
+    switch (code) {
+      case "tooLong":
+        return t("errors.tooLong");
+      case "itemLimitReached":
+        return t("errors.itemLimitReached", { max: MAX_ITEMS_PER_LIST });
+      case "subItemLimitReached":
+        return t("errors.subItemLimitReached", { max: MAX_SUB_ITEMS_PER_ITEM });
+      default:
+        return t("errors.addFailed");
+    }
+  };
 
   // Адаптер операций: Server Actions (авторизованный) или localStorage (гость)
   const api = useListsApi();
@@ -880,9 +902,7 @@ export default function SmartList({
         setOptimisticItems({ action: "delete", itemId: tempId });
       });
       setNewSubItemName(trimmedName);
-      toast.error(
-        result.error === "tooLong" ? t("errors.tooLong") : t("errors.addFailed"),
-      );
+      toast.error(addItemErrorMessage(result.error));
     }
   };
 
@@ -921,7 +941,11 @@ export default function SmartList({
 
       if (!result.success) {
         // Оптимистичное удаление откатится само по завершении transition.
-        toast.error(t("errors.moveToListFailed"));
+        toast.error(
+          result.error === "itemLimitReached"
+            ? t("errors.itemLimitReached", { max: MAX_ITEMS_PER_LIST })
+            : t("errors.moveToListFailed"),
+        );
         return;
       }
 
@@ -1958,11 +1982,7 @@ export default function SmartList({
                 setOptimisticItems({ action: "delete", itemId: tempId });
               });
               setNewItemName(trimmedName);
-              toast.error(
-                result.error === "tooLong"
-                  ? t("errors.tooLong")
-                  : t("errors.addFailed"),
-              );
+              toast.error(addItemErrorMessage(result.error));
             }
           }}
           className="flex gap-2"

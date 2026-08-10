@@ -79,6 +79,8 @@
     "noGroupsHint": "Tạo nhóm trong bộ lọc phía trên",
     "errors": {
       "createFailed": "Không thể tạo danh sách",
+      "listLimitReached": "Không gian này đã có {max} danh sách",
+      "groupLimitReached": "Không gian này đã có {max} nhóm",
       "createLoadFailed": "Danh sách đã được tạo nhưng có lỗi khi tải dữ liệu",
       "renameFailed": "Không thể đổi tên danh sách",
       "deleteFailed": "Không thể xóa danh sách",
@@ -156,7 +158,9 @@
       "addFailed": "Không thể thêm ghi chú",
       "tooLong": "Tên quá dài (tối đa 200 ký tự)",
       "moveFailed": "Không thể di chuyển mục",
-      "moveToListFailed": "Không thể chuyển mục sang danh sách khác"
+      "moveToListFailed": "Không thể chuyển mục sang danh sách khác",
+      "itemLimitReached": "Danh sách này đã có {max} mục",
+      "subItemLimitReached": "Mục này đã có {max} mục con"
     }
   },
   "Notes": {

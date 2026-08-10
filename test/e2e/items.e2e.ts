@@ -18,6 +18,7 @@ import {
   openSpace,
   visible,
 } from "./helpers";
+import { MAX_ITEMS_PER_LIST } from "@/lib/limits";
 
 test("запись добавляется и переживает перезагрузку", async ({ page, user, db }) => {
   const list = await makeList(db, user.id, user.defaultSpaceId);
@@ -144,4 +145,32 @@ test("удаление записи требует подтверждения", 
     "Нужная",
   ]);
   expect(await db.item.count({ where: { id: item.id } })).toBe(0);
+});
+
+test("список на потолке не принимает новую запись", async ({ page, user, db }) => {
+  const list = await makeList(db, user.id, user.defaultSpaceId);
+  // Наполняем одним запросом: проверяется граница, а не путь наполнения.
+  await db.item.createMany({
+    data: Array.from({ length: MAX_ITEMS_PER_LIST }, (_, index) => ({
+      listId: list.id,
+      name: `Запись ${index + 1}`,
+      position: index + 1,
+    })),
+  });
+  await openSpace(page, user);
+
+  const card = listCard(page, list.id);
+  await card.getByTestId("add-item-input").fill("Лишняя");
+  await card.getByTestId("add-item-submit").click();
+
+  // Селектор структурный, а не по тексту: сообщение переводится на четыре языка.
+  await expect(page.locator('[role="status"]').first()).toBeVisible();
+
+  // Оптимистичная запись откатилась, в базе её нет.
+  await expect(
+    card.getByTestId("item-name").filter({ hasText: "Лишняя" }),
+  ).toHaveCount(0);
+  expect(await db.item.count({ where: { listId: list.id } })).toBe(
+    MAX_ITEMS_PER_LIST,
+  );
 });

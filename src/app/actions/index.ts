@@ -57,6 +57,12 @@ import {
   listInSpaceWhere,
 } from "@/lib/spaces";
 import { normalizeNote } from "@/lib/notes";
+import {
+  MAX_GROUPS_PER_SPACE,
+  MAX_ITEMS_PER_LIST,
+  MAX_LISTS_PER_SPACE,
+  MAX_SUB_ITEMS_PER_ITEM,
+} from "@/lib/limits";
 
 /**
  * Шаг между позициями записей при добавлении в конец списка.
@@ -180,11 +186,23 @@ export async function addItem(formData: FormData) {
             take: 1,
             select: { position: true },
           },
+          // Счёт берётся тем же запросом, что и проверка доступа с позицией:
+          // отдельный COUNT стоил бы лишнего round-trip до БД ради числа,
+          // которое почти всегда далеко от потолка.
+          _count: { select: { children: true } },
         },
       });
 
       if (!parent) {
         return { success: false, error: "Пункт не найден" };
+      }
+
+      if (parent._count.children >= MAX_SUB_ITEMS_PER_ITEM) {
+        logger.warn(
+          { uid: hashId(session.user.id), listId, action: "addItem" },
+          "Достигнут потолок подпунктов у пункта",
+        );
+        return { success: false, error: "subItemLimitReached" };
       }
 
       position = (parent.children[0]?.position ?? 0) + POSITION_STEP;
@@ -206,11 +224,22 @@ export async function addItem(formData: FormData) {
             take: 1,
             select: { position: true },
           },
+          // Считаются только пункты верхнего уровня: у подпунктов свой потолок,
+          // общий счёт означал бы разное для разных списков.
+          _count: { select: { items: { where: { parentId: null } } } },
         },
       });
 
       if (!list) {
         return { success: false, error: "Список не найден" };
+      }
+
+      if (list._count.items >= MAX_ITEMS_PER_LIST) {
+        logger.warn(
+          { uid: hashId(session.user.id), listId, action: "addItem" },
+          "Достигнут потолок пунктов в списке",
+        );
+        return { success: false, error: "itemLimitReached" };
       }
 
       position = (list.items[0]?.position ?? 0) + POSITION_STEP;
@@ -734,11 +763,24 @@ export async function moveItemToList(formData: FormData) {
           take: 1,
           select: { position: true },
         },
+        _count: { select: { items: { where: { parentId: null } } } },
       },
     });
 
     if (!targetList) {
       return { success: false, error: "Список не найден" };
+    }
+
+    // Перенос и копирование — вторая дверь к росту списка. Потолок здесь не
+    // ради хранилища (при переносе строк не прибавляется вовсе), а ради
+    // инварианта: ни один список не должен вырасти за размер, на котором
+    // интерфейс и пересчёт позиций остаются отзывчивыми.
+    if (targetList._count.items >= MAX_ITEMS_PER_LIST) {
+      logger.warn(
+        { uid: hashId(session.user.id), listId: targetListId, action: "moveItemToList" },
+        "Целевой список достиг потолка пунктов",
+      );
+      return { success: false, error: "itemLimitReached" };
     }
 
     const position = (targetList.items[0]?.position ?? 0) + POSITION_STEP;
@@ -1029,6 +1071,23 @@ export async function createList(formData: FormData) {
         success: false,
         error: getValidationError(result.error),
       };
+    }
+
+    // Потолок на размер пространства. Без лока: при 200 списках перебор на
+    // один-два ничего не значит, а параллельный флуд, способный проскочить
+    // окно между COUNT и INSERT, ограничивает суточный лимит мутаций. Там,
+    // где счёт мал и точность важна (5 пространств, 5 вложений), в проекте
+    // используется строгий вариант с транзакцией — здесь он был бы платой
+    // без выигрыша.
+    const listsInSpace = await prisma.list.count({
+      where: { ownerId: session.user.id, spaceId: space.id },
+    });
+    if (listsInSpace >= MAX_LISTS_PER_SPACE) {
+      logger.warn(
+        { uid: hashId(session.user.id), spaceId: space.id, action: "createList" },
+        "Достигнут потолок списков в пространстве",
+      );
+      return { success: false, error: "listLimitReached" };
     }
 
     // Если список создаётся из активной группы, сначала проверяем личную группу
@@ -1565,6 +1624,17 @@ export async function createGroup(formData: FormData) {
         success: false,
         error: getValidationError(result.error),
       };
+    }
+
+    const groupsInSpace = await prisma.listGroup.count({
+      where: { userId: session.user.id, spaceId: space.id },
+    });
+    if (groupsInSpace >= MAX_GROUPS_PER_SPACE) {
+      logger.warn(
+        { uid: hashId(session.user.id), spaceId: space.id, action: "createGroup" },
+        "Достигнут потолок групп в пространстве",
+      );
+      return { success: false, error: "groupLimitReached" };
     }
 
     // Новая группа встаёт в конец текущего порядка. Тайбрейки createdAt/id в
