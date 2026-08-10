@@ -129,7 +129,7 @@ const TABLES = [
   "ListGroup",
   "List",
   "Space",
-  "AiInsightUsage",
+  "UserDailyUsage",
   "Session",
   "Account",
   "VerificationToken",

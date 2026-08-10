@@ -63,6 +63,7 @@ import {
   MAX_LISTS_PER_SPACE,
   MAX_SUB_ITEMS_PER_ITEM,
 } from "@/lib/limits";
+import { consumeMutationBudget } from "@/lib/usage";
 
 /**
  * Шаг между позициями записей при добавлении в конец списка.
@@ -136,6 +137,10 @@ export async function addItem(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -299,6 +304,11 @@ export async function addItem(formData: FormData) {
 export async function deleteItem(formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) return;
+  // Бюджет списывается и здесь. Действие ничего не возвращает клиенту по
+  // существующему контракту, поэтому отказ виден не сразу: оптимистичное
+  // состояние держится до следующего обновления страницы. Это то же
+  // поведение, что и у любого другого сбоя этих двух действий.
+  if (!(await consumeMutationBudget(session.user.id))) return;
   const space = await resolveActionSpace(session.user.id, formData);
   if (!space) return;
 
@@ -369,6 +379,11 @@ export async function deleteItem(formData: FormData) {
 export async function toggleItem(formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) return;
+  // Бюджет списывается и здесь. Действие ничего не возвращает клиенту по
+  // существующему контракту, поэтому отказ виден не сразу: оптимистичное
+  // состояние держится до следующего обновления страницы. Это то же
+  // поведение, что и у любого другого сбоя этих двух действий.
+  if (!(await consumeMutationBudget(session.user.id))) return;
   const space = await resolveActionSpace(session.user.id, formData);
   if (!space) return;
 
@@ -449,6 +464,10 @@ export async function renameItem(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -520,6 +539,10 @@ export async function moveItem(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -695,6 +718,10 @@ export async function moveItemToList(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -864,6 +891,10 @@ export async function updateItemNote(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -956,6 +987,10 @@ export async function updateListNote(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1054,6 +1089,10 @@ export async function createList(formData: FormData) {
     const session = await auth();
     if (!session || !session.user || !session.user.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1241,6 +1280,10 @@ export async function deleteList(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -1339,6 +1382,10 @@ export async function shareList(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const ownerId = session.user.id;
     const space = await resolveActionSpace(ownerId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1435,6 +1482,10 @@ export async function removeSharedUser(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const ownerId = session.user.id;
     const space = await resolveActionSpace(ownerId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1499,6 +1550,10 @@ export async function leaveSharedList(formData: FormData) {
       return { success: false, error: "Необходима авторизация" };
     }
 
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
+
     const listId = formData.get("listId");
     if (!listId || typeof listId !== "string" || !listId.trim()) {
       return { success: false, error: "Неверные данные" };
@@ -1549,6 +1604,10 @@ export async function renameList(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1613,6 +1672,10 @@ export async function createGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1682,6 +1745,10 @@ export async function deleteGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -1726,6 +1793,10 @@ export async function renameGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1780,6 +1851,10 @@ export async function moveGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1914,6 +1989,10 @@ export async function moveListInGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -2081,6 +2160,10 @@ export async function addListToGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -2156,6 +2239,10 @@ export async function removeListFromGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };

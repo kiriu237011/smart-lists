@@ -16,7 +16,7 @@
  *   - Данные списка берутся из БД, а не от клиента (защита от подмены данных).
  *   - Проверяется членство пользователя в списке (владелец или ListShare).
  *   - userMessage ограничен 500 символами (защита от cost abuse).
- *   - Rate limiting: не более 15 запросов в день на пользователя (через AiInsightUsage).
+ *   - Rate limiting: не более 15 запросов в день на пользователя (через UserDailyUsage).
  *   - Вызов сервиса подписан ID-токеном; без него запрос не отправляется вовсе.
  */
 
@@ -236,27 +236,27 @@ export async function getListInsight(
   // строго возрастающие значения count: 1, 2, 3, ...
   // Это закрывает TOCTOU-окно прежней схемы (отдельные findUnique и upsert),
   // через которое Promise.all из N запросов мог проскочить проверку при count=0.
-  const usage = await prisma.aiInsightUsage.upsert({
+  const usage = await prisma.userDailyUsage.upsert({
     where: { userId_date: { userId: session.user.id, date: today } },
-    update: { count: { increment: 1 } },
-    create: { userId: session.user.id, date: today, count: 1 },
-    select: { count: true },
+    update: { insights: { increment: 1 } },
+    create: { userId: session.user.id, date: today, insights: 1 },
+    select: { insights: true },
   });
 
   // Если перебрали лимит — откатываем свой инкремент и возвращаем ошибку.
   // Decrement обёрнут в .catch: если он упадёт, счётчик останется завышенным
   // на 1, но на следующий день будет создана новая строка по новому ключу
   // (userId, date) — старая с завышенным count просто перестаёт читаться.
-  if (usage.count > DAILY_INSIGHT_LIMIT) {
-    await prisma.aiInsightUsage
+  if (usage.insights > DAILY_INSIGHT_LIMIT) {
+    await prisma.userDailyUsage
       .update({
         where: { userId_date: { userId: session.user.id, date: today } },
-        data: { count: { decrement: 1 } },
+        data: { insights: { decrement: 1 } },
       })
       .catch((err) => {
-        logger.error({ error: err }, "AiInsightUsage decrement failed:");
+        logger.error({ error: err }, "UserDailyUsage decrement failed:");
       });
-    logger.warn({ uid: hashId(session.user.id), listId, count: usage.count, action: "getListInsight" }, "Превышен дневной лимит AI-инсайтов");
+    logger.warn({ uid: hashId(session.user.id), listId, count: usage.insights, action: "getListInsight" }, "Превышен дневной лимит AI-инсайтов");
     return { error: "rateLimitError" };
   }
   // --- /Rate limiting ---
