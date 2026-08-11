@@ -1,0 +1,94 @@
+name: Sync Preview Proxy
+
+# Постоянная ветка preview служит OAuth redirect proxy для всех Vercel Preview
+# deployments. Обновлять её после каждого изменения приложения не нужно:
+# синхронизация выполняется только когда с последнего merge менялся код самого
+# proxy, его runtime-зависимости или конфигурация сборки.
+on:
+  workflow_run:
+    workflows: ['CI']
+    branches: [main]
+    types: [completed]
+
+# Два успешных CI подряд не должны одновременно создавать merge-коммиты.
+concurrency:
+  group: sync-preview-proxy
+  cancel-in-progress: false
+
+# Это единственный обычный workflow с правом записи в репозиторий. Реальные
+# секреты ему не передаются; встроенный GITHUB_TOKEN нужен только для preview.
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # workflow_run выдаёт write-token и после PR-прогона, поэтому одного фильтра
+    # branches недостаточно: принимаем только успешный push именно в main.
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+
+    steps:
+      # Полная история нужна для merge-base и merge с инфраструктурной веткой.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: preview
+          fetch-depth: 0
+
+      - name: Merge tested auth changes into preview
+        shell: bash
+        env:
+          # Автоматический запуск синхронизирует ровно тот main-коммит, для
+          # которого закончился CI, а не более свежий ещё непроверенный HEAD.
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/preview:refs/remotes/origin/preview
+
+          if ! git merge-base --is-ancestor "${TARGET_SHA}" origin/main; then
+            echo "::error::Проверенный коммит больше не принадлежит main"
+            exit 1
+          fi
+
+          if git merge-base --is-ancestor "${TARGET_SHA}" origin/preview; then
+            echo "preview уже содержит ${TARGET_SHA}"
+            exit 0
+          fi
+
+          proxy_paths=(
+            .github/workflows/sync-preview.yml
+            package.json
+            package-lock.json
+            next.config.ts
+            vercel.json
+            prisma.config.ts
+            prisma/schema.prisma
+            prisma/migrations
+            src/auth.ts
+            src/app/api/auth
+            src/app/auth-error
+            src/generated/prisma
+            src/i18n
+            src/lib/allowed-email.ts
+            src/lib/auth-errors.ts
+            src/lib/db.ts
+            src/lib/logger.ts
+            src/lib/prisma-client.ts
+            src/lib/spaces.ts
+            src/proxy.ts
+          )
+
+          if git diff --quiet "origin/preview...${TARGET_SHA}" -- "${proxy_paths[@]}"; then
+            echo "OAuth proxy и его зависимости не менялись; синхронизация не нужна"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit "${TARGET_SHA}"
+          git push origin HEAD:preview
