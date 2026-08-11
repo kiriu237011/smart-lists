@@ -44,6 +44,7 @@ import {
   headObject,
   getDownloadUrl,
   deleteObject,
+  deleteObjects,
   isS3Configured,
 } from "@/lib/s3";
 import type { FileCategory } from "@/generated/prisma/client";
@@ -102,7 +103,7 @@ export async function requestUpload(input: {
     if (!result.success) {
       return { success: false, error: "validationError" };
     }
-    const { listId, fileName, contentType, size } = result.data;
+    const { listId, spaceId, fileName, contentType, size } = result.data;
 
     // Тип файла — по белому списку (png/jpeg/txt/pdf). Это ранний отсев;
     // окончательно тип закрепляет S3-policy (eq $Content-Type).
@@ -136,7 +137,7 @@ export async function requestUpload(input: {
       const list = await tx.list.findFirst({
         where: {
           id: listId,
-          ...listInSpaceWhere(userId, input.spaceId),
+          ...listInSpaceWhere(userId, spaceId),
         },
         select: { id: true },
       });
@@ -151,16 +152,40 @@ export async function requestUpload(input: {
       // идемпотентен, поэтому пересечение по юзеру с параллельным запросом
       // (другой список того же юзера) безвредно.
       const threshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000);
-      const cleaned = await tx.attachment.deleteMany({
-        where: {
-          status: "PENDING",
-          createdAt: { lt: threshold },
-          OR: [{ listId }, { uploadedById: userId }],
-        },
-      });
-      if (cleaned.count > 0) {
+      // Строки блокируются до удаления, чтобы параллельный confirm не успел
+      // перевести одну из них в UPLOADED между чтением key и DELETE. Без key
+      // удалялась только запись PostgreSQL: уже загруженный, но не
+      // подтверждённый объект оставался в S3 навсегда и переставал учитываться
+      // файловой квотой.
+      const staleAttachments = await tx.$queryRaw<
+        {
+          id: string;
+          key: string;
+          name: string;
+          type: FileCategory;
+          contentType: string;
+          size: number;
+          listId: string;
+          uploadedById: string | null;
+          createdAt: Date;
+        }[]
+      >`SELECT "id", "key", "name", "type", "contentType", "size",
+               "listId", "uploadedById", "createdAt"
+        FROM "Attachment"
+        WHERE "status" = 'PENDING'::"AttachmentStatus"
+          AND "createdAt" < ${threshold}
+          AND ("listId" = ${listId} OR "uploadedById" = ${userId})
+        FOR UPDATE`;
+
+      if (staleAttachments.length > 0) {
+        await tx.attachment.deleteMany({
+          where: {
+            id: { in: staleAttachments.map((attachment) => attachment.id) },
+            status: "PENDING",
+          },
+        });
         logger.info(
-          { count: cleaned.count, listId, action: "requestUpload" },
+          { count: staleAttachments.length, listId, action: "requestUpload" },
           "Прибраны зависшие PENDING-вложения (ленивая уборка)",
         );
       }
@@ -195,11 +220,60 @@ export async function requestUpload(input: {
         },
         select: { id: true },
       });
-      return { attachmentId: attachment.id };
+      return {
+        attachmentId: attachment.id,
+        staleAttachments,
+      };
     });
 
     if ("error" in txResult) {
       return { success: false, error: txResult.error };
+    }
+
+    // S3-уборка не должна задерживать выдачу нового presigned POST и не
+    // откатывает уже завершённую транзакцию. Versioning бакета превращает
+    // удаление в recoverable delete marker, а noncurrent-версия истекает по
+    // lifecycle-правилу.
+    if (txResult.staleAttachments.length > 0) {
+      after(async () => {
+        try {
+          await deleteObjects(
+            txResult.staleAttachments.map((attachment) => attachment.key),
+          );
+        } catch (s3Error) {
+          // Возвращаем метаданные для следующей ленивой попытки. Иначе
+          // временный сбой S3 превращал бы объект в навсегда неучитываемый:
+          // ключ уже невозможно было бы снова найти по базе.
+          try {
+            await prisma.attachment.createMany({
+              data: txResult.staleAttachments.map((attachment) => ({
+                ...attachment,
+                status: "PENDING" as const,
+              })),
+              skipDuplicates: true,
+            });
+          } catch (restoreError) {
+            logger.error(
+              {
+                error: restoreError,
+                count: txResult.staleAttachments.length,
+                listId,
+                action: "requestUpload.cleanup.restore",
+              },
+              "Не удалось вернуть метаданные для повторной S3-уборки",
+            );
+          }
+          logger.error(
+            {
+              error: s3Error,
+              count: txResult.staleAttachments.length,
+              listId,
+              action: "requestUpload.cleanup",
+            },
+            "Не удалось удалить просроченные PENDING-объекты из S3",
+          );
+        }
+      });
     }
 
     // Presigned POST генерим вне транзакции (это сетевой вызов к AWS, не БД).
@@ -269,7 +343,7 @@ export async function confirmUpload(input: {
         id: result.data.attachmentId,
         status: "PENDING",
         list: {
-          ...listInSpaceWhere(userId, input.spaceId),
+          ...listInSpaceWhere(userId, result.data.spaceId),
         },
       },
       select: { id: true, key: true, listId: true },
@@ -307,7 +381,11 @@ export async function confirmUpload(input: {
     // status = UPLOADED + реальный размер. updateMany c status=PENDING в where
     // делает переход атомарным и идемпотентным.
     const updated = await prisma.attachment.updateMany({
-      where: { id: attachment.id, status: "PENDING" },
+      where: {
+        id: attachment.id,
+        status: "PENDING",
+        list: listInSpaceWhere(userId, result.data.spaceId),
+      },
       data: { status: "UPLOADED", size: head.contentLength },
     });
     if (updated.count === 0) {
@@ -367,7 +445,7 @@ export async function deleteAttachment(input: {
       where: {
         id: result.data.attachmentId,
         list: {
-          ...listInSpaceWhere(userId, input.spaceId),
+          ...listInSpaceWhere(userId, result.data.spaceId),
         },
       },
       select: { id: true, key: true, listId: true },
@@ -377,7 +455,15 @@ export async function deleteAttachment(input: {
     }
 
     // Сначала БД — UI сразу чист.
-    await prisma.attachment.delete({ where: { id: attachment.id } });
+    const deleted = await prisma.attachment.deleteMany({
+      where: {
+        id: attachment.id,
+        list: listInSpaceWhere(userId, result.data.spaceId),
+      },
+    });
+    if (deleted.count === 0) {
+      return { success: false, error: "attachmentNotFound" };
+    }
 
     // Потом S3 — best-effort: сбой логируем, но не валим операцию.
     try {
@@ -438,7 +524,7 @@ export async function getAttachmentUrl(input: {
         id: result.data.attachmentId,
         status: "UPLOADED",
         list: {
-          ...listInSpaceWhere(userId, input.spaceId),
+          ...listInSpaceWhere(userId, result.data.spaceId),
         },
       },
       select: { key: true, name: true },

@@ -184,12 +184,14 @@ describe("requestUpload", () => {
     const stale = new Date(Date.now() - (STALE_MINUTES + 5) * 60 * 1000);
     // Список забит, но все строки — просроченные PENDING.
     const staleIds: string[] = [];
+    const staleKeys: string[] = [];
     for (let i = 0; i < MAX_FILES_PER_LIST; i++) {
       const row = await makeAttachment(list.id, user.id, {
         status: "PENDING",
         createdAt: stale,
       });
       staleIds.push(row.id);
+      staleKeys.push(row.key);
     }
     setSessionUser(user.id);
 
@@ -205,6 +207,12 @@ describe("requestUpload", () => {
     expect(
       await prisma.attachment.count({ where: { id: { in: staleIds } } }),
     ).toBe(0);
+
+    const { deleteObjects } = await import("@/lib/s3");
+    expect(vi.mocked(deleteObjects)).not.toHaveBeenCalled();
+    await flushAfter();
+    expect(vi.mocked(deleteObjects)).toHaveBeenCalledOnce();
+    expect(vi.mocked(deleteObjects)).toHaveBeenCalledWith(staleKeys);
   });
 
   it("не трогает свежие PENDING при уборке", async () => {
@@ -227,6 +235,33 @@ describe("requestUpload", () => {
     expect(await prisma.attachment.count({ where: { listId: list.id } })).toBe(
       MAX_FILES_PER_LIST,
     );
+  });
+
+  it("возвращает PENDING-метаданные для повтора при сбое S3-уборки", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    const staleRow = await makeAttachment(list.id, user.id, {
+      status: "PENDING",
+      createdAt: new Date(Date.now() - (STALE_MINUTES + 5) * 60 * 1000),
+    });
+    setSessionUser(user.id);
+    const { deleteObjects } = await import("@/lib/s3");
+    vi.mocked(deleteObjects).mockRejectedValueOnce(new Error("S3 unavailable"));
+
+    const result = await requestUpload({
+      listId: list.id,
+      spaceId: user.defaultSpaceId,
+      ...PNG,
+    });
+
+    expect(result.success).toBe(true);
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toBeNull();
+    await flushAfter();
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toMatchObject({ key: staleRow.key, status: "PENDING" });
   });
 });
 
