@@ -38,6 +38,7 @@ export default async function ListsDataFetcher({
         title: true,
         note: true,
         noteVersion: true,
+        aiEnabled: true,
         ownerId: true,
         owner: { select: { name: true, email: true } },
         items: {

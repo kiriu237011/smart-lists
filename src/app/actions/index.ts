@@ -42,6 +42,7 @@ import {
   listGroupMembershipSchema,
   updateListNoteSchema,
   updateItemNoteSchema,
+  setListAiEnabledSchema,
 } from "@/lib/validations";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
@@ -1194,6 +1195,7 @@ export async function createList(formData: FormData) {
       title: string;
       note: string | null;
       noteVersion: number;
+      aiEnabled: boolean;
       ownerId: string;
       owner: { name: string | null; email: string };
       items: {
@@ -1231,6 +1233,7 @@ export async function createList(formData: FormData) {
         title: newList.title,
         note: newList.note,
         noteVersion: newList.noteVersion,
+        aiEnabled: newList.aiEnabled,
         ownerId: newList.ownerId,
         owner: {
           name: newList.owner.name,
@@ -1585,6 +1588,73 @@ export async function leaveSharedList(formData: FormData) {
   } catch (error) {
     logger.error({ error: error }, "Ошибка при выходе из списка:");
     return { success: false, error: "Не удалось отписаться от списка" };
+  }
+}
+
+/**
+ * Разрешает или запрещает отправку содержимого списка в AI-сервис.
+ *
+ * Право есть у любого участника, а не только у владельца, и это осознанно.
+ * Инсайт отправляет наружу содержимое целиком — включая заметки того, кто
+ * список не создавал и кнопку не нажимал. Владельческая проверка оставила бы
+ * такого человека ровно там же, где он был: он узнал бы о передаче, но
+ * помешать ей всё равно не смог бы, кроме как выйдя из списка.
+ *
+ * @param formData - FormData с полями:
+ *   - `listId`    {string} — ID списка.
+ *   - `aiEnabled` {"true"|"false"} — желаемое состояние.
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function setListAiEnabled(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
+
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+
+    const result = setListAiEnabledSchema.safeParse({
+      listId: formData.get("listId"),
+      aiEnabled: formData.get("aiEnabled"),
+    });
+
+    if (!result.success) {
+      return { success: false, error: getValidationError(result.error) };
+    }
+
+    const { listId, aiEnabled } = result.data;
+
+    // Членство проверяется тем же `listInSpaceWhere`, что и везде: без него
+    // запрос просто не найдёт строку, и забыть проверку нельзя.
+    const updated = await prisma.list.updateMany({
+      where: { id: listId, ...listInSpaceWhere(session.user.id, space.id) },
+      data: { aiEnabled },
+    });
+
+    if (updated.count === 0) {
+      return { success: false, error: "Список не найден" };
+    }
+
+    revalidatePath("/", "layout");
+    const socketId = formData.get("socketId");
+    // Уведомление обязательно: остальные участники должны увидеть новое
+    // состояние сразу. Иначе один выключил бы AI, а другой продолжал бы
+    // видеть кнопку и считать, что отправка разрешена.
+    after(() => notifyListMembers(listId, socketId));
+    logger.info(
+      { uid: hashId(session.user.id), listId, aiEnabled, action: "setListAiEnabled" },
+      "Изменён доступ AI к списку",
+    );
+    return { success: true };
+  } catch (error) {
+    logger.error({ error }, "Ошибка при изменении доступа AI к списку:");
+    return { success: false, error: "Не удалось изменить настройку" };
   }
 }
 

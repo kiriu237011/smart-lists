@@ -46,6 +46,8 @@
     "ariaDelete": "Xóa danh sách {title}",
     "ariaListActions": "Thao tác cho danh sách {title}",
     "deleteListAction": "Xóa danh sách",
+    "aiDisableAction": "Tắt AI cho danh sách này",
+    "aiEnableAction": "Bật AI cho danh sách này",
     "collapseAction": "Thu gọn danh sách",
     "expandAction": "Mở rộng danh sách",
     "collapsePanel": "Thu gọn bảng điều khiển",
@@ -80,6 +82,7 @@
     "errors": {
       "createFailed": "Không thể tạo danh sách",
       "listLimitReached": "Không gian này đã có {max} danh sách",
+      "aiToggleFailed": "Không thể thay đổi cài đặt AI",
       "dailyLimitReached": "Đã đạt giới hạn thao tác trong ngày — thay đổi sẽ được lưu lại sau nửa đêm UTC",
       "groupLimitReached": "Không gian này đã có {max} nhóm",
       "createLoadFailed": "Danh sách đã được tạo nhưng có lỗi khi tải dữ liệu",
@@ -207,6 +210,8 @@
     "analyzing": "Đang phân tích...",
     "error": "Không thể lấy phân tích",
     "rateLimitError": "Đã đạt giới hạn hôm nay. Thử lại vào ngày mai.",
+    "privacyNotice": "Nội dung danh sách, gồm cả ghi chú của mọi thành viên, được gửi tới Anthropic để phân tích. Bất kỳ thành viên nào cũng có thể tắt trong menu danh sách.",
+    "disabledError": "AI đã tắt cho danh sách này",
     "notesContext": "Đã gửi ghi chú mục: {included}; đã bỏ qua: {omitted}."
   },
   "ShareListForm": {

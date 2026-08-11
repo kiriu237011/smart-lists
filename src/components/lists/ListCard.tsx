@@ -45,7 +45,11 @@ import {
   TrashIcon,
 } from "@/components/lists/Notes";
 import { buildItemTree } from "@/lib/item-tree";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Sparkles } from "lucide-react";
+import toast from "react-hot-toast";
+import { setListAiEnabled } from "@/app/actions";
+import { appendSocketId } from "@/lib/pusher-client";
+import { useCurrentSpaceId } from "@/components/spaces/SpaceContext";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -108,6 +112,8 @@ export type ListData = {
   title: string;
   note: string | null;
   noteVersion: number;
+  /** Разрешена ли отправка содержимого списка в AI-сервис. */
+  aiEnabled: boolean;
   ownerId: string;
   owner: ListOwner;
   items: Item[];
@@ -193,6 +199,66 @@ const MENU_EDGE_GAP = 12;
  * @param onLeave - Колбэк открытия модала выхода из списка.
  * @param searchQuery - Текущий поисковый запрос для подсветки совпадений.
  */
+
+/**
+ * Пункт меню «включить/выключить AI для списка».
+ *
+ * Отдельный компонент нужен из-за `useCurrentSpaceId`: он бросает исключение
+ * вне `SpaceProvider`, а гостевой режим рендерит карточку без него. Условие
+ * внутри одного компонента здесь не помогло бы — хуки вызываются безусловно.
+ *
+ * Состояние держит родитель: от него же зависит видимость кнопки инсайта.
+ */
+function ListAiToggleMenuItem({
+  listId,
+  aiEnabled,
+  onOptimistic,
+  onRevert,
+}: {
+  listId: string;
+  aiEnabled: boolean;
+  onOptimistic: (next: boolean) => void;
+  onRevert: (previous: boolean) => void;
+}) {
+  const t = useTranslations("ListsContainer");
+  const spaceId = useCurrentSpaceId();
+
+  const handleToggle = async () => {
+    const next = !aiEnabled;
+    onOptimistic(next);
+
+    const formData = new FormData();
+    formData.append("listId", listId);
+    formData.append("aiEnabled", String(next));
+    formData.append("spaceId", spaceId);
+    appendSocketId(formData);
+
+    const result = await setListAiEnabled(formData);
+    if (!result?.success) {
+      onRevert(!next);
+      toast.error(
+        result?.error === "dailyLimitReached"
+          ? t("errors.dailyLimitReached")
+          : t("errors.aiToggleFailed"),
+      );
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      data-testid="list-ai-toggle"
+      data-ai-enabled={aiEnabled}
+      onClick={() => void handleToggle()}
+      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+    >
+      <Sparkles size={17} />
+      {aiEnabled ? t("aiDisableAction") : t("aiEnableAction")}
+    </button>
+  );
+}
+
 const ListCard = memo(function ListCard({
   list,
   currentUserId,
@@ -236,6 +302,17 @@ const ListCard = memo(function ListCard({
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   // Подтверждение удаления заметки списка вызывается из меню действий.
   const [isNoteDeleteOpen, setIsNoteDeleteOpen] = useState(false);
+
+  /**
+   * Оптимистичное состояние флага AI.
+   *
+   * Инициализируется значением с сервера и перезаписывается им же после
+   * `revalidatePath`; локальное значение живёт только до ответа Action.
+   */
+  const [aiEnabled, setAiEnabled] = useState(list.aiEnabled);
+  useEffect(() => {
+    setAiEnabled(list.aiEnabled);
+  }, [list.aiEnabled]);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const actionsMenuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -770,6 +847,25 @@ const ListCard = memo(function ListCard({
                         </button>
                       )}
 
+                      {/* Только для авторизованных: у гостя нет ни AI, ни
+                          пространств, а `useCurrentSpaceId` вне провайдера
+                          бросает исключение — поэтому пункт вынесен в
+                          отдельный компонент, а не спрятан условием внутри. */}
+                      {!isGuest && (
+                        <ListAiToggleMenuItem
+                          listId={list.id}
+                          aiEnabled={aiEnabled}
+                          onOptimistic={(next) => {
+                            setIsActionsMenuOpen(false);
+                            setAiEnabled(next);
+                            // Открытая панель инсайта после выключения
+                            // потеряла бы смысл.
+                            if (!next && activePanel === "ai") setActivePanel(null);
+                          }}
+                          onRevert={setAiEnabled}
+                        />
+                      )}
+
                       {isOwner && (
                         <>
                           <div
@@ -890,15 +986,17 @@ const ListCard = memo(function ListCard({
                     <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
                   </div>
                 </div>
-                <div>
-                  <AiInsightButton
-                    isOpen={activePanel === "ai"}
-                    onToggle={() => togglePanel("ai")}
-                  />
-                  <div className={activePanel === "ai" ? "block" : "hidden"}>
-                    <AiInsight listId={list.id} />
+                {aiEnabled && (
+                  <div>
+                    <AiInsightButton
+                      isOpen={activePanel === "ai"}
+                      onToggle={() => togglePanel("ai")}
+                    />
+                    <div className={activePanel === "ai" ? "block" : "hidden"}>
+                      <AiInsight listId={list.id} />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             ) : (
               <div>
@@ -910,19 +1008,23 @@ const ListCard = memo(function ListCard({
                       sharedCount={0}
                     />
                   )}
-                  <AiInsightButton
-                    isOpen={activePanel === "ai"}
-                    onToggle={() => togglePanel("ai")}
-                  />
+                  {aiEnabled && (
+                    <AiInsightButton
+                      isOpen={activePanel === "ai"}
+                      onToggle={() => togglePanel("ai")}
+                    />
+                  )}
                 </div>
                 {isOwner && (
                   <div className={activePanel === "share" ? "block" : "hidden"}>
                     <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
                   </div>
                 )}
-                <div className={activePanel === "ai" ? "block" : "hidden"}>
-                  <AiInsight listId={list.id} />
-                </div>
+                {aiEnabled && (
+                  <div className={activePanel === "ai" ? "block" : "hidden"}>
+                    <AiInsight listId={list.id} />
+                  </div>
+                )}
               </div>
             )}
 

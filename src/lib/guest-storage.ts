@@ -284,6 +284,10 @@ function storedListToListData(
     title: list.title,
     note: list.note ?? null,
     noteVersion: list.noteVersion ?? 0,
+    // Гостю AI недоступен целиком, наружу ничего не уходит — поэтому честное
+    // значение здесь `false`, а не умолчание БД. Поле в гостевом режиме не
+    // читается, но неверное значение однажды всплывёт в новом месте.
+    aiEnabled: false,
     ownerId: GUEST_USER_ID,
     owner: { name: guestName, email: "" },
     // Компоненты работают с плоским массивом и полем parentId: дерево они

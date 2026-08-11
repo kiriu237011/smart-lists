@@ -46,6 +46,8 @@
     "ariaDelete": "リスト{title}を削除",
     "ariaListActions": "リスト{title}の操作",
     "deleteListAction": "リストを削除",
+    "aiDisableAction": "このリストのAIをオフにする",
+    "aiEnableAction": "このリストのAIをオンにする",
     "collapseAction": "リストを折りたたむ",
     "expandAction": "リストを展開",
     "collapsePanel": "パネルを折りたたむ",
@@ -80,6 +82,7 @@
     "errors": {
       "createFailed": "リストを作成できませんでした",
       "listLimitReached": "このスペースにはすでにリストが{max}件あります",
+      "aiToggleFailed": "AI設定を変更できませんでした",
       "dailyLimitReached": "1日の操作上限に達しました。UTCの深夜を過ぎると再び保存されます",
       "groupLimitReached": "このスペースにはすでにグループが{max}件あります",
       "createLoadFailed": "リストは作成されましたが、データの読み込み中にエラーが発生しました",
@@ -207,6 +210,8 @@
     "analyzing": "分析中...",
     "error": "インサイトを取得できませんでした",
     "rateLimitError": "本日の上限に達しました。明日お試しください。",
+    "privacyNotice": "共有相手のメモを含むリストの内容が、分析のためAnthropicへ送信されます。参加者は誰でもリストメニューからオフにできます。",
+    "disabledError": "このリストではAIがオフになっています",
     "notesContext": "送信した項目メモ: {included}件、省略: {omitted}件。"
   },
   "ShareListForm": {

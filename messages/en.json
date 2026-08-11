@@ -46,6 +46,8 @@
     "ariaDelete": "Delete list {title}",
     "ariaListActions": "Actions for list {title}",
     "deleteListAction": "Delete list",
+    "aiDisableAction": "Turn off AI for this list",
+    "aiEnableAction": "Turn on AI for this list",
     "collapseAction": "Collapse list",
     "expandAction": "Expand list",
     "collapsePanel": "Collapse panel",
@@ -80,6 +82,7 @@
     "errors": {
       "createFailed": "Failed to create the list",
       "listLimitReached": "This space already holds {max} lists",
+      "aiToggleFailed": "Failed to change the AI setting",
       "dailyLimitReached": "Daily action limit reached — changes will save again after UTC midnight",
       "groupLimitReached": "This space already holds {max} groups",
       "createLoadFailed": "The list was created, but an error occurred while loading data",
@@ -207,6 +210,8 @@
     "analyzing": "Analyzing...",
     "error": "Failed to get the insight",
     "rateLimitError": "Daily limit reached. Try again tomorrow.",
+    "privacyNotice": "The list content, including notes of everyone sharing it, is sent to Anthropic for analysis. Any member can turn this off in the list menu.",
+    "disabledError": "AI is turned off for this list",
     "notesContext": "Item notes sent: {included}; omitted: {omitted}."
   },
   "ShareListForm": {
