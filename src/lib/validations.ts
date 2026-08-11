@@ -268,6 +268,8 @@ export const listGroupMembershipSchema = z.object({
 export const requestUploadSchema = z.object({
   /** ID списка, к которому крепится вложение. */
   listId: z.string().min(1),
+  /** Пространство, в контексте которого проверяется доступ к списку. */
+  spaceId: z.string().min(1).max(100),
   /** Оригинальное имя файла (для показа). Ограничиваем длину. */
   fileName: z.string().min(1).max(255, "Слишком длинное имя файла"),
   /** Заявленный MIME-тип. Разрешённость проверяется отдельно по белому списку. */
@@ -287,6 +289,8 @@ export const requestUploadSchema = z.object({
 export const confirmUploadSchema = z.object({
   /** ID ранее созданной PENDING-строки вложения. */
   attachmentId: z.string().min(1),
+  /** Пространство, в контексте которого проверяется доступ к списку. */
+  spaceId: z.string().min(1).max(100),
   /** socket_id Pusher-соединения автора — исключается из рассылки refresh. */
   socketId: z.string().optional(),
 });
@@ -298,6 +302,8 @@ export const confirmUploadSchema = z.object({
 export const deleteAttachmentSchema = z.object({
   /** ID удаляемого вложения. */
   attachmentId: z.string().min(1),
+  /** Пространство, в контексте которого проверяется доступ к списку. */
+  spaceId: z.string().min(1).max(100),
   /** socket_id Pusher-соединения автора — исключается из рассылки refresh. */
   socketId: z.string().optional(),
 });
@@ -309,6 +315,8 @@ export const deleteAttachmentSchema = z.object({
 export const getAttachmentUrlSchema = z.object({
   /** ID вложения, для которого нужна presigned-ссылка. */
   attachmentId: z.string().min(1),
+  /** Пространство, в контексте которого проверяется доступ к списку. */
+  spaceId: z.string().min(1).max(100),
   /** true → форсировать скачивание, false → инлайн-просмотр. */
   download: z.boolean().optional(),
 });
