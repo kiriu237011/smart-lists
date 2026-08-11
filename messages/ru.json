@@ -46,6 +46,8 @@
     "ariaDelete": "Удалить список {title}",
     "ariaListActions": "Действия со списком {title}",
     "deleteListAction": "Удалить список",
+    "aiDisableAction": "Отключить AI для списка",
+    "aiEnableAction": "Включить AI для списка",
     "collapseAction": "Свернуть список",
     "expandAction": "Развернуть список",
     "collapsePanel": "Свернуть панель",
@@ -80,6 +82,7 @@
     "errors": {
       "createFailed": "Не удалось создать список",
       "listLimitReached": "В пространстве уже {max} списков",
+      "aiToggleFailed": "Не удалось изменить настройку AI",
       "dailyLimitReached": "Достигнут суточный лимит действий — изменения снова сохранятся после полуночи UTC",
       "groupLimitReached": "В пространстве уже {max} групп",
       "createLoadFailed": "Список создан, но возникла ошибка при загрузке данных",
@@ -207,6 +210,8 @@
     "analyzing": "Анализирую...",
     "error": "Не удалось получить инсайт",
     "rateLimitError": "Лимит в день исчерпан. Попробуйте завтра.",
+    "privacyNotice": "Содержимое списка, включая заметки всех участников, отправляется в Anthropic для анализа. Отключить может любой участник — в меню списка.",
+    "disabledError": "AI отключён для этого списка",
     "notesContext": "Передано заметок пунктов: {included}; пропущено: {omitted}."
   },
   "ShareListForm": {

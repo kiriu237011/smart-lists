@@ -37,6 +37,7 @@ export function AiInsightButton({ isOpen, onToggle }: AiInsightButtonProps) {
   return (
     <button
       type="button"
+      data-testid="ai-insight-button"
       onClick={onToggle}
       className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all duration-200 ${
         isOpen
@@ -109,6 +110,10 @@ export default function AiInsight({ listId }: AiInsightProps) {
 
     if (result.error === "rateLimitError") {
       setError(t("rateLimitError"));
+    } else if (result.error === "aiDisabled") {
+      // Кнопку в этот момент уже должны были скрыть, но состояние могло
+      // измениться в другой вкладке между открытием панели и нажатием.
+      setError(t("disabledError"));
     } else if (result.error) {
       setError(t("error"));
     } else if (result.insight) {
@@ -119,6 +124,16 @@ export default function AiInsight({ listId }: AiInsightProps) {
 
   return (
     <div className="mt-2 space-y-2">
+      {/* Куда уходят данные. Строка постоянная, а не всплывающая подсказка:
+          она адресована в том числе участнику, который список не создавал и
+          про отправку содержимого узнать больше неоткуда. */}
+      <p
+        data-testid="ai-privacy-notice"
+        className="text-[11px] leading-snug text-gray-500 dark:text-zinc-500"
+      >
+        {t("privacyNotice")}
+      </p>
+
       {/* Поле вопроса */}
       <div className="relative">
         <textarea

@@ -189,3 +189,36 @@ test("списки другого пространства не видны", asy
   await expect(listCard(page, list.id)).toHaveCount(0);
   await expect(visible(page, "lists-empty")).toBeVisible();
 });
+
+test("AI выключается из меню списка и кнопка исчезает", async ({ page, user, db }) => {
+  const list = await makeList(db, user.id, user.defaultSpaceId, { title: "С инсайтом" });
+  await openSpace(page, user);
+
+  const card = listCard(page, list.id);
+
+  // Строка о передаче данных видна до всякого запроса: она адресована и тому,
+  // кто инсайт не запрашивает.
+  await card.getByTestId("ai-insight-button").click();
+  await expect(card.getByTestId("ai-privacy-notice")).toBeVisible();
+
+  const menu = await openListMenu(card);
+  await menu.getByTestId("list-ai-toggle").click();
+
+  await expect(card.getByTestId("ai-insight-button")).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await db.list.findUnique({ where: { id: list.id }, select: { aiEnabled: true } }))
+        ?.aiEnabled,
+    )
+    .toBe(false);
+
+  await page.reload();
+  await expect(listCard(page, list.id).getByTestId("ai-insight-button")).toHaveCount(0);
+
+  // Обратное включение возвращает кнопку — состояние не одностороннее.
+  const menuAgain = await openListMenu(listCard(page, list.id));
+  await menuAgain.getByTestId("list-ai-toggle").click();
+  await expect(
+    listCard(page, list.id).getByTestId("ai-insight-button"),
+  ).toBeVisible();
+});

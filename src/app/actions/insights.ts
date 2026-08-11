@@ -84,12 +84,25 @@ export async function getListInsight(
     select: {
       title: true,
       note: true,
+      aiEnabled: true,
     },
   });
 
   if (!list) {
     logger.warn({ uid: hashId(session.user.id), listId, action: "getListInsight" }, "Доступ к списку запрещён или список не найден");
     return { error: "Список не найден" };
+  }
+
+  // Проверка на сервере, а не только скрытая кнопка в интерфейсе. Флаг
+  // защищает данные участников списка, поэтому обойти его прямым вызовом
+  // Action не должно быть возможно. Отказ идёт до расхода квоты: запрет —
+  // не ошибка пользователя.
+  if (!list.aiEnabled) {
+    logger.info(
+      { uid: hashId(session.user.id), listId, action: "getListInsight" },
+      "AI выключен для списка",
+    );
+    return { error: "aiDisabled" };
   }
 
   // Конфиг сервиса проверяем тоже ДО rate limiting — иначе при отсутствии

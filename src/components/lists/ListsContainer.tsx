@@ -1210,6 +1210,9 @@ export default function ListsContainer({
         title,
         note: null,
         noteVersion: 0,
+        // Совпадает с умолчанием в БД: иначе на миг после создания список
+        // выглядел бы как список с выключенным AI.
+        aiEnabled: true,
         ownerId: currentUserId,
         owner: {
           name: currentUserName,
