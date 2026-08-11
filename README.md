@@ -33,7 +33,7 @@ Smart Lists is a localized web application for personal and shared lists. It sup
 - npm;
 - PostgreSQL;
 - a Google OAuth application;
-- for the full feature set: Pusher, AWS S3 and a running insights service.
+- for the full production feature set: Pusher, AWS S3 and the separately deployed insights service.
 
 ## Local setup
 
@@ -88,12 +88,22 @@ S3_ACCESS_KEY_ID=aws-access-key
 S3_SECRET_ACCESS_KEY=aws-secret-key
 ```
 
-5. For AI insights, set the address of the separate service and the shared secret:
+5. AI insights are intentionally unavailable in Local and Preview. Production
+uses Google identity federation rather than a shared static secret. Configure
+the service URL and the non-secret federation identifiers only in the Vercel
+Production environment:
 
 ```env
-INSIGHTS_SERVICE_URL=http://localhost:8000
-INSIGHTS_SERVICE_SECRET=shared-service-secret
+INSIGHTS_SERVICE_URL=https://insights-service.example.run.app
+GCP_PROJECT_NUMBER=123456789012
+GCP_WORKLOAD_IDENTITY_POOL_ID=vercel
+GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=production
+GCP_SERVICE_ACCOUNT_EMAIL=vercel-insights-invoker@example-project.iam.gserviceaccount.com
 ```
+
+The application exchanges Vercel's OIDC token for a short-lived Google ID
+token. Cloud Run and the service validate that token independently. Do not add
+an `INSIGHTS_SERVICE_SECRET`; it has been removed from the protocol.
 
 The optional `LOG_LEVEL` sets the Pino level; the default is `info`.
 
@@ -228,7 +238,11 @@ Development must not be able to reach production. Authentication and the three e
 | Preview (Vercel) | preview secret and Google client | `dev` branch | dev app | dev bucket |
 | Local | values from the local `.env` | `dev` branch | dev app | dev bucket |
 
-Only the AI service stays shared. That is safe: the daily quota is counted in the `UserDailyUsage` table, so each database has its own counter and the production quota is not consumed from a dev environment.
+The AI service is a deliberate exception to environment parity: only Production
+has `INSIGHTS_SERVICE_URL` and the Google federation configuration. Preview and
+Local do not call the service at all. The federation rule independently admits
+only the Vercel `production` environment, so adding the URL alone elsewhere is
+not enough to gain access.
 
 ### Preview authentication
 
@@ -339,10 +353,15 @@ Before a production deploy:
 4. verify that PostgreSQL and, if those features are enabled, the insights service are reachable;
 5. run `npm run lint` and a production build in a safe environment.
 
-Never publish `.env`, OAuth secrets, the Pusher secret, AWS keys or the AI service shared secret.
+Never publish `.env`, database credentials, OAuth secrets, the Pusher secret or
+AWS keys. The AI path has no shared static secret; its GCP identifiers are not
+credentials, but they should still remain scoped to the Production environment
+to avoid misleading configuration.
 
 ## Documentation for agents
 
 - `AGENTS.md` — mandatory rules for working in this repository;
 - `PROJECT_MEMORY.md` — current architecture, invariants and key decisions;
+- `THREAT_MODEL.md` — the current security status, trust boundaries,
+  assumptions, accepted risks and security backlog;
 - `CLAUDE.md` — imports the shared instructions for Claude Code.
