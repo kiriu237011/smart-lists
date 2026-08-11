@@ -267,6 +267,7 @@ describe("requestUploadSchema", () => {
   it("принимает файл на границе допустимого размера", () => {
     const result = requestUploadSchema.safeParse({
       listId: "list_1",
+      spaceId: "space_1",
       fileName: "photo.png",
       contentType: "image/png",
       size: MAX_FILE_SIZE,
@@ -278,6 +279,7 @@ describe("requestUploadSchema", () => {
   it("отбивает файл больше лимита", () => {
     const result = requestUploadSchema.safeParse({
       listId: "list_1",
+      spaceId: "space_1",
       fileName: "photo.png",
       contentType: "image/png",
       size: MAX_FILE_SIZE + 1,
@@ -289,12 +291,28 @@ describe("requestUploadSchema", () => {
   it("отбивает нулевой и дробный размер", () => {
     const base = {
       listId: "list_1",
+      spaceId: "space_1",
       fileName: "photo.png",
       contentType: "image/png",
     };
 
     expect(requestUploadSchema.safeParse({ ...base, size: 0 }).success).toBe(false);
     expect(requestUploadSchema.safeParse({ ...base, size: 1.5 }).success).toBe(false);
+  });
+
+  it("требует ограниченный spaceId для серверной проверки доступа", () => {
+    const base = {
+      listId: "list_1",
+      fileName: "photo.png",
+      contentType: "image/png",
+      size: 1,
+    };
+
+    expect(requestUploadSchema.safeParse(base).success).toBe(false);
+    expect(
+      requestUploadSchema.safeParse({ ...base, spaceId: "x".repeat(101) })
+        .success,
+    ).toBe(false);
   });
 });
 
