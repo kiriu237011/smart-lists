@@ -46,8 +46,12 @@
     "ariaDelete": "Xóa danh sách {title}",
     "ariaListActions": "Thao tác cho danh sách {title}",
     "deleteListAction": "Xóa danh sách",
+    "aiDisableAction": "Tắt AI cho danh sách này",
+    "aiEnableAction": "Bật AI cho danh sách này",
     "collapseAction": "Thu gọn danh sách",
     "expandAction": "Mở rộng danh sách",
+    "collapsePanel": "Thu gọn bảng điều khiển",
+    "expandPanel": "Mở rộng bảng điều khiển",
     "moveEarlierAction": "Di chuyển lên trước",
     "moveLaterAction": "Di chuyển xuống sau",
     "ariaDragList": "Kéo danh sách {title}",
@@ -77,6 +81,10 @@
     "noGroupsHint": "Tạo nhóm trong bộ lọc phía trên",
     "errors": {
       "createFailed": "Không thể tạo danh sách",
+      "listLimitReached": "Không gian này đã có {max} danh sách",
+      "aiToggleFailed": "Không thể thay đổi cài đặt AI",
+      "dailyLimitReached": "Đã đạt giới hạn thao tác trong ngày — thay đổi sẽ được lưu lại sau nửa đêm UTC",
+      "groupLimitReached": "Không gian này đã có {max} nhóm",
       "createLoadFailed": "Danh sách đã được tạo nhưng có lỗi khi tải dữ liệu",
       "renameFailed": "Không thể đổi tên danh sách",
       "deleteFailed": "Không thể xóa danh sách",
@@ -120,6 +128,13 @@
     "moveDown": "Di chuyển xuống",
     "deleteItemAction": "Xóa mục",
     "moveToListAction": "Chuyển sang danh sách…",
+    "splitIntoSubItems": "Chia thành mục con",
+    "addSubItem": "Thêm mục con",
+    "subItemPlaceholder": "Tên mục con",
+    "subItemsLabel": "Mục con của {name}",
+    "closeSubItemInput": "Đóng ô thêm mục con",
+    "ariaSubItemsToggle": "Hiện hoặc ẩn mục con của {name}",
+    "ariaSubItemsCounter": "Mục con đã hoàn thành: {done} trên {total}",
     "moveToList": {
       "groupsTitle": "Chọn nhóm",
       "searchPlaceholder": "Tìm danh sách",
@@ -138,6 +153,7 @@
     "deleteModal": {
       "title": "Xóa ghi chú?",
       "body": "Bạn có chắc muốn xóa ghi chú «{name}»?",
+      "bodyWithSubItems": "Bạn có chắc muốn xóa mục «{name}»? {count} mục con sẽ bị xóa cùng.",
       "cancel": "Hủy",
       "confirm": "Xóa"
     },
@@ -146,7 +162,10 @@
       "addFailed": "Không thể thêm ghi chú",
       "tooLong": "Tên quá dài (tối đa 200 ký tự)",
       "moveFailed": "Không thể di chuyển mục",
-      "moveToListFailed": "Không thể chuyển mục sang danh sách khác"
+      "moveToListFailed": "Không thể chuyển mục sang danh sách khác",
+      "itemLimitReached": "Danh sách này đã có {max} mục",
+      "subItemLimitReached": "Mục này đã có {max} mục con",
+      "dailyLimitReached": "Đã đạt giới hạn thao tác trong ngày — thay đổi sẽ được lưu lại sau nửa đêm UTC"
     }
   },
   "Notes": {
@@ -191,6 +210,8 @@
     "analyzing": "Đang phân tích...",
     "error": "Không thể lấy phân tích",
     "rateLimitError": "Đã đạt giới hạn hôm nay. Thử lại vào ngày mai.",
+    "privacyNotice": "Nội dung danh sách, gồm cả ghi chú của mọi thành viên, được gửi tới Anthropic để phân tích. Bất kỳ thành viên nào cũng có thể tắt trong menu danh sách.",
+    "disabledError": "AI đã tắt cho danh sách này",
     "notesContext": "Đã gửi ghi chú mục: {included}; đã bỏ qua: {omitted}."
   },
   "ShareListForm": {
@@ -231,6 +252,7 @@
       "invalidFileType": "Loại tệp không hợp lệ",
       "fileTooLarge": "Tệp quá lớn (tối đa 10 MB)",
       "listQuotaExceeded": "Đã đạt giới hạn tệp trong danh sách",
+      "dailyLimitReached": "Đã đạt giới hạn thao tác trong ngày — thay đổi sẽ được lưu lại sau nửa đêm UTC",
       "userQuotaExceeded": "Đã đạt tổng giới hạn tệp của bạn",
       "uploadFailed": "Không thể tải tệp lên",
       "deleteFailed": "Không thể xóa tệp",

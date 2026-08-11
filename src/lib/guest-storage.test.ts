@@ -348,6 +348,281 @@ describe("moveItem", () => {
   });
 });
 
+describe("подпункты — создание", () => {
+  /** Список с пунктом «Ужин» и двумя его подпунктами. */
+  async function seedWithSubItems() {
+    const api = createApi();
+    const list = await api.createList({ title: "Дела" });
+    const listId = list.list!.id;
+    await api.addItem(listId, "Ужин");
+    const parentId = stored().lists[0].items[0].id;
+    await api.addItem(listId, "Купить продукты", parentId);
+    await api.addItem(listId, "Приготовить", parentId);
+    const subIds = Object.fromEntries(
+      stored().lists[0].items[0].subItems.map((i) => [i.name, i.id]),
+    ) as Record<string, string>;
+    return { api, listId, parentId, subIds };
+  }
+
+  it("кладёт подпункт внутрь родителя, а не в список", async () => {
+    const { parentId } = await seedWithSubItems();
+
+    const [item] = stored().lists[0].items;
+    expect(stored().lists[0].items).toHaveLength(1);
+    expect(item.id).toBe(parentId);
+    expect(item.subItems.map((i) => i.name)).toEqual([
+      "Купить продукты",
+      "Приготовить",
+    ]);
+  });
+
+  it("новый подпункт создаётся невыполненным и с нулевой версией заметки", async () => {
+    await seedWithSubItems();
+
+    expect(stored().lists[0].items[0].subItems[0]).toMatchObject({
+      isCompleted: false,
+      note: null,
+      noteVersion: 0,
+    });
+  });
+
+  it("запрещает второй уровень вложенности", async () => {
+    const { api, listId, subIds } = await seedWithSubItems();
+
+    // Родитель ищется только среди пунктов верхнего уровня, поэтому ID
+    // подпункта не находится — вложенность остаётся ровно одна.
+    const result = await api.addItem(listId, "Слишком глубоко", subIds["Приготовить"]);
+
+    expect(result.success).toBe(false);
+    expect(stored().lists[0].items[0].subItems).toHaveLength(2);
+  });
+
+  it("отбивает несуществующего родителя", async () => {
+    const { api, listId } = await seedWithSubItems();
+
+    expect((await api.addItem(listId, "Ничей", "нет-такого")).success).toBe(false);
+  });
+
+  it("добавление подпункта снимает отметку с выполненного пункта", async () => {
+    const { api, listId, parentId } = await seedWithSubItems();
+    // Отмечаем пункт целиком — вместе с подпунктами.
+    await api.toggleItem(parentId, false);
+
+    await api.addItem(listId, "Ещё дело", parentId);
+
+    expect(stored().lists[0].items[0].isCompleted).toBe(false);
+  });
+
+  it("подпункты идут за родителем в плоском представлении для компонентов", async () => {
+    const { parentId, subIds } = await seedWithSubItems();
+
+    const [list] = toListData(stored(), GUEST_NAME);
+    expect(list.items.map((i) => [i.id, i.parentId])).toEqual([
+      [parentId, null],
+      [subIds["Купить продукты"], parentId],
+      [subIds["Приготовить"], parentId],
+    ]);
+  });
+});
+
+describe("подпункты — синхронизация отметок", () => {
+  async function seed() {
+    const api = createApi();
+    const list = await api.createList({ title: "Дела" });
+    const listId = list.list!.id;
+    await api.addItem(listId, "Ужин");
+    const parentId = stored().lists[0].items[0].id;
+    await api.addItem(listId, "Купить продукты", parentId);
+    await api.addItem(listId, "Приготовить", parentId);
+    const subIds = stored().lists[0].items[0].subItems.map((i) => i.id);
+    return { api, parentId, subIds };
+  }
+
+  function state() {
+    const item = stored().lists[0].items[0];
+    return [item.isCompleted, ...item.subItems.map((i) => i.isCompleted)];
+  }
+
+  it("отметка пункта отмечает все его подпункты", async () => {
+    const { api, parentId } = await seed();
+
+    await api.toggleItem(parentId, false);
+
+    expect(state()).toEqual([true, true, true]);
+  });
+
+  it("снятие отметки с пункта снимает её со всех подпунктов", async () => {
+    const { api, parentId } = await seed();
+    await api.toggleItem(parentId, false);
+
+    await api.toggleItem(parentId, true);
+
+    expect(state()).toEqual([false, false, false]);
+  });
+
+  it("отметка последнего невыполненного подпункта отмечает пункт", async () => {
+    const { api, subIds } = await seed();
+
+    await api.toggleItem(subIds[0], false);
+    expect(state()).toEqual([false, true, false]);
+
+    await api.toggleItem(subIds[1], false);
+    expect(state()).toEqual([true, true, true]);
+  });
+
+  it("снятие отметки с подпункта снимает её с пункта", async () => {
+    const { api, parentId, subIds } = await seed();
+    await api.toggleItem(parentId, false);
+
+    await api.toggleItem(subIds[0], true);
+
+    expect(state()).toEqual([false, false, true]);
+  });
+
+  it("удаление последнего невыполненного подпункта отмечает пункт", async () => {
+    const { api, subIds } = await seed();
+    await api.toggleItem(subIds[0], false);
+
+    await api.deleteItem(subIds[1]);
+
+    expect(state()).toEqual([true, true]);
+  });
+
+  it("пункт, оставшийся без подпунктов, сохраняет свою отметку", async () => {
+    const { api, parentId, subIds } = await seed();
+    await api.toggleItem(parentId, false);
+
+    for (const id of subIds) await api.deleteItem(id);
+
+    // С этого момента отметка снова собственная, менять её было бы самодеятельностью.
+    expect(stored().lists[0].items[0].isCompleted).toBe(true);
+    expect(stored().lists[0].items[0].subItems).toHaveLength(0);
+  });
+});
+
+describe("подпункты — порядок, удаление и перенос", () => {
+  /** Пункт «Ужин» с подпунктами A, B, C и соседний пункт «Уборка». */
+  async function seed() {
+    const api = createApi();
+    const list = await api.createList({ title: "Дела" });
+    const listId = list.list!.id;
+    await api.addItem(listId, "Ужин");
+    const parentId = stored().lists[0].items[0].id;
+    for (const name of ["A", "B", "C"]) {
+      await api.addItem(listId, name, parentId);
+    }
+    await api.addItem(listId, "Уборка");
+    const neighbourId = stored().lists[0].items[1].id;
+    const subIds = Object.fromEntries(
+      stored().lists[0].items[0].subItems.map((i) => [i.name, i.id]),
+    ) as Record<string, string>;
+    return { api, listId, parentId, neighbourId, subIds };
+  }
+
+  function subOrder() {
+    return stored().lists[0].items[0].subItems.map((i) => i.name);
+  }
+
+  it("перемещает подпункт внутри родителя", async () => {
+    const { api, subIds } = await seed();
+
+    await api.moveItem(subIds.C, null, subIds.A);
+
+    expect(subOrder()).toEqual(["C", "A", "B"]);
+  });
+
+  it("отклоняет соседа с другого уровня как устаревшего", async () => {
+    const { api, neighbourId, subIds } = await seed();
+
+    // Пункт верхнего уровня не может быть соседом подпункта: уровни независимы.
+    const result = await api.moveItem(subIds.A, neighbourId, null);
+
+    expect(result).toEqual({ success: false, error: "stale" });
+    expect(subOrder()).toEqual(["A", "B", "C"]);
+  });
+
+  it("перемещение пункта не трогает его подпункты", async () => {
+    const { api, parentId, neighbourId } = await seed();
+
+    await api.moveItem(parentId, neighbourId, null);
+
+    expect(stored().lists[0].items.map((i) => i.name)).toEqual(["Уборка", "Ужин"]);
+    expect(stored().lists[0].items[1].subItems.map((i) => i.name)).toEqual([
+      "A",
+      "B",
+      "C",
+    ]);
+  });
+
+  it("удаление пункта уносит его подпункты", async () => {
+    const { api, parentId } = await seed();
+
+    await api.deleteItem(parentId);
+
+    expect(stored().lists[0].items.map((i) => i.name)).toEqual(["Уборка"]);
+    expect(toListData(stored(), GUEST_NAME)[0].items).toHaveLength(1);
+  });
+
+  it("переносит пункт в другой список вместе с подпунктами", async () => {
+    const { api, parentId } = await seed();
+    const target = await api.createList({ title: "Получатель" });
+
+    await api.moveItemToList(parentId, target.list!.id, "move");
+
+    const moved = stored().lists.find((l) => l.id === target.list!.id)!;
+    expect(moved.items[0].subItems.map((i) => i.name)).toEqual(["A", "B", "C"]);
+  });
+
+  it("копия пункта получает свои подпункты с новыми ID", async () => {
+    const { api, parentId, subIds } = await seed();
+    const target = await api.createList({ title: "Получатель" });
+
+    await api.moveItemToList(parentId, target.list!.id, "copy");
+
+    const copy = stored().lists.find((l) => l.id === target.list!.id)!.items[0];
+    expect(copy.subItems.map((i) => i.name)).toEqual(["A", "B", "C"]);
+    expect(copy.subItems.map((i) => i.id)).not.toContain(subIds.A);
+    // Оригинал остаётся на месте вместе со своими подпунктами.
+    expect(stored().lists.find((l) => l.id !== target.list!.id)!.items[0].subItems)
+      .toHaveLength(3);
+  });
+
+  it("копия сбрасывает отметки выполнения у подпунктов", async () => {
+    const { api, parentId } = await seed();
+    await api.toggleItem(parentId, false);
+    const target = await api.createList({ title: "Получатель" });
+
+    await api.moveItemToList(parentId, target.list!.id, "copy");
+
+    const copy = stored().lists.find((l) => l.id === target.list!.id)!.items[0];
+    expect(copy.isCompleted).toBe(false);
+    expect(copy.subItems.every((i) => !i.isCompleted)).toBe(true);
+  });
+
+  it("отдельный подпункт в другой список не переносится", async () => {
+    const { api, listId, subIds } = await seed();
+    const target = await api.createList({ title: "Получатель" });
+
+    const result = await api.moveItemToList(subIds.A, target.list!.id, "move");
+
+    expect(result).toEqual({ success: false, error: "subItem" });
+    // Новый список встаёт первым, поэтому исходный ищем по ID.
+    const source = stored().lists.find((l) => l.id === listId)!;
+    expect(source.items[0].subItems.map((i) => i.name)).toEqual(["A", "B", "C"]);
+  });
+
+  it("переименование и заметка работают на обоих уровнях", async () => {
+    const { api, subIds } = await seed();
+
+    await api.renameItem(subIds.B, "Б");
+    await api.updateItemNote(subIds.B, "детали", 0);
+
+    const subItem = stored().lists[0].items[0].subItems[1];
+    expect(subItem.name).toBe("Б");
+    expect(subItem).toMatchObject({ note: "детали", noteVersion: 1 });
+  });
+});
+
 describe("moveItemToList", () => {
   /** Два списка: исходный с записью «Молоко» и пустой целевой. */
   async function seedTwoLists() {

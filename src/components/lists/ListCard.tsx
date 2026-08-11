@@ -31,6 +31,7 @@ import { useTranslations } from "next-intl";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
 import SmartList from "@/components/lists/SmartList";
+import CollapseChevron from "@/components/ui/CollapseChevron";
 import Highlight from "@/components/ui/Highlight";
 import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
 import AiInsight, { AiInsightButton } from "@/components/lists/AiInsight";
@@ -43,7 +44,12 @@ import {
   NoteRemoveIcon,
   TrashIcon,
 } from "@/components/lists/Notes";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { buildItemTree } from "@/lib/item-tree";
+import { ArrowDown, ArrowUp, Sparkles } from "lucide-react";
+import toast from "react-hot-toast";
+import { setListAiEnabled } from "@/app/actions";
+import { appendSocketId } from "@/lib/pusher-client";
+import { useCurrentSpaceId } from "@/components/spaces/SpaceContext";
 
 /** Пользователь, которому предоставлен доступ к списку. */
 export type SharedUser = {
@@ -58,13 +64,22 @@ export type ListOwner = {
   email: string;
 };
 
-/** Запись внутри списка. */
+/**
+ * Запись внутри списка.
+ *
+ * Уровень задаётся полем `parentId`, а массив записей остаётся плоским: дерево
+ * собирает `buildItemTree` при рендере. Плоское представление нужно
+ * оптимистичному состоянию — обычные `map`/`filter` по одному массиву вместо
+ * рекурсии по вложенным.
+ */
 export type Item = {
   id: string;
   name: string;
   note: string | null;
   noteVersion: number;
   isCompleted: boolean;
+  /** ID родительского пункта. null — пункт верхнего уровня. */
+  parentId: string | null;
   addedBy: { id: string; name: string | null; email: string } | null;
 };
 
@@ -97,6 +112,8 @@ export type ListData = {
   title: string;
   note: string | null;
   noteVersion: number;
+  /** Разрешена ли отправка содержимого списка в AI-сервис. */
+  aiEnabled: boolean;
   ownerId: string;
   owner: ListOwner;
   items: Item[];
@@ -154,11 +171,6 @@ export type ListCardProps = {
   onMoveInGroup?: (listId: string, direction: "earlier" | "later") => void;
 };
 
-/**
- * Шеврон сворачивания: вниз у раскрытой карточки, вправо у свёрнутой.
- * Поворот делается CSS-трансформом, а не второй иконкой, — так переход между
- * состояниями читается как одно движение.
- */
 /** Зазор между кнопкой и её меню. */
 const MENU_GAP = 4;
 
@@ -168,27 +180,6 @@ const MENU_GAP = 4;
  * обрезанным даже когда влезло целиком.
  */
 const MENU_EDGE_GAP = 12;
-
-function CollapseChevron({ isCollapsed }: { isCollapsed: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      className={`transition-transform duration-150 ${
-        isCollapsed ? "-rotate-90" : ""
-      }`}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
 
 /**
  * Мемоизированная карточка одного списка.
@@ -208,6 +199,66 @@ function CollapseChevron({ isCollapsed }: { isCollapsed: boolean }) {
  * @param onLeave - Колбэк открытия модала выхода из списка.
  * @param searchQuery - Текущий поисковый запрос для подсветки совпадений.
  */
+
+/**
+ * Пункт меню «включить/выключить AI для списка».
+ *
+ * Отдельный компонент нужен из-за `useCurrentSpaceId`: он бросает исключение
+ * вне `SpaceProvider`, а гостевой режим рендерит карточку без него. Условие
+ * внутри одного компонента здесь не помогло бы — хуки вызываются безусловно.
+ *
+ * Состояние держит родитель: от него же зависит видимость кнопки инсайта.
+ */
+function ListAiToggleMenuItem({
+  listId,
+  aiEnabled,
+  onOptimistic,
+  onRevert,
+}: {
+  listId: string;
+  aiEnabled: boolean;
+  onOptimistic: (next: boolean) => void;
+  onRevert: (previous: boolean) => void;
+}) {
+  const t = useTranslations("ListsContainer");
+  const spaceId = useCurrentSpaceId();
+
+  const handleToggle = async () => {
+    const next = !aiEnabled;
+    onOptimistic(next);
+
+    const formData = new FormData();
+    formData.append("listId", listId);
+    formData.append("aiEnabled", String(next));
+    formData.append("spaceId", spaceId);
+    appendSocketId(formData);
+
+    const result = await setListAiEnabled(formData);
+    if (!result?.success) {
+      onRevert(!next);
+      toast.error(
+        result?.error === "dailyLimitReached"
+          ? t("errors.dailyLimitReached")
+          : t("errors.aiToggleFailed"),
+      );
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      data-testid="list-ai-toggle"
+      data-ai-enabled={aiEnabled}
+      onClick={() => void handleToggle()}
+      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+    >
+      <Sparkles size={17} />
+      {aiEnabled ? t("aiDisableAction") : t("aiEnableAction")}
+    </button>
+  );
+}
+
 const ListCard = memo(function ListCard({
   list,
   currentUserId,
@@ -251,6 +302,17 @@ const ListCard = memo(function ListCard({
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   // Подтверждение удаления заметки списка вызывается из меню действий.
   const [isNoteDeleteOpen, setIsNoteDeleteOpen] = useState(false);
+
+  /**
+   * Оптимистичное состояние флага AI.
+   *
+   * Инициализируется значением с сервера и перезаписывается им же после
+   * `revalidatePath`; локальное значение живёт только до ответа Action.
+   */
+  const [aiEnabled, setAiEnabled] = useState(list.aiEnabled);
+  useEffect(() => {
+    setAiEnabled(list.aiEnabled);
+  }, [list.aiEnabled]);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const actionsMenuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -414,13 +476,19 @@ const ListCard = memo(function ListCard({
   const isBodyHidden = isCollapsed && !isTemp && !searchQuery.trim();
 
   /**
-   * Выполненные записи: сводка в шапке свёрнутой карточки.
+   * Выполненные записи: сводка в шапке карточки.
    *
    * Считаются именно выполненные, а не оставшиеся: «N / M» в списке задач
    * читается как прогресс, и обратный счёт сбивал бы с толку — отметка записи
    * уменьшала бы первое число.
+   *
+   * Счёт идёт только по верхнему уровню, и частично выполненный пункт
+   * считается невыполненным. Это не приблизительность: отметка такого пункта
+   * производная от подпунктов, поэтому счётчик показывает ровно то же, что
+   * видно в его чекбоксе.
    */
-  const completedItemsCount = list.items.filter((item) => item.isCompleted).length;
+  const { completedCount: completedItemsCount, totalCount: itemsCount } =
+    buildItemTree(list.items);
 
   const bodyId = `list-body-${list.id}`;
 
@@ -593,16 +661,16 @@ const ListCard = memo(function ListCard({
                 становится полем ввода, и ему нужна вся ширина. Числа со
                 слэшем переводить нечего, локали получает только подпись для
                 скринридера. */}
-            {showItemsCounter && !isEditing && list.items.length > 0 && (
+            {showItemsCounter && !isEditing && itemsCount > 0 && (
               <span
                 data-testid="list-items-counter"
                 aria-label={t("ariaItemsCounter", {
                   done: completedItemsCount,
-                  total: list.items.length,
+                  total: itemsCount,
                 })}
                 className="mr-1 text-xs tabular-nums text-gray-400 dark:text-zinc-500"
               >
-                {completedItemsCount} / {list.items.length}
+                {completedItemsCount} / {itemsCount}
               </span>
             )}
 
@@ -779,6 +847,25 @@ const ListCard = memo(function ListCard({
                         </button>
                       )}
 
+                      {/* Только для авторизованных: у гостя нет ни AI, ни
+                          пространств, а `useCurrentSpaceId` вне провайдера
+                          бросает исключение — поэтому пункт вынесен в
+                          отдельный компонент, а не спрятан условием внутри. */}
+                      {!isGuest && (
+                        <ListAiToggleMenuItem
+                          listId={list.id}
+                          aiEnabled={aiEnabled}
+                          onOptimistic={(next) => {
+                            setIsActionsMenuOpen(false);
+                            setAiEnabled(next);
+                            // Открытая панель инсайта после выключения
+                            // потеряла бы смысл.
+                            if (!next && activePanel === "ai") setActivePanel(null);
+                          }}
+                          onRevert={setAiEnabled}
+                        />
+                      )}
+
                       {isOwner && (
                         <>
                           <div
@@ -876,6 +963,7 @@ const ListCard = memo(function ListCard({
             currentUserEmail={currentUserEmail}
             showAuthors={showAuthors}
             showItemNumbers={showItemNumbers}
+            showItemsCounter={showItemsCounter}
             visibleItemIds={visibleItemIds}
             searchQuery={searchQuery}
           />
@@ -898,15 +986,17 @@ const ListCard = memo(function ListCard({
                     <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
                   </div>
                 </div>
-                <div>
-                  <AiInsightButton
-                    isOpen={activePanel === "ai"}
-                    onToggle={() => togglePanel("ai")}
-                  />
-                  <div className={activePanel === "ai" ? "block" : "hidden"}>
-                    <AiInsight listId={list.id} />
+                {aiEnabled && (
+                  <div>
+                    <AiInsightButton
+                      isOpen={activePanel === "ai"}
+                      onToggle={() => togglePanel("ai")}
+                    />
+                    <div className={activePanel === "ai" ? "block" : "hidden"}>
+                      <AiInsight listId={list.id} />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             ) : (
               <div>
@@ -918,19 +1008,23 @@ const ListCard = memo(function ListCard({
                       sharedCount={0}
                     />
                   )}
-                  <AiInsightButton
-                    isOpen={activePanel === "ai"}
-                    onToggle={() => togglePanel("ai")}
-                  />
+                  {aiEnabled && (
+                    <AiInsightButton
+                      isOpen={activePanel === "ai"}
+                      onToggle={() => togglePanel("ai")}
+                    />
+                  )}
                 </div>
                 {isOwner && (
                   <div className={activePanel === "share" ? "block" : "hidden"}>
                     <ShareListForm listId={list.id} sharedWith={list.sharedWith} />
                   </div>
                 )}
-                <div className={activePanel === "ai" ? "block" : "hidden"}>
-                  <AiInsight listId={list.id} />
-                </div>
+                {aiEnabled && (
+                  <div className={activePanel === "ai" ? "block" : "hidden"}>
+                    <AiInsight listId={list.id} />
+                  </div>
+                )}
               </div>
             )}
 

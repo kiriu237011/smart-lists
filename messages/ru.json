@@ -46,8 +46,12 @@
     "ariaDelete": "Удалить список {title}",
     "ariaListActions": "Действия со списком {title}",
     "deleteListAction": "Удалить список",
+    "aiDisableAction": "Отключить AI для списка",
+    "aiEnableAction": "Включить AI для списка",
     "collapseAction": "Свернуть список",
     "expandAction": "Развернуть список",
+    "collapsePanel": "Свернуть панель",
+    "expandPanel": "Развернуть панель",
     "moveEarlierAction": "Переместить раньше",
     "moveLaterAction": "Переместить позже",
     "ariaDragList": "Перетащить список {title}",
@@ -77,6 +81,10 @@
     "noGroupsHint": "Создайте группу в фильтре выше",
     "errors": {
       "createFailed": "Не удалось создать список",
+      "listLimitReached": "В пространстве уже {max} списков",
+      "aiToggleFailed": "Не удалось изменить настройку AI",
+      "dailyLimitReached": "Достигнут суточный лимит действий — изменения снова сохранятся после полуночи UTC",
+      "groupLimitReached": "В пространстве уже {max} групп",
       "createLoadFailed": "Список создан, но возникла ошибка при загрузке данных",
       "renameFailed": "Не удалось переименовать список",
       "deleteFailed": "Не удалось удалить список",
@@ -120,6 +128,13 @@
     "moveDown": "Переместить ниже",
     "deleteItemAction": "Удалить запись",
     "moveToListAction": "Переместить в список…",
+    "splitIntoSubItems": "Разбить на подпункты",
+    "addSubItem": "Добавить подпункт",
+    "subItemPlaceholder": "Название подпункта",
+    "subItemsLabel": "Подпункты записи {name}",
+    "closeSubItemInput": "Закрыть добавление подпункта",
+    "ariaSubItemsToggle": "Показать или скрыть подпункты записи {name}",
+    "ariaSubItemsCounter": "Выполнено подпунктов: {done} из {total}",
     "moveToList": {
       "groupsTitle": "Выберите группу",
       "searchPlaceholder": "Поиск по спискам",
@@ -138,6 +153,7 @@
     "deleteModal": {
       "title": "Удалить запись?",
       "body": "Вы действительно хотите удалить запись «{name}»?",
+      "bodyWithSubItems": "Вы действительно хотите удалить запись «{name}»? Вместе с ней будут удалены {count, plural, one {# подпункт} few {# подпункта} other {# подпунктов}}.",
       "cancel": "Отмена",
       "confirm": "Удалить"
     },
@@ -146,7 +162,10 @@
       "addFailed": "Не удалось добавить запись",
       "tooLong": "Слишком длинное название (максимум 200 символов)",
       "moveFailed": "Не удалось переместить запись",
-      "moveToListFailed": "Не удалось перенести запись в другой список"
+      "moveToListFailed": "Не удалось перенести запись в другой список",
+      "itemLimitReached": "В списке уже {max} записей",
+      "subItemLimitReached": "У записи уже {max} подпунктов",
+      "dailyLimitReached": "Достигнут суточный лимит действий — изменения снова сохранятся после полуночи UTC"
     }
   },
   "Notes": {
@@ -191,6 +210,8 @@
     "analyzing": "Анализирую...",
     "error": "Не удалось получить инсайт",
     "rateLimitError": "Лимит в день исчерпан. Попробуйте завтра.",
+    "privacyNotice": "Содержимое списка, включая заметки всех участников, отправляется в Anthropic для анализа. Отключить может любой участник — в меню списка.",
+    "disabledError": "AI отключён для этого списка",
     "notesContext": "Передано заметок пунктов: {included}; пропущено: {omitted}."
   },
   "ShareListForm": {
@@ -231,6 +252,7 @@
       "invalidFileType": "Недопустимый тип файла",
       "fileTooLarge": "Файл слишком большой (макс. 10 МБ)",
       "listQuotaExceeded": "Достигнут лимит файлов в списке",
+      "dailyLimitReached": "Достигнут суточный лимит действий — изменения снова сохранятся после полуночи UTC",
       "userQuotaExceeded": "Достигнут общий лимит ваших файлов",
       "uploadFailed": "Не удалось загрузить файл",
       "deleteFailed": "Не удалось удалить файл",

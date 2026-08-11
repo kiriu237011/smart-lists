@@ -17,6 +17,7 @@ import {
   MAX_CUSTOM_SPACES,
   normalizeSpaceName,
 } from "@/lib/spaces";
+import { consumeMutationBudget } from "@/lib/usage";
 
 const nameSchema = z.string().trim().min(1).max(50);
 const idSchema = z.string().min(1).max(100);
@@ -31,6 +32,9 @@ function errorCode(error: unknown): string {
 export async function createSpace(name: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "unauthorized" };
+  if (!(await consumeMutationBudget(session.user.id))) {
+    return { success: false, error: "dailyLimitReached" };
+  }
 
   const parsed = nameSchema.safeParse(name);
   if (!parsed.success) return { success: false, error: "invalidName" };
@@ -67,6 +71,9 @@ export async function createSpace(name: string) {
 export async function renameSpace(spaceId: string, name: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "unauthorized" };
+  if (!(await consumeMutationBudget(session.user.id))) {
+    return { success: false, error: "dailyLimitReached" };
+  }
 
   const parsedId = idSchema.safeParse(spaceId);
   const parsedName = nameSchema.safeParse(name);
@@ -121,6 +128,9 @@ export async function getSpaceDeleteImpact(spaceId: string) {
 export async function deleteSpace(spaceId: string, confirmationName: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "unauthorized" };
+  if (!(await consumeMutationBudget(session.user.id))) {
+    return { success: false, error: "dailyLimitReached" };
+  }
   const userId = session.user.id;
   const space = await getUserSpace(userId, spaceId);
   if (!space) return { success: false, error: "notFound" };

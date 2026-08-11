@@ -61,6 +61,32 @@ describe("createItemSchema", () => {
   it("отбивает отсутствующий listId", () => {
     expect(createItemSchema.safeParse({ itemName: "Молоко" }).success).toBe(false);
   });
+
+  it("без родителя подставляет null — это обычный пункт списка", () => {
+    const result = createItemSchema.safeParse({ itemName: "Молоко", listId: "list_1" });
+
+    expect(result.success && result.data.parentItemId).toBeNull();
+  });
+
+  it("принимает родителя для подпункта", () => {
+    const result = createItemSchema.safeParse({
+      itemName: "Молоко",
+      listId: "list_1",
+      parentItemId: "item_1",
+    });
+
+    expect(result.success && result.data.parentItemId).toBe("item_1");
+  });
+
+  it("отбивает пустой ID родителя: край формы — это null, а не пустая строка", () => {
+    expect(
+      createItemSchema.safeParse({
+        itemName: "Молоко",
+        listId: "list_1",
+        parentItemId: "",
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("createListSchema", () => {

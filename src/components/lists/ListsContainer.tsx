@@ -65,6 +65,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
 import { ListsDirectoryProvider } from "@/components/providers/ListsDirectoryProvider";
+import { CollapsedItemsProvider } from "@/components/providers/CollapsedItemsProvider";
 import toast from "react-hot-toast";
 import CreateListForm from "@/components/lists/CreateListForm";
 import { useTranslations } from "next-intl";
@@ -78,13 +79,15 @@ import {
 } from "@/lib/drag-gate";
 import { randomUUID } from "@/lib/uuid";
 import {
-  parseCollapsedLists,
-  pruneCollapsedLists,
-  serializeCollapsedLists,
-  toggleCollapsedList,
-} from "@/lib/collapsed-lists";
+  parseCollapsedIds,
+  pruneCollapsedIds,
+  serializeCollapsedIds,
+  toggleCollapsedId,
+} from "@/lib/collapsed-ids";
+import { buildItemTree } from "@/lib/item-tree";
 import { listsInGroupOrder, splitIntoColumns } from "@/lib/list-columns";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { MAX_GROUPS_PER_SPACE, MAX_LISTS_PER_SPACE } from "@/lib/limits";
 import ListCard, { type ListData, type ListGroup } from "@/components/lists/ListCard";
 import ListsTopPanel from "@/components/lists/ListsTopPanel";
 import ConfirmModal from "@/components/ui/ConfirmModal";
@@ -236,12 +239,19 @@ export default function ListsContainer({
   // Ключи localStorage для UI-настроек: у гостя свои, чтобы значения
   // (например, ID активной группы) не пересекались с аккаунтом в этом браузере
   const tabStorageKey = api.isGuest ? "guest:activeTab" : "activeTab";
+  // Свёрнутость верхней панели общая для всех пространств, как и активная
+  // вкладка: панель одна и та же везде, а её состояние — привычка работы с
+  // интерфейсом на этом устройстве, а не свойство конкретного пространства.
+  const panelStorageKey = api.isGuest ? "guest:topPanel" : "topPanel";
   const groupStorageKey = api.isGuest
     ? "guest:activeGroupId"
     : `activeGroupId:${spaceId}`;
   const collapsedStorageKey = api.isGuest
     ? "guest:collapsedLists"
     : `collapsedLists:${spaceId}`;
+  const collapsedItemsStorageKey = api.isGuest
+    ? "guest:collapsedItems"
+    : `collapsedItems:${spaceId}`;
 
   /**
    * Список, ожидающий подтверждения удаления.
@@ -302,9 +312,40 @@ export default function ListsContainer({
     () => new Set(),
   );
 
+  /**
+   * ID пунктов со свёрнутыми подпунктами.
+   *
+   * Живут здесь по той же причине, что и свёрнутые карточки, плюс одна своя:
+   * уборка исчезнувших ID требует знать все записи пространства сразу, а
+   * отдельный `SmartList` видит только свой список.
+   */
+  const [collapsedItemIds, setCollapsedItemIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
   // isSearchOpen: управляет видимостью поля поиска. Сохраняется в localStorage.
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Свёрнута ли верхняя панель создания и поиска.
+   *
+   * По умолчанию раскрыта, поэтому серверная разметка совпадает с первым
+   * клиентским рендером: сохранённое значение приезжает эффектом после
+   * гидрации, как активная вкладка и набор свёрнутых карточек.
+   */
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+
+  /**
+   * Разрешена ли анимация сворачивания панели.
+   *
+   * Сохранённое значение приезжает эффектом после гидрации: сервер отрисовал
+   * панель раскрытой, и её закрытие на загрузке — восстановление, а не действие
+   * пользователя. Анимировать там нечего: 180 мс схлопывания в самом верху
+   * страницы сдвигают всё под ней и читаются как сбой. Флаг включает первое же
+   * переключение руками.
+   */
+  const [isPanelAnimated, setIsPanelAnimated] = useState(false);
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -334,9 +375,32 @@ export default function ListsContainer({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsSearchOpen(localStorage.getItem(tabStorageKey) === "search");
+    setIsPanelCollapsed(localStorage.getItem(panelStorageKey) === "collapsed");
     const savedGroupId = localStorage.getItem(groupStorageKey);
     if (savedGroupId) setActiveGroupId(savedGroupId);
-  }, [tabStorageKey, groupStorageKey]);
+  }, [tabStorageKey, panelStorageKey, groupStorageKey]);
+
+  /** Сворачивает или разворачивает верхнюю панель, запоминая выбор. */
+  const handleTogglePanel = useCallback(() => {
+    setIsPanelAnimated(true);
+    setIsPanelCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(panelStorageKey, next ? "collapsed" : "expanded");
+      return next;
+    });
+  }, [panelStorageKey]);
+
+  /**
+   * Раскрывает панель при переключении вкладки.
+   *
+   * Вкладки видны и в свёрнутом виде, поэтому клик по ним обязан что-то
+   * показывать: иначе переключение выглядит как сломанная кнопка.
+   */
+  const expandPanel = useCallback(() => {
+    setIsPanelAnimated(true);
+    setIsPanelCollapsed(false);
+    localStorage.setItem(panelStorageKey, "expanded");
+  }, [panelStorageKey]);
 
   /**
    * Эффект: чтение свёрнутых карточек и уборка ID исчезнувших списков.
@@ -347,15 +411,15 @@ export default function ListsContainer({
    * запись выполняется, только если что-то действительно отсеялось.
    */
   useEffect(() => {
-    const stored = parseCollapsedLists(
+    const stored = parseCollapsedIds(
       localStorage.getItem(collapsedStorageKey),
     );
-    const pruned = pruneCollapsedLists(
+    const pruned = pruneCollapsedIds(
       stored,
       allLists.map((list) => list.id),
     );
     if (pruned !== stored) {
-      localStorage.setItem(collapsedStorageKey, serializeCollapsedLists(pruned));
+      localStorage.setItem(collapsedStorageKey, serializeCollapsedIds(pruned));
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCollapsedListIds(pruned);
@@ -371,15 +435,65 @@ export default function ListsContainer({
   const handleToggleCollapse = useCallback(
     (listId: string) => {
       setCollapsedListIds((prev) => {
-        const next = toggleCollapsedList(prev, listId);
+        const next = toggleCollapsedId(prev, listId);
         localStorage.setItem(
           collapsedStorageKey,
-          serializeCollapsedLists(next),
+          serializeCollapsedIds(next),
         );
         return next;
       });
     },
     [collapsedStorageKey],
+  );
+
+  /**
+   * Эффект: чтение свёрнутых блоков подпунктов и уборка исчезнувших записей.
+   *
+   * Записей сильно больше, чем списков, поэтому без уборки набор рос бы быстрее
+   * всего именно здесь. Сравнение идёт со всеми записями пространства: свернуть
+   * можно только пункт с подпунктами, но лишняя проверка ничего не стоит и не
+   * зависит от того, есть ли у записи подпункты прямо сейчас.
+   */
+  useEffect(() => {
+    const stored = parseCollapsedIds(
+      localStorage.getItem(collapsedItemsStorageKey),
+    );
+    const pruned = pruneCollapsedIds(
+      stored,
+      allLists.flatMap((list) => list.items.map((item) => item.id)),
+    );
+    if (pruned !== stored) {
+      localStorage.setItem(
+        collapsedItemsStorageKey,
+        serializeCollapsedIds(pruned),
+      );
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCollapsedItemIds(pruned);
+  }, [collapsedItemsStorageKey, allLists]);
+
+  /** Сворачивает или разворачивает блок подпунктов, сохраняя выбор. */
+  const handleToggleItemCollapse = useCallback(
+    (itemId: string) => {
+      setCollapsedItemIds((prev) => {
+        const next = toggleCollapsedId(prev, itemId);
+        localStorage.setItem(
+          collapsedItemsStorageKey,
+          serializeCollapsedIds(next),
+        );
+        return next;
+      });
+    },
+    [collapsedItemsStorageKey],
+  );
+
+  /**
+   * Значение контекста стабильно между рендерами, пока набор не менялся:
+   * иначе каждый рендер контейнера перерисовывал бы все `SmartList`.
+   */
+  const collapsedItems = useMemo(
+    () => ({ collapsedIds: collapsedItemIds, toggle: handleToggleItemCollapse }),
+    [collapsedItemIds, handleToggleItemCollapse],
   );
 
   /**
@@ -688,7 +802,11 @@ export default function ListsContainer({
       toast.error(
         result.error === "tooLong"
           ? t("errors.tooLong")
-          : t("errors.groupCreateFailed"),
+          : result.error === "groupLimitReached"
+            ? t("errors.groupLimitReached", { max: MAX_GROUPS_PER_SPACE })
+            : result.error === "dailyLimitReached"
+              ? t("errors.dailyLimitReached")
+              : t("errors.groupCreateFailed"),
       );
     }
   }, [api, t]);
@@ -1092,6 +1210,9 @@ export default function ListsContainer({
         title,
         note: null,
         noteVersion: 0,
+        // Совпадает с умолчанием в БД: иначе на миг после создания список
+        // выглядел бы как список с выключенным AI.
+        aiEnabled: true,
         ownerId: currentUserId,
         owner: {
           name: currentUserName,
@@ -1122,7 +1243,11 @@ export default function ListsContainer({
         toast.error(
           result?.error === "tooLong"
             ? t("errors.tooLong")
-            : t("errors.createFailed"),
+            : result?.error === "listLimitReached"
+              ? t("errors.listLimitReached", { max: MAX_LISTS_PER_SPACE })
+              : result?.error === "dailyLimitReached"
+                ? t("errors.dailyLimitReached")
+                : t("errors.createFailed"),
         );
         return { success: false };
       }
@@ -1342,8 +1467,12 @@ export default function ListsContainer({
       ? uniqueLists.find((list) => list.id === activeDrag.id) ?? null
       : null;
 
+  /** Прогресс перетаскиваемого списка для overlay — по тем же правилам, что в шапке. */
+  const draggedListProgress = buildItemTree(draggedList?.items ?? []);
+
   return (
     <ListsDirectoryProvider directory={directory}>
+      <CollapsedItemsProvider value={collapsedItems}>
       <DndContext
         sensors={dndSensors}
         collisionDetection={collisionDetection}
@@ -1369,21 +1498,28 @@ export default function ListsContainer({
         listDropTargetGroupId={listDropTargetGroupId}
       />
 
-      {/* Панель с вкладками Создать/Поиск и переключателем авторов */}
+      {/* Панель с вкладками Создать/Поиск */}
       <ListsTopPanel
         isSearchOpen={isSearchOpen}
         searchInput={searchInput}
         isSearching={isSearching}
         isPending={isPending}
+        isCollapsed={isPanelCollapsed}
+        animateCollapse={isPanelAnimated}
         searchInputRef={searchInputRef}
+        onToggleCollapse={handleTogglePanel}
         onTabCreate={() => {
           setIsSearchOpen(false);
           setSearchInput("");
+          expandPanel();
           localStorage.setItem(tabStorageKey, "create");
         }}
         onTabSearch={() => {
           setIsSearchOpen(true);
+          expandPanel();
           localStorage.setItem(tabStorageKey, "search");
+          // Поле монтируется вместе с раскрытием панели, поэтому фокус ставится
+          // следующим кадром — к этому моменту оно уже в DOM.
           requestAnimationFrame(() => searchInputRef.current?.focus());
         }}
         onSearchChange={(value) => setSearchInput(value)}
@@ -1611,16 +1747,18 @@ export default function ListsContainer({
             <span className="min-w-0 flex-1 truncate font-semibold">
               {draggedList.title}
             </span>
-            {draggedList.items.length > 0 && (
+            {/* Тот же счётчик, что в шапке карточки: только верхний уровень. */}
+            {draggedListProgress.totalCount > 0 && (
               <span className="flex-shrink-0 text-xs tabular-nums text-gray-400 dark:text-zinc-500">
-                {draggedList.items.filter((item) => item.isCompleted).length} /{" "}
-                {draggedList.items.length}
+                {draggedListProgress.completedCount} /{" "}
+                {draggedListProgress.totalCount}
               </span>
             )}
           </div>
         ) : null}
       </DragOverlay>
       </DndContext>
+      </CollapsedItemsProvider>
     </ListsDirectoryProvider>
   );
 }

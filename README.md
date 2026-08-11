@@ -228,7 +228,7 @@ Development must not be able to reach production. Authentication and the three e
 | Preview (Vercel) | preview secret and Google client | `dev` branch | dev app | dev bucket |
 | Local | values from the local `.env` | `dev` branch | dev app | dev bucket |
 
-Only the AI service stays shared. That is safe: the daily quota is counted in the `AiInsightUsage` table, so each database has its own counter and the production quota is not consumed from a dev environment.
+Only the AI service stays shared. That is safe: the daily quota is counted in the `UserDailyUsage` table, so each database has its own counter and the production quota is not consumed from a dev environment.
 
 ### Preview authentication
 

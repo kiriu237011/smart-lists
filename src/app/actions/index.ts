@@ -42,6 +42,7 @@ import {
   listGroupMembershipSchema,
   updateListNoteSchema,
   updateItemNoteSchema,
+  setListAiEnabledSchema,
 } from "@/lib/validations";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
@@ -57,6 +58,13 @@ import {
   listInSpaceWhere,
 } from "@/lib/spaces";
 import { normalizeNote } from "@/lib/notes";
+import {
+  MAX_GROUPS_PER_SPACE,
+  MAX_ITEMS_PER_LIST,
+  MAX_LISTS_PER_SPACE,
+  MAX_SUB_ITEMS_PER_ITEM,
+} from "@/lib/limits";
+import { consumeMutationBudget } from "@/lib/usage";
 
 /**
  * Шаг между позициями записей при добавлении в конец списка.
@@ -67,6 +75,37 @@ const POSITION_STEP = 1;
 /** Возвращает код ошибки валидации: "tooLong" при превышении длины, иначе "validationError". */
 function getValidationError(error: ZodError): string {
   return error.issues.some((i) => i.code === "too_big") ? "tooLong" : "validationError";
+}
+
+/**
+ * Приводит кеш отметки родителя в соответствие с его подпунктами.
+ *
+ * Возвращает две операции, а не выполняет их: вызывающий код кладёт их в тот же
+ * `$transaction`, что и собственное изменение подпункта, и весь пересчёт
+ * укладывается в один round-trip до БД. Условия взаимоисключающие, поэтому
+ * ровно одна из операций затрагивает строку, а вторая ничего не делает.
+ *
+ * Отметка родителя производная (см. `src/lib/item-tree.ts`), и в строке лежит
+ * лишь кеш для запросов, которые дерево не собирают. Поэтому атомарность с
+ * изменением подпункта желательна, но не критична: расхождение кеша
+ * пользователю не видно.
+ *
+ * Родитель, оставшийся вовсе без подпунктов, сохраняет прежнее значение —
+ * с этого момента оно снова его собственное. Отсюда условие `some: {}` в
+ * первой операции: без него удаление последнего подпункта отметило бы пункт
+ * выполненным, потому что «все ноль подпунктов выполнены».
+ */
+function syncParentCompletion(parentId: string) {
+  return [
+    prisma.item.updateMany({
+      where: { id: parentId, children: { some: {}, none: { isCompleted: false } } },
+      data: { isCompleted: true },
+    }),
+    prisma.item.updateMany({
+      where: { id: parentId, children: { some: { isCompleted: false } } },
+      data: { isCompleted: false },
+    }),
+  ];
 }
 
 /** Проверяет, что spaceId из формы принадлежит текущему пользователю. */
@@ -88,8 +127,9 @@ async function resolveActionSpace(userId: string, formData: FormData) {
  * сохраняет его в БД в фоне.
  *
  * @param formData - FormData с полями:
- *   - `itemName` {string} — название записи (1–100 символов).
- *   - `listId`   {string} — ID списка, к которому добавляется запись.
+ *   - `itemName`     {string} — название записи (1–100 символов).
+ *   - `listId`       {string} — ID списка, к которому добавляется запись.
+ *   - `parentItemId` {string} — ID родительского пункта для подпункта ("" — обычный пункт).
  * @returns `{ success: true }` или `{ success: false, error: string }`.
  */
 export async function addItem(formData: FormData) {
@@ -99,6 +139,10 @@ export async function addItem(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -106,6 +150,8 @@ export async function addItem(formData: FormData) {
     const rawData = {
       itemName: formData.get("itemName"),
       listId: formData.get("listId"),
+      // FormData не умеет передавать null: пустая строка означает обычный пункт.
+      parentItemId: formData.get("parentItemId") || null,
     };
 
     // safeParse не бросает исключение, а возвращает { success, data | error }
@@ -116,43 +162,120 @@ export async function addItem(formData: FormData) {
       return { success: false, error: getValidationError(result.error) };
     }
 
-    // Проверяем, что пользователь является владельцем или участником списка.
-    // Заодно забираем максимальную позицию в списке: новая запись встаёт в
-    // конец. Отдельным запросом это стоило бы лишнего round-trip до БД,
-    // поэтому берём его тем же запросом, что и проверку доступа.
-    const list = await prisma.list.findFirst({
-      where: {
-        id: result.data.listId,
-        ...listInSpaceWhere(session.user.id, space.id),
-      },
-      select: {
-        id: true,
-        items: {
-          orderBy: { position: "desc" },
-          take: 1,
-          select: { position: true },
-        },
-      },
-    });
+    const { listId, itemName, parentItemId } = result.data;
 
-    if (!list) {
-      return { success: false, error: "Список не найден" };
-    }
-
+    // Позиция значима внутри своего уровня, поэтому максимум берётся по
+    // соседям будущей записи: у подпункта это подпункты того же родителя,
+    // у обычного пункта — пункты верхнего уровня списка.
+    //
     // Два одновременных добавления могут прочитать один и тот же максимум и
     // получить равные позиции. Это допустимо: порядок доопределяет тайбрейк по
     // createdAt и id при выборке, список не ломается.
-    const position = (list.items[0]?.position ?? 0) + POSITION_STEP;
+    let position: number;
+
+    if (parentItemId) {
+      // Один запрос закрывает четыре проверки сразу: доступ к списку,
+      // существование родителя ИМЕННО в этом списке, запрет второго уровня
+      // вложенности (`parentId: null` у родителя) — и отдаёт максимальную
+      // позицию среди уже существующих подпунктов.
+      const parent = await prisma.item.findFirst({
+        where: {
+          id: parentItemId,
+          listId,
+          parentId: null,
+          list: listInSpaceWhere(session.user.id, space.id),
+        },
+        select: {
+          id: true,
+          children: {
+            orderBy: { position: "desc" },
+            take: 1,
+            select: { position: true },
+          },
+          // Счёт берётся тем же запросом, что и проверка доступа с позицией:
+          // отдельный COUNT стоил бы лишнего round-trip до БД ради числа,
+          // которое почти всегда далеко от потолка.
+          _count: { select: { children: true } },
+        },
+      });
+
+      if (!parent) {
+        return { success: false, error: "Пункт не найден" };
+      }
+
+      if (parent._count.children >= MAX_SUB_ITEMS_PER_ITEM) {
+        logger.warn(
+          { uid: hashId(session.user.id), listId, action: "addItem" },
+          "Достигнут потолок подпунктов у пункта",
+        );
+        return { success: false, error: "subItemLimitReached" };
+      }
+
+      position = (parent.children[0]?.position ?? 0) + POSITION_STEP;
+    } else {
+      // Проверяем, что пользователь является владельцем или участником списка.
+      // Заодно забираем максимальную позицию верхнего уровня: новая запись
+      // встаёт в конец. Отдельным запросом это стоило бы лишнего round-trip
+      // до БД, поэтому берём его тем же запросом, что и проверку доступа.
+      const list = await prisma.list.findFirst({
+        where: {
+          id: listId,
+          ...listInSpaceWhere(session.user.id, space.id),
+        },
+        select: {
+          id: true,
+          items: {
+            where: { parentId: null },
+            orderBy: { position: "desc" },
+            take: 1,
+            select: { position: true },
+          },
+          // Считаются только пункты верхнего уровня: у подпунктов свой потолок,
+          // общий счёт означал бы разное для разных списков.
+          _count: { select: { items: { where: { parentId: null } } } },
+        },
+      });
+
+      if (!list) {
+        return { success: false, error: "Список не найден" };
+      }
+
+      if (list._count.items >= MAX_ITEMS_PER_LIST) {
+        logger.warn(
+          { uid: hashId(session.user.id), listId, action: "addItem" },
+          "Достигнут потолок пунктов в списке",
+        );
+        return { success: false, error: "itemLimitReached" };
+      }
+
+      position = (list.items[0]?.position ?? 0) + POSITION_STEP;
+    }
 
     // После safeParse TypeScript точно знает, что result.data.itemName — string
-    await prisma.item.create({
+    const create = prisma.item.create({
       data: {
-        name: result.data.itemName,
-        listId: result.data.listId,
+        name: itemName,
+        listId,
+        parentId: parentItemId,
         addedById: session.user.id,
         position,
       },
     });
+
+    if (parentItemId) {
+      // Новый подпункт всегда невыполненный, поэтому родитель заведомо
+      // перестаёт быть выполненным — пересчитывать нечего, достаточно снять
+      // кеш. Обе операции идут одним батчем: лишний round-trip до БД дороже.
+      await prisma.$transaction([
+        create,
+        prisma.item.updateMany({
+          where: { id: parentItemId },
+          data: { isCompleted: false },
+        }),
+      ]);
+    } else {
+      await create;
+    }
 
     // Инвалидируем весь layout-дерево (/ и все локали) → перефетч Server Component
     revalidatePath("/", "layout");
@@ -182,6 +305,11 @@ export async function addItem(formData: FormData) {
 export async function deleteItem(formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) return;
+  // Бюджет списывается и здесь. Действие ничего не возвращает клиенту по
+  // существующему контракту, поэтому отказ виден не сразу: оптимистичное
+  // состояние держится до следующего обновления страницы. Это то же
+  // поведение, что и у любого другого сбоя этих двух действий.
+  if (!(await consumeMutationBudget(session.user.id))) return;
   const space = await resolveActionSpace(session.user.id, formData);
   if (!space) return;
 
@@ -194,21 +322,32 @@ export async function deleteItem(formData: FormData) {
     return;
   }
 
-  // Получаем listId до удаления и одновременно проверяем права доступа
+  // Получаем listId до удаления и одновременно проверяем права доступа.
+  // parentId нужен, чтобы после удаления подпункта пересчитать родителя.
   const item = await prisma.item.findFirst({
     where: {
       id: result.data.itemId,
       list: listInSpaceWhere(session.user.id, space.id),
     },
-    select: { listId: true },
+    select: { listId: true, parentId: true },
   });
 
   // Если item не найден или нет доступа — молча выходим
   if (!item) return;
 
-  await prisma.item.delete({
+  // Подпункты удаляемого пункта уходят каскадом на уровне БД (составной FK
+  // с onDelete: Cascade), поэтому отдельного запроса на них нет.
+  const remove = prisma.item.delete({
     where: { id: result.data.itemId },
   });
+
+  if (item.parentId) {
+    // Удалённый подпункт мог быть последним невыполненным — тогда родитель
+    // становится выполненным. Пересчёт идёт тем же батчем, что и удаление.
+    await prisma.$transaction([remove, ...syncParentCompletion(item.parentId)]);
+  } else {
+    await remove;
+  }
 
   revalidatePath("/", "layout");
   // Уведомление после ответа (after), без эха вкладке автора (socketId)
@@ -225,6 +364,13 @@ export async function deleteItem(formData: FormData) {
  * `formData.get("isCompleted") === "true"` → `true | false`.
  *
  * Логика: мы передаём ТЕКУЩЕЕ значение `isCompleted`, а в БД сохраняем ИНВЕРСИЮ.
+ * Присланное значение — то, что видел пользователь на экране: если чужая
+ * правка успела прийти раньше, результат всё равно соответствует его намерению.
+ *
+ * Подпункты меняют смысл операции в обе стороны:
+ *   - у пункта с подпунктами собственной отметки нет, она производная, поэтому
+ *     клик по нему означает «проставить это значение всем подпунктам»;
+ *   - клик по подпункту меняет только его, а родитель пересчитывается по итогу.
  *
  * @param formData - FormData с полями:
  *   - `itemId`      {string} — ID записи.
@@ -234,6 +380,11 @@ export async function deleteItem(formData: FormData) {
 export async function toggleItem(formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) return;
+  // Бюджет списывается и здесь. Действие ничего не возвращает клиенту по
+  // существующему контракту, поэтому отказ виден не сразу: оптимистичное
+  // состояние держится до следующего обновления страницы. Это то же
+  // поведение, что и у любого другого сбоя этих двух действий.
+  if (!(await consumeMutationBudget(session.user.id))) return;
   const space = await resolveActionSpace(session.user.id, formData);
   if (!space) return;
 
@@ -250,23 +401,46 @@ export async function toggleItem(formData: FormData) {
     return;
   }
 
-  // Проверяем права доступа перед обновлением
+  // Проверяем права доступа перед обновлением. Заодно узнаём положение записи
+  // в дереве: подпункт она или пункт, и есть ли у неё свои подпункты.
   const item = await prisma.item.findFirst({
     where: {
       id: result.data.itemId,
       list: listInSpaceWhere(session.user.id, space.id),
     },
-    select: { listId: true },
+    select: {
+      listId: true,
+      parentId: true,
+      _count: { select: { children: true } },
+    },
   });
 
   if (!item) return;
 
-  await prisma.item.update({
+  const isCompleted = !result.data.isCompleted; // Инвертируем текущее значение
+
+  const updateSelf = prisma.item.update({
     where: { id: result.data.itemId },
-    data: {
-      isCompleted: !result.data.isCompleted, // Инвертируем текущее значение
-    },
+    data: { isCompleted },
   });
+
+  if (item._count.children > 0) {
+    // Каскад вниз. Собственное поле пункта пишется вместе с подпунктами: на
+    // чтении оно не используется, но остаётся согласованным кешем.
+    await prisma.$transaction([
+      prisma.item.updateMany({
+        where: { parentId: result.data.itemId },
+        data: { isCompleted },
+      }),
+      updateSelf,
+    ]);
+  } else if (item.parentId) {
+    // Каскад вверх. Операции идут по порядку в одной транзакции, поэтому
+    // пересчёт родителя видит уже изменённый подпункт.
+    await prisma.$transaction([updateSelf, ...syncParentCompletion(item.parentId)]);
+  } else {
+    await updateSelf;
+  }
 
   revalidatePath("/", "layout");
   // Уведомление после ответа (after), без эха вкладке автора (socketId)
@@ -290,6 +464,10 @@ export async function renameItem(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -363,6 +541,10 @@ export async function moveItem(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -392,7 +574,7 @@ export async function moveItem(formData: FormData) {
         id: true,
         items: {
           orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-          select: { id: true, position: true },
+          select: { id: true, position: true, parentId: true },
         },
       },
     });
@@ -401,13 +583,23 @@ export async function moveItem(formData: FormData) {
       return { success: false, error: "Запись не найдена" };
     }
 
+    // Перемещение всегда идёт внутри своего уровня: подпункт остаётся у своего
+    // родителя, пункт — среди пунктов списка. Позиции сравнимы только внутри
+    // этой группы, поэтому и соседи ищутся только среди неё: сосед с другого
+    // уровня означает устаревшее или подделанное представление клиента.
+    const moving = list.items.find((item) => item.id === itemId);
+    if (!moving) {
+      return { success: false, error: "Запись не найдена" };
+    }
+    const siblings = list.items.filter((item) => item.parentId === moving.parentId);
+
     // `?? null` приводит «сосед не запрошен» и «сосед не найден» к одному типу:
-    // различает их проверка ниже, а дальше по коду null означает край списка.
+    // различает их проверка ниже, а дальше по коду null означает край уровня.
     const previous = previousItemId
-      ? (list.items.find((item) => item.id === previousItemId) ?? null)
+      ? (siblings.find((item) => item.id === previousItemId) ?? null)
       : null;
     const next = nextItemId
-      ? (list.items.find((item) => item.id === nextItemId) ?? null)
+      ? (siblings.find((item) => item.id === nextItemId) ?? null)
       : null;
 
     // Сосед не найден — другой участник успел удалить запись, и представление
@@ -418,8 +610,8 @@ export async function moveItem(formData: FormData) {
     }
 
     // Записи уже отсортированы по позиции, поэтому края берутся без обхода.
-    const lowestPosition = list.items[0].position;
-    const highestPosition = list.items[list.items.length - 1].position;
+    const lowestPosition = siblings[0].position;
+    const highestPosition = siblings[siblings.length - 1].position;
 
     let newPosition: number;
     if (previous && next) {
@@ -429,14 +621,14 @@ export async function moveItem(formData: FormData) {
     } else if (next) {
       newPosition = lowestPosition - POSITION_STEP;
     } else {
-      // Соседей нет вовсе: в списке одна запись, двигать её некуда.
+      // Соседей нет вовсе: на этом уровне одна запись, двигать её некуда.
       return { success: true };
     }
 
     // Середина не легла строго между соседями — double исчерпал мантиссу.
     // Практически недостижимо (нужно ~50 вставок подряд между одной и той же
     // парой), но молча получить одинаковые позиции нельзя, поэтому здесь
-    // список перенумеровывается целиком. Проверка идёт по факту, а не по
+    // перенумеровывается весь уровень. Проверка идёт по факту, а не по
     // произвольному эпсилону: так она верна при любых значениях позиций.
     const needsRebalance =
       previous !== null &&
@@ -444,11 +636,17 @@ export async function moveItem(formData: FormData) {
       (newPosition <= previous.position || newPosition >= next.position);
 
     if (needsRebalance) {
-      const reordered = list.items.filter((item) => item.id !== itemId);
+      // Перенумеровываются только соседи по уровню: позиции подпунктов и
+      // пунктов независимы, и трогать чужой уровень незачем.
+      const reordered = siblings.filter((item) => item.id !== itemId);
       const insertAt = previous
         ? reordered.findIndex((item) => item.id === previous.id) + 1
         : 0;
-      reordered.splice(insertAt, 0, { id: itemId, position: newPosition });
+      reordered.splice(insertAt, 0, {
+        id: itemId,
+        position: newPosition,
+        parentId: moving.parentId,
+      });
 
       await prisma.$transaction(
         reordered.map((item, index) =>
@@ -493,10 +691,19 @@ export async function moveItem(formData: FormData) {
  *
  * Перенос — это одна запись в БД: у существующей строки меняются `listId` и
  * `position`. Заметка, её версия, автор и `createdAt` едут со строкой сами.
+ * Подпункты тоже: составной внешний ключ `(parentId, listId)` объявлен с
+ * ON UPDATE CASCADE, поэтому смена `listId` у родителя переносит их на уровне
+ * БД. Их позиции значимы внутри родителя и потому не меняются.
+ *
  * Копирование создаёт новую строку: `noteVersion` начинается с нуля (у новой
  * строки свой счётчик optimistic concurrency), автором становится тот, кто
  * копировал, а отметка о выполнении сбрасывается — копию заводят, чтобы
- * сделать дело заново в другом списке.
+ * сделать дело заново в другом списке. Подпункты копируются по тем же
+ * правилам и сохраняют свой порядок.
+ *
+ * Сам подпункт перенести нельзя: он принадлежит родителю, а не списку.
+ * Интерфейс такого пункта меню не показывает, но присланному ID доверять
+ * нельзя, поэтому проверка есть и здесь.
  *
  * Запись встаёт в конец целевого списка, как при обычном добавлении.
  *
@@ -511,6 +718,10 @@ export async function moveItemToList(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -535,11 +746,29 @@ export async function moveItemToList(formData: FormData) {
         id: itemId,
         list: listInSpaceWhere(session.user.id, space.id),
       },
-      select: { id: true, name: true, note: true, listId: true },
+      select: {
+        id: true,
+        name: true,
+        note: true,
+        listId: true,
+        parentId: true,
+        // Подпункты нужны только при копировании, но отдельный запрос ради
+        // этого стоил бы round-trip: список подпунктов у записи короткий.
+        children: {
+          orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+          select: { name: true, note: true, position: true },
+        },
+      },
     });
 
     if (!item) {
       return { success: false, error: "Запись не найдена" };
+    }
+
+    // Подпункт принадлежит родителю: переносить его отдельно в другой список
+    // нельзя, туда он поедет только вместе с ним.
+    if (item.parentId) {
+      return { success: false, error: "subItem" };
     }
 
     // Клиент такой пункт и не показывает, но присланному ID доверять нельзя.
@@ -557,10 +786,12 @@ export async function moveItemToList(formData: FormData) {
       select: {
         id: true,
         items: {
+          where: { parentId: null },
           orderBy: { position: "desc" },
           take: 1,
           select: { position: true },
         },
+        _count: { select: { items: { where: { parentId: null } } } },
       },
     });
 
@@ -568,26 +799,64 @@ export async function moveItemToList(formData: FormData) {
       return { success: false, error: "Список не найден" };
     }
 
+    // Перенос и копирование — вторая дверь к росту списка. Потолок здесь не
+    // ради хранилища (при переносе строк не прибавляется вовсе), а ради
+    // инварианта: ни один список не должен вырасти за размер, на котором
+    // интерфейс и пересчёт позиций остаются отзывчивыми.
+    if (targetList._count.items >= MAX_ITEMS_PER_LIST) {
+      logger.warn(
+        { uid: hashId(session.user.id), listId: targetListId, action: "moveItemToList" },
+        "Целевой список достиг потолка пунктов",
+      );
+      return { success: false, error: "itemLimitReached" };
+    }
+
     const position = (targetList.items[0]?.position ?? 0) + POSITION_STEP;
 
     if (mode === "move") {
+      // Подпункты едут за родителем сами: ON UPDATE CASCADE на составном
+      // ключе (parentId, listId) переписывает им listId. Позиции подпунктов
+      // значимы внутри родителя, поэтому остаются прежними.
       await prisma.item.update({
         where: { id: itemId },
         data: { listId: targetListId, position },
       });
     } else {
-      await prisma.item.create({
-        data: {
-          name: item.name,
-          note: item.note,
-          // У копии своя история заметки: версия начинается с нуля, а отметка
-          // времени ставится по факту создания — по ней AI отбирает контекст.
-          noteUpdatedAt: item.note ? new Date() : null,
-          listId: targetListId,
-          addedById: session.user.id,
-          position,
-        },
-      });
+      // Внутри колбэка транзакции сужение типа сессии теряется, поэтому ID
+      // автора берётся здесь, где он ещё проверен.
+      const authorId = session.user.id;
+      const copyData = {
+        name: item.name,
+        note: item.note,
+        // У копии своя история заметки: версия начинается с нуля, а отметка
+        // времени ставится по факту создания — по ней AI отбирает контекст.
+        noteUpdatedAt: item.note ? new Date() : null,
+        listId: targetListId,
+        addedById: authorId,
+        position,
+      };
+
+      if (item.children.length === 0) {
+        await prisma.item.create({ data: copyData });
+      } else {
+        // ID копии известен только после её создания, поэтому подпункты
+        // пишутся вторым запросом — но в одной транзакции: половина
+        // скопированного пункта хуже, чем не скопированный вовсе.
+        await prisma.$transaction(async (tx) => {
+          const copy = await tx.item.create({ data: copyData, select: { id: true } });
+          await tx.item.createMany({
+            data: item.children.map((child) => ({
+              name: child.name,
+              note: child.note,
+              noteUpdatedAt: child.note ? new Date() : null,
+              listId: targetListId,
+              parentId: copy.id,
+              addedById: authorId,
+              position: child.position,
+            })),
+          });
+        });
+      }
     }
 
     revalidatePath("/", "layout");
@@ -622,6 +891,10 @@ export async function updateItemNote(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -715,6 +988,10 @@ export async function updateListNote(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -814,6 +1091,10 @@ export async function createList(formData: FormData) {
     if (!session || !session.user || !session.user.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -830,6 +1111,23 @@ export async function createList(formData: FormData) {
         success: false,
         error: getValidationError(result.error),
       };
+    }
+
+    // Потолок на размер пространства. Без лока: при 200 списках перебор на
+    // один-два ничего не значит, а параллельный флуд, способный проскочить
+    // окно между COUNT и INSERT, ограничивает суточный лимит мутаций. Там,
+    // где счёт мал и точность важна (5 пространств, 5 вложений), в проекте
+    // используется строгий вариант с транзакцией — здесь он был бы платой
+    // без выигрыша.
+    const listsInSpace = await prisma.list.count({
+      where: { ownerId: session.user.id, spaceId: space.id },
+    });
+    if (listsInSpace >= MAX_LISTS_PER_SPACE) {
+      logger.warn(
+        { uid: hashId(session.user.id), spaceId: space.id, action: "createList" },
+        "Достигнут потолок списков в пространстве",
+      );
+      return { success: false, error: "listLimitReached" };
     }
 
     // Если список создаётся из активной группы, сначала проверяем личную группу
@@ -897,6 +1195,7 @@ export async function createList(formData: FormData) {
       title: string;
       note: string | null;
       noteVersion: number;
+      aiEnabled: boolean;
       ownerId: string;
       owner: { name: string | null; email: string };
       items: {
@@ -905,6 +1204,7 @@ export async function createList(formData: FormData) {
         note: string | null;
         noteVersion: number;
         isCompleted: boolean;
+        parentId: string | null;
         addedBy: { id: string; name: string | null; email: string } | null;
       }[];
     };
@@ -933,6 +1233,7 @@ export async function createList(formData: FormData) {
         title: newList.title,
         note: newList.note,
         noteVersion: newList.noteVersion,
+        aiEnabled: newList.aiEnabled,
         ownerId: newList.ownerId,
         owner: {
           name: newList.owner.name,
@@ -944,6 +1245,7 @@ export async function createList(formData: FormData) {
           note: item.note,
           noteVersion: item.noteVersion,
           isCompleted: item.isCompleted,
+          parentId: item.parentId,
           addedBy: item.addedBy
             ? {
                 id: item.addedBy.id,
@@ -980,6 +1282,10 @@ export async function deleteList(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1079,6 +1385,10 @@ export async function shareList(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const ownerId = session.user.id;
     const space = await resolveActionSpace(ownerId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1175,6 +1485,10 @@ export async function removeSharedUser(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const ownerId = session.user.id;
     const space = await resolveActionSpace(ownerId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1239,6 +1553,10 @@ export async function leaveSharedList(formData: FormData) {
       return { success: false, error: "Необходима авторизация" };
     }
 
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
+
     const listId = formData.get("listId");
     if (!listId || typeof listId !== "string" || !listId.trim()) {
       return { success: false, error: "Неверные данные" };
@@ -1274,6 +1592,73 @@ export async function leaveSharedList(formData: FormData) {
 }
 
 /**
+ * Разрешает или запрещает отправку содержимого списка в AI-сервис.
+ *
+ * Право есть у любого участника, а не только у владельца, и это осознанно.
+ * Инсайт отправляет наружу содержимое целиком — включая заметки того, кто
+ * список не создавал и кнопку не нажимал. Владельческая проверка оставила бы
+ * такого человека ровно там же, где он был: он узнал бы о передаче, но
+ * помешать ей всё равно не смог бы, кроме как выйдя из списка.
+ *
+ * @param formData - FormData с полями:
+ *   - `listId`    {string} — ID списка.
+ *   - `aiEnabled` {"true"|"false"} — желаемое состояние.
+ * @returns `{ success: true }` или `{ success: false, error: string }`.
+ */
+export async function setListAiEnabled(formData: FormData) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
+
+    const space = await resolveActionSpace(session.user.id, formData);
+    if (!space) return { success: false, error: "Пространство не найдено" };
+
+    const result = setListAiEnabledSchema.safeParse({
+      listId: formData.get("listId"),
+      aiEnabled: formData.get("aiEnabled"),
+    });
+
+    if (!result.success) {
+      return { success: false, error: getValidationError(result.error) };
+    }
+
+    const { listId, aiEnabled } = result.data;
+
+    // Членство проверяется тем же `listInSpaceWhere`, что и везде: без него
+    // запрос просто не найдёт строку, и забыть проверку нельзя.
+    const updated = await prisma.list.updateMany({
+      where: { id: listId, ...listInSpaceWhere(session.user.id, space.id) },
+      data: { aiEnabled },
+    });
+
+    if (updated.count === 0) {
+      return { success: false, error: "Список не найден" };
+    }
+
+    revalidatePath("/", "layout");
+    const socketId = formData.get("socketId");
+    // Уведомление обязательно: остальные участники должны увидеть новое
+    // состояние сразу. Иначе один выключил бы AI, а другой продолжал бы
+    // видеть кнопку и считать, что отправка разрешена.
+    after(() => notifyListMembers(listId, socketId));
+    logger.info(
+      { uid: hashId(session.user.id), listId, aiEnabled, action: "setListAiEnabled" },
+      "Изменён доступ AI к списку",
+    );
+    return { success: true };
+  } catch (error) {
+    logger.error({ error }, "Ошибка при изменении доступа AI к списку:");
+    return { success: false, error: "Не удалось изменить настройку" };
+  }
+}
+
+/**
  * Переименовывает список покупок.
  *
  * Защита: `updateMany` с фильтром `ownerId === session.user.id` гарантирует,
@@ -1289,6 +1674,10 @@ export async function renameList(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1354,6 +1743,10 @@ export async function createGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -1364,6 +1757,17 @@ export async function createGroup(formData: FormData) {
         success: false,
         error: getValidationError(result.error),
       };
+    }
+
+    const groupsInSpace = await prisma.listGroup.count({
+      where: { userId: session.user.id, spaceId: space.id },
+    });
+    if (groupsInSpace >= MAX_GROUPS_PER_SPACE) {
+      logger.warn(
+        { uid: hashId(session.user.id), spaceId: space.id, action: "createGroup" },
+        "Достигнут потолок групп в пространстве",
+      );
+      return { success: false, error: "groupLimitReached" };
     }
 
     // Новая группа встаёт в конец текущего порядка. Тайбрейки createdAt/id в
@@ -1411,6 +1815,10 @@ export async function deleteGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -1455,6 +1863,10 @@ export async function renameGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1509,6 +1921,10 @@ export async function moveGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1643,6 +2059,10 @@ export async function moveListInGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
@@ -1810,6 +2230,10 @@ export async function addListToGroup(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
+    }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
@@ -1885,6 +2309,10 @@ export async function removeListFromGroup(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
+    }
+
+    if (!(await consumeMutationBudget(session.user.id))) {
+      return { success: false, error: "dailyLimitReached" };
     }
     const space = await resolveActionSpace(session.user.id, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };

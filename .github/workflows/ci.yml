@@ -4,14 +4,16 @@ name: CI
 # ресурсы: миграции применяет только `build:deploy`, назначенный buildCommand
 # в vercel.json, а он здесь не вызывается.
 #
-# Ветка, живущая в самом репозитории, уже покрыта событием `push`, поэтому её
-# PR давал второй прогон того же коммита — вдвое больше минут и два одинаковых
-# набора статусов. Условие на каждой job оставляет `pull_request` только для
-# форков: их веток здесь нет, и push-событие для них не приходит. Статус всё
-# равно виден в PR, потому что проверки привязаны к коммиту, а не к событию.
+# Обычная ветка внутри репозитория уже покрыта событием `push`, поэтому её PR
+# иначе дал бы второй прогон того же коммита. Исключение — ветки Dependabot:
+# бот не создаёт для них push-прогон, поэтому `push` для префикса отключён, а
+# `pull_request` разрешён. Он также остаётся для форков, где push недоступен.
+# Статус виден в PR, потому что проверки привязаны к коммиту, а не к событию.
 on:
   push:
-    branches: ['**']
+    # Dependabot не создаёт отдельный push-прогон, а ручной коммит в его ветку
+    # иначе дал бы дубль вместе с разрешённым ниже pull_request-прогоном.
+    branches-ignore: ['dependabot/**']
   pull_request:
   workflow_dispatch:
 
@@ -26,8 +28,8 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    # Свои ветки проверяет `push`; здесь остаются только PR из форков.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    # Свои ветки проверяет `push`; здесь остаются PR из форков и от Dependabot.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
 
     # Заведомо нерабочие значения. Нужны, потому что `prisma generate` читает
     # datasource из схемы, а Next при сборке подставляет NEXT_PUBLIC_* в бандл.
@@ -75,7 +77,7 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
 
     services:
       postgres:
@@ -118,7 +120,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
 
     services:
       postgres:
@@ -179,7 +181,7 @@ jobs:
   secrets:
     runs-on: ubuntu-latest
     # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

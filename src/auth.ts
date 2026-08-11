@@ -31,6 +31,7 @@ import prisma from "@/lib/db";
 import { logger, hashId } from "@/lib/logger";
 import { deniedSignInLogContext } from "@/lib/auth-errors";
 import { ensureSpaceState } from "@/lib/spaces";
+import { isEmailAllowed, revokeUserSessions } from "@/lib/allowed-email";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   /**
@@ -77,11 +78,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
      */
     async signIn({ user }) {
       const email = user.email ?? "";
-      const allowed = await prisma.allowedEmail.findUnique({
-        where: { email },
-        select: { id: true },
-      });
-      if (!allowed) {
+      if (!(await isEmailAllowed(email))) {
         logger.warn(
           deniedSignInLogContext(email),
           "Попытка входа с неразрешённого email",
@@ -96,18 +93,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
      * Коллбэк `session` вызывается каждый раз при чтении сессии
      * (например, при вызове `auth()` или `useSession()`).
      *
-     * Проблема: по умолчанию объект `session.user` содержит только name, email, image.
-     * `user.id` (из базы данных) туда не попадает.
+     * Делает две вещи.
      *
-     * Решение: вручную добавляем `user.id` из БД (параметр `user`) в объект сессии.
-     * Это нужно для Server Actions, где мы проверяем, является ли пользователь
-     * владельцем списка: `session.user.id === list.ownerId`.
+     * Первая — переносит `user.id` из БД в объект сессии: по умолчанию
+     * `session.user` содержит только name, email и image, а Server Actions
+     * сравнивают именно id (`session.user.id === list.ownerId`).
+     *
+     * Вторая — сверяет пользователя с whitelist. Проверки в `signIn` мало:
+     * она срабатывает один раз при входе, и удаление из `AllowedEmail` не
+     * влияло на уже выданную сессию. Здесь же находится единственное место,
+     * через которое проходят все три десятка вызовов `auth()`, — поэтому
+     * проверка стоит тут, а не в каждом Action.
+     *
+     * Сессия без `user` означает для приложения то же, что её отсутствие: все
+     * защиты написаны как `if (!session?.user?.id)`.
      *
      * @param session - Текущий объект сессии (без id)
      * @param user - Запись пользователя из базы данных (с id)
-     * @returns Обновлённый объект сессии с id
+     * @returns Сессия с id либо сессия без пользователя, если доступ отозван
      */
-    session({ session, user }) {
+    async session({ session, user }) {
+      if (!(await isEmailAllowed(user.email))) {
+        const revoked = await revokeUserSessions(user.id);
+        logger.warn(
+          { uid: hashId(user.id), action: "session.revoked", revoked },
+          "Сессия отозвана: email отсутствует в whitelist",
+        );
+        return { ...session, user: undefined };
+      }
+
       if (session.user) {
         session.user.id = user.id;
       }

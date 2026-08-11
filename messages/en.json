@@ -46,8 +46,12 @@
     "ariaDelete": "Delete list {title}",
     "ariaListActions": "Actions for list {title}",
     "deleteListAction": "Delete list",
+    "aiDisableAction": "Turn off AI for this list",
+    "aiEnableAction": "Turn on AI for this list",
     "collapseAction": "Collapse list",
     "expandAction": "Expand list",
+    "collapsePanel": "Collapse panel",
+    "expandPanel": "Expand panel",
     "moveEarlierAction": "Move earlier",
     "moveLaterAction": "Move later",
     "ariaDragList": "Drag list {title}",
@@ -77,6 +81,10 @@
     "noGroupsHint": "Create a group in the filter above",
     "errors": {
       "createFailed": "Failed to create the list",
+      "listLimitReached": "This space already holds {max} lists",
+      "aiToggleFailed": "Failed to change the AI setting",
+      "dailyLimitReached": "Daily action limit reached — changes will save again after UTC midnight",
+      "groupLimitReached": "This space already holds {max} groups",
       "createLoadFailed": "The list was created, but an error occurred while loading data",
       "renameFailed": "Failed to rename the list",
       "deleteFailed": "Failed to delete the list",
@@ -120,6 +128,13 @@
     "moveDown": "Move down",
     "deleteItemAction": "Delete item",
     "moveToListAction": "Move to list…",
+    "splitIntoSubItems": "Break into sub-items",
+    "addSubItem": "Add sub-item",
+    "subItemPlaceholder": "Sub-item name",
+    "subItemsLabel": "Sub-items of {name}",
+    "closeSubItemInput": "Close sub-item input",
+    "ariaSubItemsToggle": "Show or hide sub-items of {name}",
+    "ariaSubItemsCounter": "Sub-items completed: {done} of {total}",
     "moveToList": {
       "groupsTitle": "Select a group",
       "searchPlaceholder": "Search lists",
@@ -138,6 +153,7 @@
     "deleteModal": {
       "title": "Delete item?",
       "body": "Are you sure you want to delete the item \"{name}\"?",
+      "bodyWithSubItems": "Are you sure you want to delete the item \"{name}\"? {count, plural, one {# sub-item} other {# sub-items}} will be deleted with it.",
       "cancel": "Cancel",
       "confirm": "Delete"
     },
@@ -146,7 +162,10 @@
       "addFailed": "Failed to add the item",
       "tooLong": "The name is too long (200 characters max)",
       "moveFailed": "Failed to move the item",
-      "moveToListFailed": "Failed to move the item to another list"
+      "moveToListFailed": "Failed to move the item to another list",
+      "itemLimitReached": "This list already holds {max} items",
+      "subItemLimitReached": "This item already holds {max} sub-items",
+      "dailyLimitReached": "Daily action limit reached — changes will save again after UTC midnight"
     }
   },
   "Notes": {
@@ -191,6 +210,8 @@
     "analyzing": "Analyzing...",
     "error": "Failed to get the insight",
     "rateLimitError": "Daily limit reached. Try again tomorrow.",
+    "privacyNotice": "The list content, including notes of everyone sharing it, is sent to Anthropic for analysis. Any member can turn this off in the list menu.",
+    "disabledError": "AI is turned off for this list",
     "notesContext": "Item notes sent: {included}; omitted: {omitted}."
   },
   "ShareListForm": {
@@ -231,6 +252,7 @@
       "invalidFileType": "Invalid file type",
       "fileTooLarge": "The file is too large (10 MB max)",
       "listQuotaExceeded": "File limit for this list reached",
+      "dailyLimitReached": "Daily action limit reached — changes will save again after UTC midnight",
       "userQuotaExceeded": "Your overall file limit reached",
       "uploadFailed": "Failed to upload the file",
       "deleteFailed": "Failed to delete the file",

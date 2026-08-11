@@ -36,6 +36,15 @@ export const createItemSchema = z.object({
    * Должен быть строкой (CUID, генерируется Prisma).
    */
   listId: z.string(),
+
+  /**
+   * Родительский пункт, если создаётся подпункт. null — обычный пункт списка.
+   *
+   * Вложенность ровно одна, поэтому сервер дополнительно проверяет, что сам
+   * родитель подпунктом не является: схема этого выразить не может, ей
+   * доступен только присланный ID.
+   */
+  parentItemId: z.string().min(1).nullable().default(null),
 });
 
 /**
@@ -124,6 +133,22 @@ export const removeSharedUserSchema = z.object({
  * Схема для переименования списка покупок.
  * Используется в Server Action `renameList`.
  */
+/**
+ * Схема переключения AI для списка.
+ * Используется в Server Action `setListAiEnabled`.
+ */
+export const setListAiEnabledSchema = z.object({
+  /** Уникальный идентификатор списка. */
+  listId: z.string(),
+
+  /**
+   * Желаемое состояние. Передаётся строкой: FormData не знает булевых
+   * значений, а принимать «всё, кроме 'false'» за истину означало бы
+   * молча включить AI на опечатке.
+   */
+  aiEnabled: z.enum(["true", "false"]).transform((value) => value === "true"),
+});
+
 export const renameListSchema = z.object({
   /** Уникальный идентификатор переименовываемого списка. */
   listId: z.string(),

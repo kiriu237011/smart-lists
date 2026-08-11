@@ -38,10 +38,11 @@ function defaultSpaceId(userId: string): string {
 /**
  * Пользователь с default-пространством и записью в whitelist.
  *
- * `AllowedEmail` для самого прогона не обязателен — whitelist проверяется в
- * колбэке `signIn`, а E2E подставляет сессию напрямую. Строка создаётся, чтобы
- * состояние базы не отличалось от боевого: пользователь, у которого есть
- * сессия, в проде всегда есть и в whitelist.
+ * `AllowedEmail` обязателен. Раньше не был: whitelist проверялся только в
+ * колбэке `signIn`, а E2E подставляет сессию напрямую, минуя вход. С 2026-08-10
+ * колбэк `session` сверяет список при каждом чтении сессии и удаляет сессии
+ * тех, кого в нём нет, — пользователь без этой строки был бы разлогинен на
+ * первом же запросе.
  */
 export async function makeUser(
   db: PrismaClient,
@@ -111,6 +112,29 @@ export async function makeItems(
           position: index + 1,
           addedById: overrides?.addedById,
         },
+      }),
+    );
+  }
+  return items;
+}
+
+/**
+ * Подпункты одного пункта в заданном порядке.
+ *
+ * Позиции считаются внутри родителя: у подпунктов и пунктов независимые
+ * последовательности, и позиция 1 у подпункта не спорит с позицией 1 у пункта.
+ */
+export async function makeSubItems(
+  db: PrismaClient,
+  listId: string,
+  parentId: string,
+  names: string[],
+) {
+  const items = [];
+  for (const [index, name] of names.entries()) {
+    items.push(
+      await db.item.create({
+        data: { listId, parentId, name, position: index + 1 },
       }),
     );
   }

@@ -46,8 +46,12 @@
     "ariaDelete": "リスト{title}を削除",
     "ariaListActions": "リスト{title}の操作",
     "deleteListAction": "リストを削除",
+    "aiDisableAction": "このリストのAIをオフにする",
+    "aiEnableAction": "このリストのAIをオンにする",
     "collapseAction": "リストを折りたたむ",
     "expandAction": "リストを展開",
+    "collapsePanel": "パネルを折りたたむ",
+    "expandPanel": "パネルを展開",
     "moveEarlierAction": "前へ移動",
     "moveLaterAction": "後ろへ移動",
     "ariaDragList": "リスト「{title}」をドラッグ",
@@ -77,6 +81,10 @@
     "noGroupsHint": "上のフィルターでグループを作成できます",
     "errors": {
       "createFailed": "リストを作成できませんでした",
+      "listLimitReached": "このスペースにはすでにリストが{max}件あります",
+      "aiToggleFailed": "AI設定を変更できませんでした",
+      "dailyLimitReached": "1日の操作上限に達しました。UTCの深夜を過ぎると再び保存されます",
+      "groupLimitReached": "このスペースにはすでにグループが{max}件あります",
       "createLoadFailed": "リストは作成されましたが、データの読み込み中にエラーが発生しました",
       "renameFailed": "リストの名前を変更できませんでした",
       "deleteFailed": "リストを削除できませんでした",
@@ -120,6 +128,13 @@
     "moveDown": "下へ移動",
     "deleteItemAction": "項目を削除",
     "moveToListAction": "別のリストへ移動…",
+    "splitIntoSubItems": "サブ項目に分ける",
+    "addSubItem": "サブ項目を追加",
+    "subItemPlaceholder": "サブ項目の名前",
+    "subItemsLabel": "{name}のサブ項目",
+    "closeSubItemInput": "サブ項目の入力を閉じる",
+    "ariaSubItemsToggle": "{name}のサブ項目を表示または非表示",
+    "ariaSubItemsCounter": "完了したサブ項目：{total}件中{done}件",
     "moveToList": {
       "groupsTitle": "グループを選択",
       "searchPlaceholder": "リストを検索",
@@ -138,6 +153,7 @@
     "deleteModal": {
       "title": "項目を削除しますか？",
       "body": "項目「{name}」を本当に削除しますか？",
+      "bodyWithSubItems": "項目「{name}」を本当に削除しますか？サブ項目{count}件も一緒に削除されます。",
       "cancel": "キャンセル",
       "confirm": "削除"
     },
@@ -146,7 +162,10 @@
       "addFailed": "項目を追加できませんでした",
       "tooLong": "名前が長すぎます（最大200文字）",
       "moveFailed": "項目を移動できませんでした",
-      "moveToListFailed": "項目を別のリストへ移動できませんでした"
+      "moveToListFailed": "項目を別のリストへ移動できませんでした",
+      "itemLimitReached": "このリストにはすでに項目が{max}件あります",
+      "subItemLimitReached": "この項目にはすでにサブ項目が{max}件あります",
+      "dailyLimitReached": "1日の操作上限に達しました。UTCの深夜を過ぎると再び保存されます"
     }
   },
   "Notes": {
@@ -191,6 +210,8 @@
     "analyzing": "分析中...",
     "error": "インサイトを取得できませんでした",
     "rateLimitError": "本日の上限に達しました。明日お試しください。",
+    "privacyNotice": "共有相手のメモを含むリストの内容が、分析のためAnthropicへ送信されます。参加者は誰でもリストメニューからオフにできます。",
+    "disabledError": "このリストではAIがオフになっています",
     "notesContext": "送信した項目メモ: {included}件、省略: {omitted}件。"
   },
   "ShareListForm": {
@@ -231,6 +252,7 @@
       "invalidFileType": "無効なファイル形式です",
       "fileTooLarge": "ファイルが大きすぎます（最大10 MB）",
       "listQuotaExceeded": "リストのファイル数上限に達しました",
+      "dailyLimitReached": "1日の操作上限に達しました。UTCの深夜を過ぎると再び保存されます",
       "userQuotaExceeded": "あなたのファイル総数の上限に達しました",
       "uploadFailed": "ファイルをアップロードできませんでした",
       "deleteFailed": "ファイルを削除できませんでした",

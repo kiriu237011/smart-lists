@@ -77,7 +77,14 @@ export default function ServerListsApiProvider({
       leaveSharedList: async (listId) => leaveSharedList(buildFormData({ listId }, spaceId)),
 
       // ---- Записи ----
-      addItem: async (listId, itemName) => addItem(buildFormData({ listId, itemName }, spaceId)),
+      addItem: async (listId, itemName, parentItemId) =>
+        // FormData не умеет null: обычный пункт передаётся пустой строкой.
+        addItem(
+          buildFormData(
+            { listId, itemName, parentItemId: parentItemId ?? "" },
+            spaceId,
+          ),
+        ),
       renameItem: async (itemId, itemName) => renameItem(buildFormData({ itemId, itemName }, spaceId)),
       updateItemNote: async (itemId, note, expectedVersion) =>
         updateItemNote(buildFormData({ itemId, note, expectedVersion: expectedVersion.toString() }, spaceId)),

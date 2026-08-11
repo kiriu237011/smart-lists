@@ -49,6 +49,10 @@ import {
   TrashIcon,
 } from "@/components/lists/Notes";
 import { getNoteExcerpt } from "@/lib/notes";
+import { MAX_ITEMS_PER_LIST, MAX_SUB_ITEMS_PER_ITEM } from "@/lib/limits";
+import { applyCompletion, buildItemTree, type ItemNode } from "@/lib/item-tree";
+import { useCollapsedItems } from "@/components/providers/CollapsedItemsProvider";
+import CollapseChevron from "@/components/ui/CollapseChevron";
 
 // ---------------------------------------------------------------------------
 // Типы данных
@@ -61,8 +65,52 @@ type Item = {
   note: string | null;
   noteVersion: number;
   isCompleted: boolean;
+  /**
+   * ID родительского пункта. null — пункт верхнего уровня.
+   *
+   * Массив записей остаётся плоским, дерево собирает `buildItemTree` при
+   * рендере: оптимистичное состояние тогда правится обычными `map`/`filter`
+   * по одному массиву, без рекурсии по вложенным.
+   */
+  parentId: string | null;
   /** Пользователь, добавивший запись. null — для старых записей или temp-записей. */
   addedBy: { id: string; name: string | null; email: string } | null;
+};
+
+/**
+ * Всё, что строка знает о своём месте в дереве.
+ *
+ * Тело строки одинаково у пункта и подпункта, различается только это: какая
+ * отметка показывается, какой номер, какие пункты меню уместны. Собрано в один
+ * объект, потому что позиционных аргументов набралось бы полдюжины.
+ */
+type RowContext = {
+  /**
+   * Производная отметка выполнения. У пункта с подпунктами это «выполнены
+   * все», у остальных — собственное поле записи. Именно её показывает чекбокс,
+   * и именно её инверсия уходит на сервер.
+   */
+  isCompleted: boolean;
+  /** Видимый номер со точкой: «3.» или «3.2.». Пустая строка — номера нет. */
+  numberLabel: string;
+  /** Подпункт ли это. */
+  isSubItem: boolean;
+  /** Можно ли менять порядок на этом уровне: нужно больше одной активной записи. */
+  canReorder: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  /** Невыполненные записи уровня в текущем порядке — по ним считаются соседи. */
+  siblings: Item[];
+  /**
+   * Блок подпунктов. undefined — подпунктов нет либо это сам подпункт.
+   * Наличие блока и делает пункт родительским: отдельного признака нет.
+   */
+  block?: {
+    isCollapsed: boolean;
+    total: number;
+    done: number;
+    onToggle: () => void;
+  };
 };
 
 /** Пропсы компонента `SmartList`. */
@@ -81,6 +129,13 @@ type SmartListProps = {
   showAuthors: boolean;
   /** Глобальный флаг отображения порядковых номеров (тумблер в настройках). */
   showItemNumbers: boolean;
+  /**
+   * Показывать ли счётчики выполненного. Тумблер один на весь интерфейс:
+   * он управляет и сводкой в шапке карточки, и счётчиком у свёрнутого блока
+   * подпунктов. Разные переключатели для одного и того же по смыслу числа
+   * пришлось бы объяснять, а объяснить нечем.
+   */
+  showItemsCounter: boolean;
   /**
    * ID записей, совпавших с поиском. null — показывать все записи.
    * Список приходит целиком именно для того, чтобы номера считались по нему,
@@ -156,6 +211,27 @@ function MoveToListIcon({ size = 17 }: { size?: number }) {
   );
 }
 
+/** Ветвление списка — «разбить на подпункты» и «добавить подпункт». */
+function SubItemsIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <line x1="4" y1="5" x2="20" y2="5" />
+      <path d="M8 5v6a2 2 0 0 0 2 2h10" />
+      <path d="M8 5v12a2 2 0 0 0 2 2h10" />
+    </svg>
+  );
+}
+
 /** Ручка перетаскивания: две колонки точек — привычный «grip». */
 function GripIcon({ size = 16 }: { size?: number }) {
   return (
@@ -188,6 +264,7 @@ function GripIcon({ size = 16 }: { size?: number }) {
 function DraggableItemRow({
   item,
   className,
+  testId = "item",
   isDragActive,
   onDragStart,
   onDragEnd,
@@ -195,6 +272,8 @@ function DraggableItemRow({
 }: {
   item: Item;
   className: string;
+  /** Различает уровни: пункты остаются `item`, подпункты — `sub-item`. */
+  testId?: string;
   /** Идёт ли перетаскивание хоть какой-нибудь записи в этом списке. */
   isDragActive: boolean;
   onDragStart: () => void;
@@ -245,12 +324,62 @@ function DraggableItemRow({
       // Подъём строки под курсором. Тень и масштаб дают физическое ощущение
       // «взяли в руку»; без этого строка визуально неотличима от остальных.
       whileDrag={{ scale: 1.02 }}
-      data-testid="item"
+      data-testid={testId}
       data-item-id={item.id}
       className={className}
     >
       {children(dragControls)}
     </Reorder.Item>
+  );
+}
+
+/**
+ * Контейнер подпунктов одного пункта.
+ *
+ * Когда порядок менять можно, это `Reorder.Group`, иначе обычный `ul`. Обёртка
+ * существует ради одного: у группы и списка разные пропсы, а ветвление прямо в
+ * разметке продублировало бы весь список подпунктов целиком.
+ *
+ * Группа своя у каждого пункта — отсюда и запрет переносить подпункт к другому
+ * родителю: областей две, и жест не знает о существовании соседней.
+ */
+function SubItemsList({
+  reorderable,
+  values,
+  onReorder,
+  label,
+  children,
+}: {
+  reorderable: boolean;
+  values: Item[];
+  onReorder: (items: Item[]) => void;
+  label: string;
+  children: ReactNode;
+}) {
+  // Уровень читается по отступу и по колонке номера «x.y»; вертикальная линия
+  // добавляла третий признак того же самого и утяжеляла карточку.
+  const className = "mt-1 ml-2 pl-3";
+
+  if (!reorderable) {
+    return (
+      <ul data-testid="sub-items" aria-label={label} className={className}>
+        {children}
+      </ul>
+    );
+  }
+
+  return (
+    <Reorder.Group
+      as="ul"
+      axis="y"
+      values={values}
+      onReorder={onReorder}
+      data-testid="sub-items"
+      aria-label={label}
+      className={className}
+    >
+      {children}
+    </Reorder.Group>
   );
 }
 
@@ -272,11 +401,35 @@ export default function SmartList({
   currentUserEmail,
   showAuthors,
   showItemNumbers,
+  showItemsCounter,
   visibleItemIds,
   searchQuery = "",
 }: SmartListProps) {
   const t = useTranslations("SmartList");
   const notesT = useTranslations("Notes");
+
+  /**
+   * Сообщение об отказе при добавлении записи.
+   *
+   * Добавление вызывается из двух мест — форма списка и форма подпунктов, —
+   * и раньше каждое разбирало коды само. С появлением потолков вариантов
+   * стало четыре, и разбор вынесен сюда: иначе новый код ошибки пришлось бы
+   * не забыть добавить в оба места.
+   */
+  const addItemErrorMessage = (code?: string): string => {
+    switch (code) {
+      case "tooLong":
+        return t("errors.tooLong");
+      case "itemLimitReached":
+        return t("errors.itemLimitReached", { max: MAX_ITEMS_PER_LIST });
+      case "subItemLimitReached":
+        return t("errors.subItemLimitReached", { max: MAX_SUB_ITEMS_PER_ITEM });
+      case "dailyLimitReached":
+        return t("errors.dailyLimitReached");
+      default:
+        return t("errors.addFailed");
+    }
+  };
 
   // Адаптер операций: Server Actions (авторизованный) или localStorage (гость)
   const api = useListsApi();
@@ -295,13 +448,14 @@ export default function SmartList({
    *   - reducer-функцию, описывающую как изменить состояние локально
    *
    * Поддерживаемые действия:
-   *   - `toggle`  — инвертирует `isCompleted` у записи с заданным `itemId`.
-   *   - `delete`  — удаляет запись с заданным `itemId` из массива.
+   *   - `toggle`  — проставляет `isCompleted` записи вместе с синхронизацией
+   *                 подпунктов и родителя (`applyCompletion`).
+   *   - `delete`  — удаляет запись с заданным `itemId` вместе с её подпунктами.
    *   - `add`     — добавляет временную запись с `itemId` как временным ID.
    *   - `rename`  — меняет название записи.
    *   - `move`    — меняет местами запись и соседнюю по направлению `direction`.
-   *   - `reorder` — задаёт произвольный порядок невыполненных записей
-   *                 (результат перетаскивания).
+   *   - `reorder` — задаёт произвольный порядок невыполненных пунктов
+   *                 верхнего уровня (результат перетаскивания).
    */
   const [optimisticItems, setOptimisticItems] = useOptimistic(
     items,
@@ -314,6 +468,8 @@ export default function SmartList({
         addedBy,
         direction,
         orderedIds,
+        isCompleted,
+        parentId,
       }: {
         action: "toggle" | "delete" | "add" | "rename" | "move" | "reorder";
         itemId: string;
@@ -321,17 +477,26 @@ export default function SmartList({
         addedBy?: Item["addedBy"];
         direction?: "up" | "down";
         orderedIds?: string[];
+        /** Целевая отметка для `toggle` — уже производная, а не поле записи. */
+        isCompleted?: boolean;
+        /**
+         * Для `add` — родитель новой записи (null — обычный пункт).
+         * Для `reorder` — уровень, который переставляют.
+         */
+        parentId?: string | null;
       },
     ) => {
       switch (action) {
         case "toggle":
-          return state.map((item) =>
-            item.id === itemId
-              ? { ...item, isCompleted: !item.isCompleted }
-              : item,
-          );
+          // Правило синхронизации живёт в одном месте на весь проект, и
+          // оптимистичное состояние применяет ровно его: иначе экран до
+          // ответа сервера показывал бы не то, что окажется в БД.
+          return applyCompletion(state, itemId, isCompleted ?? false);
         case "delete":
-          return state.filter((item) => item.id !== itemId);
+          // Подпункты уходят вместе с родителем — как каскад в БД.
+          return state.filter(
+            (item) => item.id !== itemId && item.parentId !== itemId,
+          );
         case "add":
           return [
             ...state,
@@ -341,6 +506,7 @@ export default function SmartList({
               note: null,
               noteVersion: 0,
               isCompleted: false,
+              parentId: parentId ?? null,
               addedBy: addedBy ?? null,
             },
           ];
@@ -351,12 +517,14 @@ export default function SmartList({
               : item,
           );
         case "move": {
-          // Меняем местами соседние НЕВЫПОЛНЕННЫЕ записи. Переставляем именно
-          // слоты в массиве: выполненные записи между ними остаются на месте,
-          // а сортировка при рендере стабильна — относительный порядок двух
-          // активных записей меняется ровно так, как ожидает пользователь.
+          // Меняем местами соседние НЕВЫПОЛНЕННЫЕ записи одного уровня.
+          // Переставляем именно слоты в массиве: выполненные записи между ними
+          // остаются на месте, а сортировка при рендере стабильна —
+          // относительный порядок двух активных записей меняется ровно так,
+          // как ожидает пользователь.
+          const level = state.find((item) => item.id === itemId)?.parentId ?? null;
           const activeSlots = state.reduce<number[]>((slots, item, index) => {
-            if (!item.isCompleted) slots.push(index);
+            if (!item.isCompleted && item.parentId === level) slots.push(index);
             return slots;
           }, []);
 
@@ -377,18 +545,24 @@ export default function SmartList({
         case "reorder": {
           if (!orderedIds) return state;
 
-          // Невыполненные выстраиваются по присланному порядку, выполненные
-          // сохраняют свой относительный. Активные идут первыми — рендер всё
-          // равно сортирует их вперёд, поэтому массив можно не переплетать.
+          // Переставляется один уровень: `parentId` здесь — не родитель новой
+          // записи, а уровень жеста (null — пункты списка). Остальные записи
+          // идут следом одной группой, и это ничего не портит: `buildItemTree`
+          // разбирает их по родителям сам, а относительный порядок внутри
+          // каждой группы сохраняется — этого достаточно.
+          const level = parentId ?? null;
           const rank = new Map(orderedIds.map((id, index) => [id, index]));
-          const active = state
-            .filter((item) => !item.isCompleted)
+          const reordered = state
+            .filter((item) => item.parentId === level)
             .sort(
               (a, b) =>
                 (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
                 (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
             );
-          return [...active, ...state.filter((item) => item.isCompleted)];
+          return [
+            ...reordered,
+            ...state.filter((item) => item.parentId !== level),
+          ];
         }
         default:
           return state;
@@ -433,6 +607,36 @@ export default function SmartList({
 
   /** Сигнал для игнорирования blur при нажатии Escape. */
   const skipItemBlurRef = useRef(false);
+
+  /**
+   * Пункт, под которым открыто поле ввода подпункта. null — поле закрыто.
+   *
+   * Состояние только клиентское и ничего не сохраняет: «разбит на подпункты» —
+   * это не признак записи, а факт наличия у неё хотя бы одного подпункта.
+   * Поэтому команда меню лишь открывает поле, а родительским пункт делает
+   * первый введённый подпункт.
+   */
+  const [addSubItemParentId, setAddSubItemParentId] = useState<string | null>(null);
+
+  /** Текущее значение поля ввода подпункта. */
+  const [newSubItemName, setNewSubItemName] = useState("");
+
+  /** Свёрнутые вручную блоки: набор общий на пространство и лежит в localStorage. */
+  const { collapsedIds, toggle: toggleCollapsedBlock } = useCollapsedItems();
+
+  /**
+   * Выполненные блоки, раскрытые вручную.
+   *
+   * Отдельно от сохранённого набора и намеренно живёт только до перезагрузки.
+   * Выполненный блок сворачивается сам — это следствие отметки, а не выбор
+   * пользователя, и хранить тут нечего: после перезагрузки он снова свёрнут,
+   * ровно как и задумано словом «убрать сделанное с глаз». Сохранённый набор
+   * при этом не трогается, поэтому снятие отметки возвращает блок в то
+   * состояние, которое пользователь выбирал для него как для активного.
+   */
+  const [expandedCompletedIds, setExpandedCompletedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   /**
    * Обработчик подтверждения удаления записи.
@@ -556,49 +760,49 @@ export default function SmartList({
   const noteDeleteItem =
     optimisticItems.find((item) => item.id === noteToDeleteItemId) ?? null;
 
-  /**
-   * Порядок отображения: невыполненные сверху, внутри группы — порядок,
-   * пришедший с сервера (по position). Sort в JS стабилен по спецификации,
-   * поэтому позиционный порядок внутри каждой группы сохраняется — благодаря
-   * этому выполненные записи тоже идут по position, а не «как получится».
-   */
-  const orderedItems = [...optimisticItems].sort(
-    (a, b) => Number(a.isCompleted) - Number(b.isCompleted),
-  );
+  /** Сколько подпунктов уйдёт вместе с записью, которую подтверждают к удалению. */
+  const itemToDeleteSubCount = itemToDelete
+    ? optimisticItems.filter((item) => item.parentId === itemToDelete.id).length
+    : 0;
 
   /**
-   * Видимые номера записей.
-   *
-   * Номер нигде не хранится — это порядковый индекс среди НЕВЫПОЛНЕННЫХ
-   * записей. Отсюда бесплатно следуют все правила: удалили запись —
-   * последующие сдвинулись на -1; отметили выполненной — она потеряла номер,
-   * последующие сдвинулись на -1; сняли галку — вернулась на своё место
-   * вместе со своим номером.
+   * Дерево записей: уровни, производные отметки выполнения, порядок с
+   * выполненными в конце каждого уровня и видимая нумерация.
    *
    * Считается по optimisticItems, то есть по полному списку и с учётом
    * оптимистичных изменений: номера пересчитываются мгновенно, не дожидаясь
    * ответа сервера, и не врут при активном поиске.
+   *
+   * Номер нигде не хранится — это порядковый индекс среди НЕВЫПОЛНЕННЫХ
+   * записей уровня. Отсюда бесплатно следуют все правила: удалили запись —
+   * последующие сдвинулись на -1; отметили выполненной — она потеряла номер;
+   * сняли галку — вернулась на своё место вместе со своим номером.
    */
-  const itemNumbers = new Map<string, number>();
-  let activeItemsCount = 0;
-  for (const item of orderedItems) {
-    if (!item.isCompleted) {
-      activeItemsCount += 1;
-      itemNumbers.set(item.id, activeItemsCount);
-    }
-  }
+  const { nodes, activeCount: activeItemsCount } = buildItemTree(optimisticItems);
 
   /**
-   * Записи к отрисовке. При активном поиске несовпавшие скрываются здесь, а не
-   * в `ListsContainer` — иначе нумерация считалась бы по подмножеству.
+   * Пункты к отрисовке — блоками целиком.
+   *
+   * При активном поиске несовпавшие скрываются здесь, а не в `ListsContainer`:
+   * иначе нумерация считалась бы по подмножеству. Совпадение в подпункте
+   * показывает весь блок, и это не послабление, а единственный вариант без
+   * лжи на экране: производная отметка родителя и нумерация «x.y» считаются
+   * по всем подпунктам, и скрытая часть сделала бы чекбокс и номера
+   * необъяснимыми. Совпадения при этом подсвечиваются только настоящие,
+   * соседи служат контекстом.
+   *
    * Только что добавленная запись (temp-) видна всегда: пользователь должен
    * видеть результат своего действия независимо от текущего фильтра.
    */
-  const visibleItems = visibleItemIds
-    ? orderedItems.filter(
-        (item) => visibleItemIds.has(item.id) || item.id.startsWith("temp-"),
-      )
-    : orderedItems;
+  const visibleNodes = visibleItemIds
+    ? nodes.filter((node) => {
+        const matches = (id: string) =>
+          visibleItemIds.has(id) || id.startsWith("temp-");
+        return (
+          matches(node.item.id) || node.subItems.some((sub) => matches(sub.item.id))
+        );
+      })
+    : nodes;
 
   /**
    * Порядок можно менять, только когда виден весь список. При активном поиске
@@ -608,14 +812,20 @@ export default function SmartList({
   const canReorderItems = visibleItemIds === null && activeItemsCount > 1;
 
   /**
-   * Перемещает запись на одну позицию вверх или вниз среди невыполненных.
+   * Перемещает запись на одну позицию вверх или вниз среди невыполненных
+   * записей её уровня — доступная с клавиатуры альтернатива жесту.
    *
    * Серверу отправляются ID новых соседей, вычисленные по УЖЕ переставленному
    * массиву: сервер получает место назначения, а не наше представление о
    * текущем порядке, и потому не зависит от того, насколько оно свежее.
+   *
+   * @param activeItems - Невыполненные записи уровня в текущем порядке.
    */
-  const handleMoveItem = (item: Item, direction: "up" | "down") => {
-    const activeItems = orderedItems.filter((entry) => !entry.isCompleted);
+  const handleMoveItem = (
+    item: Item,
+    direction: "up" | "down",
+    activeItems: Item[],
+  ) => {
     const index = activeItems.findIndex((entry) => entry.id === item.id);
     if (index === -1) return;
 
@@ -649,6 +859,53 @@ export default function SmartList({
         toast.error(t("errors.moveFailed"));
       }
     });
+  };
+
+  /**
+   * Добавляет подпункт к пункту.
+   *
+   * Поле после отправки остаётся открытым: подпункты почти всегда набирают
+   * очередью, и закрытие после каждого Enter заставляло бы лезть в меню
+   * заново. Закрывает поле Escape или кнопка рядом.
+   *
+   * Ожидания ответа сервера здесь намеренно нет. Флаг «сохраняется» блокировал
+   * бы следующий ввод — ровно то, ради чего поле и оставлено открытым: набрать
+   * подряд три подпункта быстрее, чем успевает ответить БД. От повторной
+   * отправки того же текста защищает очистка поля: второй submit увидит пустое
+   * значение и выйдет. Одновременные добавления могут прочитать одинаковый
+   * максимум позиции — это допустимо, порядок доопределяет тайбрейк.
+   */
+  const handleAddSubItem = async (parentItemId: string) => {
+    const trimmedName = newSubItemName.trim();
+    if (!trimmedName) return;
+
+    const tempId = `temp-${Date.now()}`;
+
+    startTransition(() => {
+      setOptimisticItems({
+        action: "add",
+        itemId: tempId,
+        itemName: trimmedName,
+        parentId: parentItemId,
+        addedBy: {
+          id: currentUserId,
+          name: currentUserName,
+          email: currentUserEmail,
+        },
+      });
+    });
+
+    setNewSubItemName("");
+
+    const result = await api.addItem(listId, trimmedName, parentItemId);
+
+    if (result && !result.success) {
+      startTransition(() => {
+        setOptimisticItems({ action: "delete", itemId: tempId });
+      });
+      setNewSubItemName(trimmedName);
+      toast.error(addItemErrorMessage(result.error));
+    }
   };
 
   /** Запись, для которой открыт выбор списка-получателя. null — модал закрыт. */
@@ -686,7 +943,11 @@ export default function SmartList({
 
       if (!result.success) {
         // Оптимистичное удаление откатится само по завершении transition.
-        toast.error(t("errors.moveToListFailed"));
+        toast.error(
+          result.error === "itemLimitReached"
+            ? t("errors.itemLimitReached", { max: MAX_ITEMS_PER_LIST })
+            : t("errors.moveToListFailed"),
+        );
         return;
       }
 
@@ -698,16 +959,71 @@ export default function SmartList({
     });
   };
 
-  /** Невыполненные записи — те, что можно перетаскивать. */
-  const activeVisibleItems = visibleItems.filter((item) => !item.isCompleted);
-  /** Выполненные записи — рендерятся ниже обычным списком, без перетаскивания. */
-  const completedVisibleItems = visibleItems.filter((item) => item.isCompleted);
+  /** Невыполненные блоки — те, что можно перетаскивать. */
+  const activeVisibleNodes = visibleNodes.filter((node) => !node.isCompleted);
+  /** Выполненные блоки — рендерятся ниже обычным списком, без перетаскивания. */
+  const completedVisibleNodes = visibleNodes.filter((node) => node.isCompleted);
 
-  /** Порядок, который пользователь «набрал» жестом. null — жест не идёт. */
-  const [dragOrder, setDragOrder] = useState<Item[] | null>(null);
+  /**
+   * Перетаскиваются пункты верхнего уровня; подпункты живут внутри своего узла
+   * и потому едут вместе с ним, не участвуя в жесте отдельно.
+   */
+  const activeVisibleItems = activeVisibleNodes.map((node) => node.item);
+
+  /**
+   * Порядок, который пользователь «набрал» жестом, вместе с уровнем, на котором
+   * идёт жест: null — пункты списка, ID родителя — его подпункты.
+   * null вместо объекта означает, что жеста нет.
+   */
+  const [dragOrder, setDragOrder] = useState<{
+    level: string | null;
+    items: Item[];
+  } | null>(null);
 
   /** Порядок, показываемый группой: во время жеста — набранный, иначе серверный. */
-  const draggableItems = dragOrder ?? activeVisibleItems;
+  const draggableItems =
+    dragOrder?.level === null ? dragOrder.items : activeVisibleItems;
+
+  /** Узел по ID записи — во время жеста порядок задан массивом записей. */
+  const nodeById = new Map(visibleNodes.map((node) => [node.item.id, node]));
+
+  /**
+   * Свёрнут ли блок подпунктов.
+   *
+   * Три правила по убыванию приоритета:
+   *
+   *   1. При активном поиске блоки раскрыты, а сохранённое состояние не
+   *      меняется — как и свёрнутость карточки. Показать совпадение и не дать
+   *      на него посмотреть было бы сломанным поиском.
+   *   2. Выполненный блок свёрнут: работа сделана, и держать её на экране
+   *      незачем. Раскрывается вручную и только до перезагрузки.
+   *   3. Остальные — по сохранённому набору.
+   */
+  const isBlockCollapsed = (node: ItemNode<Item>): boolean => {
+    if (node.subItems.length === 0) return false;
+    if (visibleItemIds !== null) return false;
+    return node.isCompleted
+      ? !expandedCompletedIds.has(node.item.id)
+      : collapsedIds.has(node.item.id);
+  };
+
+  /**
+   * Переключает свёрнутость блока.
+   *
+   * У выполненного блока выбор не сохраняется: он относится к состоянию
+   * «сделано», а не к самому пункту, и переживать перезагрузку ему незачем.
+   */
+  const handleToggleBlock = (node: ItemNode<Item>) => {
+    if (node.isCompleted) {
+      setExpandedCompletedIds((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(node.item.id)) next.add(node.item.id);
+        return next;
+      });
+      return;
+    }
+    toggleCollapsedBlock(node.item.id);
+  };
 
   /** ID записи под курсором во время жеста. null — жест не идёт. */
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
@@ -723,49 +1039,62 @@ export default function SmartList({
    * строки прозрачный, и без этого сквозь «поднятую» запись просвечивали бы
    * соседние — ровно то ощущение, что ничего не перетаскивается.
    */
-  const rowClassName = (item: Item) => {
+  const rowClassName = (item: Item, isCompleted: boolean) => {
     const base = "py-2 px-1 transition-colors duration-200";
     if (item.id === draggingItemId) {
       return `${base} relative z-20 cursor-grabbing rounded-md bg-white shadow-lg ring-1 ring-gray-200 dark:bg-zinc-800 dark:shadow-black/60 dark:ring-zinc-700`;
     }
     return `${base} ${
-      item.isCompleted
+      isCompleted
         ? "bg-gray-100 dark:bg-transparent"
         : "bg-gray-50 dark:bg-transparent"
     }`;
   };
 
-  const handleDragStart = (item: Item) => {
+  /**
+   * Начинает жест на любом уровне.
+   *
+   * `level` — то же, что `parentId` перетаскиваемой записи: null у пунктов,
+   * ID родителя у подпунктов. Уровни независимы, поэтому одно состояние с
+   * пометкой уровня заменяет два: одновременно идёт максимум один жест.
+   */
+  const handleDragStart = (level: string | null, item: Item, siblings: Item[]) => {
     // Закрываем затвор realtime: перерисовка дерева посреди жеста сорвала бы его.
     beginDrag();
     setDraggingItemId(item.id);
     // Фиксируем текущий порядок как стартовый — дальше им управляет onReorder.
-    setDragOrder(activeVisibleItems);
+    setDragOrder({ level, items: siblings });
   };
 
   /**
    * Завершает жест: сохраняет набранный порядок и открывает затвор realtime.
    *
    * Соседи берутся из ИТОГОВОГО порядка, поэтому серверу уходит место
-   * назначения — тот же контракт, что и у перемещения через меню.
+   * назначения — тот же контракт, что и у перемещения через меню. Сервер сам
+   * проверит, что соседи с того же уровня: подпункт остаётся у своего родителя.
    */
-  const handleDragEnd = (item: Item) => {
+  const handleDragEnd = (level: string | null, item: Item, siblings: Item[]) => {
     endDrag();
     setDraggingItemId(null);
 
-    const finalOrder = dragOrder;
+    const finalOrder = dragOrder?.level === level ? dragOrder.items : null;
     setDragOrder(null);
     if (!finalOrder) return;
 
     const index = finalOrder.findIndex((entry) => entry.id === item.id);
     // Запись вернулась на исходное место — сохранять нечего.
-    if (index === -1 || activeVisibleItems[index]?.id === item.id) return;
+    if (index === -1 || siblings[index]?.id === item.id) return;
 
     const orderedIds = finalOrder.map((entry) => entry.id);
-    const previousIds = activeVisibleItems.map((entry) => entry.id);
+    const previousIds = siblings.map((entry) => entry.id);
 
     startTransition(async () => {
-      setOptimisticItems({ action: "reorder", itemId: item.id, orderedIds });
+      setOptimisticItems({
+        action: "reorder",
+        itemId: item.id,
+        orderedIds,
+        parentId: level,
+      });
 
       const result = await api.moveItem(
         item.id,
@@ -778,6 +1107,7 @@ export default function SmartList({
           action: "reorder",
           itemId: item.id,
           orderedIds: previousIds,
+          parentId: level,
         });
         toast.error(t("errors.moveFailed"));
       }
@@ -793,20 +1123,20 @@ export default function SmartList({
    * перетаскивания.
    *
    * @param dragControls - Контроллер жеста; null у неперетаскиваемых строк.
+   * @param context - Место записи в дереве: производная отметка, номер и
+   *                  доступные для неё команды.
    */
-  const renderItemRow = (item: Item, dragControls: DragControls | null) => {
+  const renderItemRow = (
+    item: Item,
+    dragControls: DragControls | null,
+    context: RowContext,
+  ) => {
+    const { isCompleted, numberLabel, isSubItem } = context;
     /**
      * Запись считается "в ожидании" (pending), если её ID начинается с "temp-".
      * В этом состоянии интерактивные элементы заблокированы.
      */
     const isPending = item.id.startsWith("temp-");
-    /** Номер записи. undefined у выполненных — они нумерацию теряют. */
-    const itemNumber = itemNumbers.get(item.id);
-    // Номер — это позиция среди активных записей, начиная с 1,
-    // поэтому границы списка проверяются прямо по нему.
-    const canMoveUp = itemNumber !== undefined && itemNumber > 1;
-    const canMoveDown =
-      itemNumber !== undefined && itemNumber < activeItemsCount;
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
     const noteMatchesSearch = Boolean(
       item.note &&
@@ -815,18 +1145,31 @@ export default function SmartList({
     );
 
     /**
+     * Колонка номера. У подпункта номер вдвое длиннее («3.2.» против «3.»),
+     * поэтому колонка шире — иначе название подпункта уезжало бы вправо
+     * относительно соседей с однозначными номерами.
+     */
+    const numberColumn = isSubItem ? "min-w-10" : "min-w-5";
+
+    /**
      * Отступ заметки под названием записи — сумма ширин колонок слева от него.
      * Значения привязаны к классам самих колонок: чекбокс даёт 2rem
      * (w-5 + gap-3), ручка и номер по 1.75rem (та же пара минус отрицательный
-     * margin, которым они подтянуты к соседу). Менять классы колонок — менять
-     * и эти значения, иначе заметка съедет относительно текста.
+     * margin, которым они подтянуты к соседу), широкая колонка подпункта —
+     * 3rem. Менять классы колонок — менять и эти значения, иначе заметка
+     * съедет относительно текста.
      */
-    const rowIndent =
-      dragControls && showItemNumbers
-        ? "ml-[5.5rem]"
-        : dragControls || showItemNumbers
-          ? "ml-[3.75rem]"
-          : "ml-8";
+    // У подпункта колонка ручки есть всегда — пустая, когда ручки нет.
+    const hasHandleColumn = Boolean(dragControls) || isSubItem;
+    const rowIndent = showItemNumbers
+      ? hasHandleColumn
+        ? isSubItem
+          ? "ml-[6.75rem]"
+          : "ml-[5.5rem]"
+        : "ml-[3.75rem]"
+      : hasHandleColumn
+        ? "ml-[3.75rem]"
+        : "ml-8";
 
     return (
       <>
@@ -836,8 +1179,14 @@ export default function SmartList({
                 жест доступен только мышью и пальцем, а с клавиатуры порядок
                 меняется пунктами «Переместить выше/ниже» в меню действий —
                 они и есть доступная альтернатива. touch-none обязателен:
-                без него палец на ручке скроллил бы страницу вместо жеста. */}
-            {dragControls && (
+                без него палец на ручке скроллил бы страницу вместо жеста.
+
+                У подпункта без ручки колонка сохраняется пустой — как колонка
+                номера у выполненной записи. Иначе отступ блока зависел бы от
+                того, можно ли сейчас перетаскивать: единственный подпункт,
+                выполненный подпункт и подпункт при активном поиске ручки не
+                получают и «уезжали» бы влево, вплотную к своему пункту. */}
+            {dragControls ? (
               <button
                 type="button"
                 aria-hidden
@@ -851,6 +1200,8 @@ export default function SmartList({
               >
                 <GripIcon />
               </button>
+            ) : (
+              isSubItem && <span aria-hidden className="-ml-1 h-6 w-5 shrink-0" />
             )}
 
             {/* Порядковый номер в виде «1.» — как в обычном нумерованном
@@ -863,9 +1214,9 @@ export default function SmartList({
               <span
                 aria-hidden
                 data-testid="item-number"
-                className="-mr-1 min-w-5 shrink-0 text-right text-sm tabular-nums text-gray-400 dark:text-zinc-500"
+                className={`-mr-1 ${numberColumn} shrink-0 text-right text-sm tabular-nums text-gray-400 dark:text-zinc-500`}
               >
-                {itemNumber ? `${itemNumber}.` : ""}
+                {numberLabel}
               </span>
             )}
 
@@ -873,26 +1224,29 @@ export default function SmartList({
             <form
               className={editingItemId === item.id ? "invisible" : ""}
               action={async () => {
-                // 1. Мгновенно меняем UI
+                // 1. Мгновенно меняем UI. У пункта с подпунктами отметка
+                //    производная, поэтому и туда, и на сервер уходит именно
+                //    она, а не собственное поле записи.
                 setOptimisticItems({
                   action: "toggle",
                   itemId: item.id,
+                  isCompleted: !isCompleted,
                 });
 
                 // 2. Сохраняем инверсию текущего статуса в фоне
-                await api.toggleItem(item.id, item.isCompleted);
+                await api.toggleItem(item.id, isCompleted);
               }}
             >
               <button
                 type="submit"
                 data-testid="item-toggle"
-                data-completed={item.isCompleted}
+                data-completed={isCompleted}
                 disabled={isPending}
                 title={isPending ? t("saving") : undefined}
                 className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
                   isPending
                     ? "border-gray-300 dark:border-zinc-700 cursor-not-allowed"
-                    : item.isCompleted
+                    : isCompleted
                       ? "bg-gray-600 border-gray-600 dark:bg-zinc-500 dark:border-zinc-500 scale-105 shadow-sm shadow-gray-200 dark:shadow-none"
                       : "bg-white dark:bg-zinc-900 border-gray-300 dark:border-zinc-600 hover:border-gray-500 dark:hover:border-zinc-400 hover:shadow-sm"
                 }`}
@@ -902,7 +1256,7 @@ export default function SmartList({
                   <span className="block w-2.5 h-2.5 border-2 border-gray-400 dark:border-zinc-500 !border-t-transparent rounded-full animate-spin" />
                 ) : (
                   // Галочка для выполненной записи
-                  item.isCompleted && (
+                  isCompleted && (
                     <svg
                       className="w-3 h-3 text-white"
                       viewBox="0 0 12 12"
@@ -924,12 +1278,12 @@ export default function SmartList({
             {/* Название записи (или поле редактирования) + "Сохраняется..." */}
             <div
               className={`flex-1 min-w-0 flex items-center gap-1 rounded-lg px-1 -mx-1 transition-colors ${
-                !isPending && !item.isCompleted && editingItemId !== item.id
+                !isPending && !isCompleted && editingItemId !== item.id
                   ? "group cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-700 hover:ring-1 hover:ring-gray-300 dark:hover:ring-zinc-600"
                   : ""
               }`}
               onClick={
-                !isPending && !item.isCompleted && editingItemId !== item.id
+                !isPending && !isCompleted && editingItemId !== item.id
                   ? () => {
                       setOpenNoteItemId(null);
                       setOpenItemActionsId(null);
@@ -977,7 +1331,7 @@ export default function SmartList({
                   }}
                   className="text-sm border dark:border-zinc-600 py-2 px-1 rounded-lg bg-gray-50 dark:bg-zinc-900 focus:bg-white dark:focus:bg-zinc-950 focus:ring-1 ring-gray-800 dark:ring-zinc-500 outline-none transition w-full min-w-0 resize-none overflow-hidden"
                 />
-              ) : isPending || (!item.isCompleted) ? (
+              ) : isPending || !isCompleted ? (
                 <>
                   <span className="flex-1" data-testid="item-name"><Highlight text={item.name} query={searchQuery} /></span>
                   {!isPending && <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex-shrink-0">✎</span>}
@@ -1029,6 +1383,45 @@ export default function SmartList({
               </>
             ) : (
               <>
+                {/* Сворачивание блока подпунктов. Счётчик показывается только у
+                    свёрнутого: у раскрытого те же числа читаются с самих
+                    подпунктов, а у свёрнутого это единственный способ понять,
+                    что там осталось. Тумблер у него общий со сводкой в шапке
+                    карточки — число по смыслу одно и то же, просто на разных
+                    уровнях, и два переключателя было бы нечем объяснить.
+
+                    При активном поиске кнопки нет вовсе: блоки там раскрыты
+                    принудительно, и кнопка выглядела бы сломанной — нажатие
+                    меняло бы сохранённое состояние, ничего не меняя на экране.
+                    Тот же приём, что с пунктами перемещения. */}
+                {context.block && visibleItemIds === null && (
+                  <>
+                    {context.block.isCollapsed && showItemsCounter && (
+                      <span
+                        data-testid="sub-items-counter"
+                        aria-label={t("ariaSubItemsCounter", {
+                          done: context.block.done,
+                          total: context.block.total,
+                        })}
+                        className="mr-0.5 text-xs tabular-nums text-gray-400 dark:text-zinc-500"
+                      >
+                        {context.block.done} / {context.block.total}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      data-testid="sub-items-toggle"
+                      disabled={isPending}
+                      onClick={context.block.onToggle}
+                      aria-label={t("ariaSubItemsToggle", { name: item.name })}
+                      aria-expanded={!context.block.isCollapsed}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                    >
+                      <CollapseChevron isCollapsed={context.block.isCollapsed} />
+                    </button>
+                  </>
+                )}
+
                 {/* Заполненная заметка остаётся доступна отдельной кнопкой. */}
                 {item.note && (
                   <button
@@ -1100,17 +1493,19 @@ export default function SmartList({
                     >
                       {/* Перемещение доступно только у невыполненных
                           записей: выполненные нумерации не имеют и
-                          живут отдельным блоком внизу. */}
-                      {canReorderItems && !item.isCompleted && (
+                          живут отдельным блоком внизу. Подпункт двигается
+                          среди подпунктов своего родителя — уровни
+                          независимы, и «выше» никогда не выносит его наружу. */}
+                      {context.canReorder && !isCompleted && (
                         <>
                           <button
                             type="button"
                             role="menuitem"
                             data-testid="item-move-up"
-                            disabled={!canMoveUp}
+                            disabled={!context.canMoveUp}
                             onClick={() => {
                               setOpenItemActionsId(null);
-                              handleMoveItem(item, "up");
+                              handleMoveItem(item, "up", context.siblings);
                             }}
                             className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-700"
                           >
@@ -1121,10 +1516,10 @@ export default function SmartList({
                             type="button"
                             role="menuitem"
                             data-testid="item-move-down"
-                            disabled={!canMoveDown}
+                            disabled={!context.canMoveDown}
                             onClick={() => {
                               setOpenItemActionsId(null);
-                              handleMoveItem(item, "down");
+                              handleMoveItem(item, "down", context.siblings);
                             }}
                             className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-700"
                           >
@@ -1139,9 +1534,49 @@ export default function SmartList({
                         </>
                       )}
 
+                      {/* Разбиение на подпункты ничего не сохраняет: пункт
+                          становится родительским только с появлением первого
+                          подпункта. Поэтому команда просто открывает поле
+                          ввода, а её подпись зависит от того, есть ли уже
+                          подпункты. У выполненного пункта команды нет:
+                          разбивать сделанное незачем, а первый же подпункт
+                          вернул бы его в невыполненные. */}
+                      {!isSubItem && !isCompleted && (
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            data-testid="item-add-sub-item"
+                            onClick={() => {
+                              setOpenItemActionsId(null);
+                              setNewSubItemName("");
+                              setAddSubItemParentId(item.id);
+                              // Свёрнутый блок раскрываем: иначе поле ввода
+                              // оказалось бы спрятано вместе с подпунктами.
+                              if (context.block?.isCollapsed) {
+                                context.block.onToggle();
+                              }
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                          >
+                            <SubItemsIcon />
+                            {context.block
+                              ? t("addSubItem")
+                              : t("splitIntoSubItems")}
+                          </button>
+
+                          <div
+                            role="separator"
+                            className="my-1 h-px bg-gray-100 dark:bg-zinc-700"
+                          />
+                        </>
+                      )}
+
                       {/* Перенос в другой список показывается, только когда
-                          в пространстве есть куда переносить. */}
-                      {hasMoveTargets && (
+                          в пространстве есть куда переносить. Подпункт
+                          принадлежит родителю и отдельно никуда не едет —
+                          он уезжает вместе с ним. */}
+                      {hasMoveTargets && !isSubItem && (
                         <>
                           <button
                             type="button"
@@ -1248,13 +1683,203 @@ export default function SmartList({
     );
   };
 
+  /**
+   * Рендерит блок: строку пункта, его подпункты и поле ввода нового подпункта.
+   *
+   * Подпункты лежат ВНУТРИ элемента списка родителя. Это не только про отступ:
+   * при перетаскивании пункта framer двигает один DOM-узел, и подпункты едут
+   * вместе с ним, ничего не зная о жесте.
+   */
+  const renderNode = (node: ItemNode<Item>, dragControls: DragControls | null) => {
+    const isAddingHere = addSubItemParentId === node.item.id;
+    const isCollapsed = isBlockCollapsed(node);
+
+    /** Невыполненные подпункты — только они участвуют в перестановке. */
+    const activeSubItems = node.subItems
+      .filter((sub) => !sub.item.isCompleted)
+      .map((sub) => sub.item);
+    const completedSubItems = node.subItems.filter(
+      (sub) => sub.item.isCompleted,
+    );
+
+    /**
+     * Уровень подпунктов независим от уровня пунктов: список из одного пункта
+     * не мешает переставлять его подпункты, и наоборот. Поиск запрещает
+     * перестановку на обоих — видно подмножество, и «выше» перескакивало бы
+     * через скрытое.
+     */
+    const canReorderSubItems =
+      visibleItemIds === null && activeSubItems.length > 1;
+
+    /** Порядок подпунктов: во время их жеста — набранный, иначе серверный. */
+    const draggableSubItems =
+      dragOrder?.level === node.item.id ? dragOrder.items : activeSubItems;
+
+    /** Узел подпункта по ID: во время жеста порядок задан массивом записей. */
+    const subNodeById = new Map(
+      node.subItems.map((sub) => [sub.item.id, sub]),
+    );
+
+    /** Контекст строки подпункта. Номер берётся из дерева, а не из порядка жеста. */
+    const subContext = (subItemId: string): RowContext => {
+      const sub = subNodeById.get(subItemId);
+      return {
+        isCompleted: sub?.item.isCompleted ?? false,
+        // Номер подпункта показывается вместе с номером родителя:
+        // «3.2.» читается сразу, а «2.» посреди чужого блока — нет.
+        numberLabel:
+          node.number && sub?.number ? `${node.number}.${sub.number}.` : "",
+        isSubItem: true,
+        canReorder: canReorderSubItems,
+        canMoveUp: sub?.number !== undefined && sub.number > 1,
+        canMoveDown:
+          sub?.number !== undefined && sub.number < activeSubItems.length,
+        siblings: activeSubItems,
+      };
+    };
+
+    return (
+      <>
+        {renderItemRow(node.item, dragControls, {
+          isCompleted: node.isCompleted,
+          numberLabel: node.number ? `${node.number}.` : "",
+          isSubItem: false,
+          canReorder: canReorderItems,
+          canMoveUp: node.number !== undefined && node.number > 1,
+          canMoveDown:
+            node.number !== undefined && node.number < activeItemsCount,
+          siblings: activeVisibleItems,
+          block:
+            node.subItems.length > 0
+              ? {
+                  isCollapsed,
+                  total: node.subItems.length,
+                  done: node.subItems.filter((sub) => sub.item.isCompleted)
+                    .length,
+                  onToggle: () => handleToggleBlock(node),
+                }
+              : undefined,
+        })}
+
+        {/* Свёрнутый блок размонтируется целиком, а не прячется стилем: у
+            карточки списка тело оставлено в DOM ради анимации высоты, здесь же
+            анимации нет, и скрытая разметка только осталась бы доступной
+            поиску по странице. */}
+        {!isCollapsed && (node.subItems.length > 0 || isAddingHere) && (
+          <SubItemsList
+            reorderable={canReorderSubItems}
+            values={draggableSubItems}
+            onReorder={(items) =>
+              setDragOrder({ level: node.item.id, items })
+            }
+            label={t("subItemsLabel", { name: node.item.name })}
+          >
+            {/* Вложенная Reorder.Group внутри Reorder.Item родителя работает
+                потому, что оба уровня начинают жест только с ручки
+                (`dragListener={false}` + `useDragControls`). Иначе pointer на
+                подпункте поднимал бы весь блок. */}
+            {canReorderSubItems
+              ? draggableSubItems.map((subItem) => (
+                  <DraggableItemRow
+                    key={subItem.id}
+                    item={subItem}
+                    testId="sub-item"
+                    className={rowClassName(subItem, subItem.isCompleted)}
+                    isDragActive={draggingItemId !== null}
+                    onDragStart={() =>
+                      handleDragStart(node.item.id, subItem, activeSubItems)
+                    }
+                    onDragEnd={() =>
+                      handleDragEnd(node.item.id, subItem, activeSubItems)
+                    }
+                  >
+                    {(subDragControls) =>
+                      renderItemRow(subItem, subDragControls, subContext(subItem.id))
+                    }
+                  </DraggableItemRow>
+                ))
+              : activeSubItems.map((subItem) => (
+                  <li
+                    key={subItem.id}
+                    data-testid="sub-item"
+                    data-item-id={subItem.id}
+                    className={rowClassName(subItem, subItem.isCompleted)}
+                  >
+                    {renderItemRow(subItem, null, subContext(subItem.id))}
+                  </li>
+                ))}
+
+            {completedSubItems.map((sub) => (
+              <li
+                key={sub.item.id}
+                data-testid="sub-item"
+                data-item-id={sub.item.id}
+                className={rowClassName(sub.item, true)}
+              >
+                {renderItemRow(sub.item, null, subContext(sub.item.id))}
+              </li>
+            ))}
+
+            {isAddingHere && (
+              <li className="py-2 px-1">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleAddSubItem(node.item.id);
+                  }}
+                  className="flex gap-2"
+                >
+                  <input
+                    autoFocus
+                    name="subItemName"
+                    autoComplete="off"
+                    data-testid="add-sub-item-input"
+                    placeholder={t("subItemPlaceholder")}
+                    value={newSubItemName}
+                    onChange={(event) => setNewSubItemName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setAddSubItemParentId(null);
+                    }}
+                    maxLength={200}
+                    required
+                    className="w-full min-w-0 rounded-lg border bg-gray-50 p-1.5 text-sm outline-none transition focus:bg-white focus:ring-1 ring-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-zinc-500 dark:focus:bg-zinc-950"
+                  />
+                  <button
+                    type="submit"
+                    data-testid="add-sub-item-submit"
+                    aria-label={t("subItemPlaceholder")}
+                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-gray-800 text-white shadow-sm transition-all duration-150 hover:bg-gray-700 active:scale-95 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="add-sub-item-close"
+                    aria-label={t("closeSubItemInput")}
+                    onClick={() => setAddSubItemParentId(null)}
+                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                  >
+                    ✗
+                  </button>
+                </form>
+              </li>
+            )}
+          </SubItemsList>
+        )}
+      </>
+    );
+  };
+
   return (
     <>
       <div>
         {/* -----------------------------------------------------------------------
           Список записей.
 
-          Когда порядок менять можно, невыполненные записи живут внутри
+          Когда порядок менять можно, невыполненные блоки живут внутри
           Reorder.Group, а выполненные идут следом обычными li: перетаскивать
           их некуда, нумерации у них нет. Плоский ul остаётся для случаев,
           когда перетаскивание неуместно — активный поиск или одна запись.
@@ -1264,48 +1889,54 @@ export default function SmartList({
             as="ul"
             axis="y"
             values={draggableItems}
-            onReorder={setDragOrder}
+            onReorder={(items) => setDragOrder({ level: null, items })}
             className="mb-4 divide-y divide-gray-100 dark:divide-zinc-800"
           >
-            {draggableItems.map((item) => (
-              <DraggableItemRow
-                key={item.id}
-                item={item}
-                className={rowClassName(item)}
-                isDragActive={draggingItemId !== null}
-                onDragStart={() => handleDragStart(item)}
-                onDragEnd={() => handleDragEnd(item)}
-              >
-                {(dragControls) => renderItemRow(item, dragControls)}
-              </DraggableItemRow>
-            ))}
+            {draggableItems.map((item) => {
+              const node = nodeById.get(item.id);
+              if (!node) return null;
+              return (
+                <DraggableItemRow
+                  key={item.id}
+                  item={item}
+                  className={rowClassName(item, node.isCompleted)}
+                  isDragActive={draggingItemId !== null}
+                  onDragStart={() =>
+                    handleDragStart(null, item, activeVisibleItems)
+                  }
+                  onDragEnd={() => handleDragEnd(null, item, activeVisibleItems)}
+                >
+                  {(dragControls) => renderNode(node, dragControls)}
+                </DraggableItemRow>
+              );
+            })}
 
-            {completedVisibleItems.map((item) => (
+            {completedVisibleNodes.map((node) => (
               <li
-                key={item.id}
+                key={node.item.id}
                 data-testid="item"
-                data-item-id={item.id}
-                className={rowClassName(item)}
+                data-item-id={node.item.id}
+                className={rowClassName(node.item, node.isCompleted)}
               >
-                {renderItemRow(item, null)}
+                {renderNode(node, null)}
               </li>
             ))}
           </Reorder.Group>
         ) : (
           <ul className="mb-4 divide-y divide-gray-100 dark:divide-zinc-800">
-            {visibleItems.map((item) => (
+            {visibleNodes.map((node) => (
               <li
-                key={item.id}
+                key={node.item.id}
                 data-testid="item"
-                data-item-id={item.id}
-                className={rowClassName(item)}
+                data-item-id={node.item.id}
+                className={rowClassName(node.item, node.isCompleted)}
               >
-                {renderItemRow(item, null)}
+                {renderNode(node, null)}
               </li>
             ))}
 
             {/* Сообщение о пустом списке */}
-            {visibleItems.length === 0 && (
+            {visibleNodes.length === 0 && (
               <li className="text-gray-400 text-sm text-center">{t("empty")}</li>
             )}
           </ul>
@@ -1353,11 +1984,7 @@ export default function SmartList({
                 setOptimisticItems({ action: "delete", itemId: tempId });
               });
               setNewItemName(trimmedName);
-              toast.error(
-                result.error === "tooLong"
-                  ? t("errors.tooLong")
-                  : t("errors.addFailed"),
-              );
+              toast.error(addItemErrorMessage(result.error));
             }
           }}
           className="flex gap-2"
@@ -1405,8 +2032,16 @@ export default function SmartList({
             <h3 className="text-lg font-semibold mb-2">
               {t("deleteModal.title")}
             </h3>
+            {/* Удаление пункта уносит его подпункты, и об этом нужно
+                предупредить: на экране они могут быть свёрнуты, а отменить
+                удаление нельзя. */}
             <p className="text-sm text-gray-600 dark:text-zinc-400 mb-5">
-              {t("deleteModal.body", { name: itemToDelete.name })}
+              {itemToDeleteSubCount > 0
+                ? t("deleteModal.bodyWithSubItems", {
+                    name: itemToDelete.name,
+                    count: itemToDeleteSubCount,
+                  })
+                : t("deleteModal.body", { name: itemToDelete.name })}
             </p>
             <div className="flex justify-end gap-2">
               <button

@@ -53,6 +53,10 @@ export async function makeList(
  * Запись в списке. Позиция по умолчанию наследует «максимум + 1», чтобы
  * фабрика повторяла порядок добавления через Action, но её можно задать явно
  * для тестов перемещения.
+ *
+ * `parentId` создаёт подпункт: позиция тогда считается среди подпунктов того
+ * же родителя, а не среди пунктов списка — позиции сравнимы только внутри
+ * своей группы.
  */
 export async function makeItem(
   listId: string,
@@ -61,12 +65,14 @@ export async function makeItem(
     position?: number;
     isCompleted?: boolean;
     addedById?: string;
+    parentId?: string;
   },
 ) {
+  const parentId = overrides?.parentId ?? null;
   let position = overrides?.position;
   if (position === undefined) {
     const last = await prisma.item.findFirst({
-      where: { listId },
+      where: { listId, parentId },
       orderBy: { position: "desc" },
       select: { position: true },
     });
@@ -76,6 +82,7 @@ export async function makeItem(
   return prisma.item.create({
     data: {
       listId,
+      parentId,
       name: overrides?.name ?? "Запись",
       position,
       isCompleted: overrides?.isCompleted ?? false,

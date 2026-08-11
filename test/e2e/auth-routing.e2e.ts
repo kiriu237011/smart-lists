@@ -102,6 +102,27 @@ test("последнее пространство запоминается в co
   await expect(page).toHaveURL(`/en/spaces/${second.id}`);
 });
 
+test("удаление из whitelist обрывает уже выданную сессию", async ({
+  page,
+  user,
+  db,
+}) => {
+  await openSpace(page, user);
+
+  // Отзыв доступа в проде выглядит именно так: строка удаляется руками в БД,
+  // деплоя и выхода пользователя из системы при этом не происходит.
+  await db.allowedEmail.delete({ where: { email: user.email } });
+
+  await page.goto(`/en/spaces/${user.defaultSpaceId}`);
+
+  await expect(page).toHaveURL(/\/en$/);
+  await expect(page.getByTestId("sign-in-google")).toBeVisible();
+
+  // Сессия не просто проигнорирована, а удалена: иначе cookie осталась бы
+  // валидной и упиралась в проверку на каждом запросе.
+  expect(await db.session.count({ where: { userId: user.id } })).toBe(0);
+});
+
 test("переключение локали меняет префикс URL и язык интерфейса", async ({
   page,
   user,
