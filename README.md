@@ -181,9 +181,9 @@ Every component holds the narrowest set of rights that still lets it do its job.
 
 The CI pipeline never receives production credentials, so a compromised workflow, dependency or pull request has nothing to steal and nothing to reach.
 
-**No real secrets in CI.** The checks job runs with deliberately non-functional placeholder values, present only because `prisma generate` needs a datasource and Next inlines `NEXT_PUBLIC_*` at build time — the build never opens a database connection ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The workflow token is restricted to `permissions: contents: read` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+**No real secrets in CI.** The checks job runs with deliberately non-functional placeholder values, present only because `prisma generate` needs a datasource and Next inlines `NEXT_PUBLIC_*` at build time — the build never opens a database connection ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The CI token is restricted to `permissions: contents: read`. The separate Preview proxy sync has `contents: write`, receives no repository secrets, runs only after a successful `main` push CI, and pushes explicitly to `preview` ([`.github/workflows/sync-preview.yml`](.github/workflows/sync-preview.yml)).
 
-**CI does not deploy and does not migrate.** Migrations are applied exclusively by `build:deploy`, which is Vercel's `buildCommand` in `vercel.json`, against the database configured for that Vercel environment. Nothing in CI invokes it.
+**CI checks do not deploy or migrate.** Migrations are applied exclusively by `build:deploy`, which is Vercel's `buildCommand` in `vercel.json`, against the database configured for that Vercel environment. The Preview sync only advances the `preview` Git branch; Vercel's Git integration observes that push and owns the deployment and migration step.
 
 **Test databases are ephemeral and guarded.** Integration and E2E jobs run against throwaway PostgreSQL service containers. On top of that, global setup refuses to run when the target database name does not contain `test`, so a typo cannot point `migrate deploy` or `TRUNCATE` at a real database; the escape hatch is an explicit `ALLOW_NON_TEST_DB=1` ([`test/integration/global-setup.ts`](test/integration/global-setup.ts)).
 
@@ -234,7 +234,7 @@ Only the AI service stays shared. That is safe: the daily quota is counted in th
 
 Vercel gives every Git branch a stable branch URL, but Google OAuth requires an exact callback and does not accept a wildcard for arbitrary preview branches. Auth.js therefore uses the permanent `preview` branch as a redirect proxy for every Preview deployment.
 
-The `preview` branch is infrastructure, not a feature-development branch. Keep it available and update it from `main` when authentication routes or Auth.js change. Its stable URL is:
+The `preview` branch is infrastructure, not a feature-development branch. Keep it available; after a successful CI run on `main`, [the sync workflow](.github/workflows/sync-preview.yml) merges the tested commit when authentication routes, Auth.js, proxy runtime dependencies, or deployment configuration changed. Ordinary UI changes do not redeploy the proxy. Its stable URL is:
 
 ```text
 https://smart-lists-git-preview-kirills-projects-ed9814e1.vercel.app
