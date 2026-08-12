@@ -187,19 +187,19 @@ Every component holds the narrowest set of rights that still lets it do its job.
 
 **Guest mode is minimal by construction.** Guest data never leaves the browser, and the guest flag is an httpOnly cookie whose issuance the server re-checks against `AppSetting`, so a client cannot forge its way in when guest mode is off.
 
-**Rights are bounded in time and volume, too.** Presigned links expire in five minutes, AI insights are capped per user per UTC day, and `npm run build` deliberately has no migration step — only `build:deploy` may touch a schema. See [Limits](#limits).
+**Rights are bounded in time and volume, too.** Presigned links expire in five minutes, AI insights are capped per user per UTC day, and `npm run build` deliberately has no migration step. Schema changes are limited to the current `build:deploy` path or the explicitly enabled release jobs. See [Limits](#limits).
 
-### Keyless CI/CD
+### Separated CI/CD credentials
 
-The CI pipeline never receives production credentials, so a compromised workflow, dependency or pull request has nothing to steal and nothing to reach.
+Regular CI checks never receive production credentials. Database release credentials are isolated in GitHub Environments and are unavailable to pull requests and branch checks.
 
 **No real secrets in CI.** The checks job runs with deliberately non-functional placeholder values, present only because `prisma generate` needs a datasource and Next inlines `NEXT_PUBLIC_*` at build time — the build never opens a database connection ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The CI token is restricted to `permissions: contents: read`. The separate Preview proxy sync has `contents: write`, receives no repository secrets, runs only after a successful `main` push CI, and pushes explicitly to `preview` ([`.github/workflows/sync-preview.yml`](.github/workflows/sync-preview.yml)).
 
-**CI checks do not deploy or migrate.** Migrations are applied exclusively by `build:deploy`, which is Vercel's `buildCommand` in `vercel.json`, against the database configured for that Vercel environment. The Preview sync only advances the `preview` Git branch; Vercel's Git integration observes that push and owns the deployment and migration step.
+**CI checks do not deploy or migrate.** A separate reusable database-release job can run only after every check for the same `main` SHA, and remains fail-closed disabled until `ENABLE_PRODUCTION_MIGRATION=true` is configured. Preview has the same opt-in guard and migrates before pushing its stable proxy branch. Both jobs verify the exact direct database host before invoking Prisma.
 
 **Test databases are ephemeral and guarded.** Integration and E2E jobs run against throwaway PostgreSQL service containers. On top of that, global setup refuses to run when the target database name does not contain `test`, so a typo cannot point `migrate deploy` or `TRUNCATE` at a real database; the escape hatch is an explicit `ALLOW_NON_TEST_DB=1` ([`test/integration/global-setup.ts`](test/integration/global-setup.ts)).
 
-**The one exception is explicit.** The scheduled backup workflow is the only one that holds a real database credential — `secrets.DIRECT_URL` for a direct `pg_dump` connection ([`.github/workflows/backup.yml`](.github/workflows/backup.yml)). It is separate from CI, is not triggered by pull requests, and is the single place to audit when rotating that secret.
+**Every real database credential has a narrow workflow.** The scheduled backup keeps its repository secret for direct `pg_dump` access ([`.github/workflows/backup.yml`](.github/workflows/backup.yml)). Production and Preview migrations use separate `DIRECT_URL` secrets in their matching GitHub Environments. None are passed to dependency installation, pull requests, or ordinary CI jobs.
 
 Environment isolation is the other half of this story and is described in [Environment separation](#environment-separation).
 
@@ -274,9 +274,12 @@ Auth.js appends the provider callback path and securely returns the browser to t
 
 The development environment is a separate Neon branch created from the main one: a copy of the data appears instantly and then lives independently.
 
-- production `DATABASE_URL` and `DIRECT_URL` exist only in Vercel environment variables and GitHub Secrets;
+- production `DATABASE_URL` remains in Vercel; during the transition,
+  `DIRECT_URL` is scoped to Vercel plus the dedicated GitHub Environment and
+  backup workflow;
 - the local `.env` holds the dev branch connection strings;
-- production migrations are applied exclusively during deployment, via `build:deploy`;
+- production migrations still use `build:deploy` until the gated release job
+  is enabled, verified, and made a required Vercel Deployment Check;
 - migrations are developed against the dev branch with `npx prisma migrate dev`;
 - when fresh data is needed, the dev branch is recreated from the main one in the Neon console.
 
@@ -333,7 +336,7 @@ The same three levels run in GitHub Actions on every branch and pull request. Be
 | `npx prisma migrate dev` | Create and apply a migration during schema development |
 | `npx prisma studio` | Open a UI for the current database |
 
-> `npm run build` deliberately leaves the database alone: a local build must not be able to apply a migration. Migrations are applied only by `build:deploy`, which is registered as `buildCommand` in `vercel.json`.
+> `npm run build` deliberately leaves the database alone: a local build must not be able to apply a migration. During transition, Vercel still calls `build:deploy`; the replacement GitHub jobs remain disabled until their external safety gate is verified.
 
 ## Limits
 
@@ -345,7 +348,7 @@ The same three levels run in GitHub Actions on every branch and pull request. Be
 
 ## Deployment
 
-The project targets Vercel and uses the `sin1` region. The hosting build runs the `buildCommand` from `vercel.json` — `npm run build:deploy` — which means migrations are applied through the `DIRECT_URL` configured in that Vercel environment. For preview deployments this implies their variables must not point at the production database.
+The project targets Vercel and uses the `sin1` region. During the guarded release-pipeline transition, the hosting build still runs `npm run build:deploy`. The replacement GitHub migration jobs are present but disabled by default; removing migrations and `DIRECT_URL` from Vercel is allowed only after the production job is configured as a required Vercel Deployment Check and has demonstrably held promotion until migration completed.
 
 Before a production deploy:
 
