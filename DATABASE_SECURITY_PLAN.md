@@ -1,6 +1,6 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этап 1 — архитектурное решение зафиксировано, реализация не начата
+**Статус:** этап 2a — release-контур подготовлен fail-closed, cutover не выполнен
 **Дата:** 2026-08-12
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -166,6 +166,44 @@ Prisma Adapter выполняет запросы до появления `app.us
 Каждая миграция должна быть совместима и со старой, и с новой версией
 приложения. RLS включается только после ухода старых инстансов, которые ещё не
 устанавливают контекст.
+
+### Gate этапа 2: подготовка и cutover
+
+Репозиторий сначала получает безопасно выключенный release-контур:
+
+- `database-release.yml` вызывается из CI только при repository variable
+  `ENABLE_PRODUCTION_MIGRATION=true` и после всех проверок того же main SHA;
+- `sync-preview.yml` мигрирует Preview до push только при
+  `ENABLE_PREVIEW_MIGRATION=true`;
+- оба потока сравнивают host `DIRECT_URL` с environment variable
+  `EXPECTED_DATABASE_HOST` и запрещают pooled endpoint;
+- `build:deploy` остаётся Vercel build-командой до завершения внешней
+  настройки. Поэтому merge подготовительного изменения не отключает старый
+  рабочий путь миграций.
+
+Перед cutover обязательно:
+
+1. Создать GitHub Environments `production` и `preview`. В каждом задать secret
+   `DIRECT_URL` соответствующей Neon-ветки и variable
+   `EXPECTED_DATABASE_HOST` с точным direct hostname.
+2. Создать repository variables `ENABLE_PRODUCTION_MIGRATION=true` и
+   `ENABLE_PREVIEW_MIGRATION=true`. Первый прогон остаётся безопасным:
+   `build:deploy` ещё применяет те же миграции идемпотентно.
+3. Убедиться, что main CI создал зелёную check job production migration, а
+   Preview sync применил миграции до push.
+4. В Vercel Production Deployment Checks сделать эту GitHub job обязательной
+   для promotion. Проверить на следующем no-op release, что production alias
+   ждёт её завершения.
+5. Убедиться, что backup workflow по-прежнему создаёт читаемый dump; последняя
+   полная restore-проверка остаётся действительной только до изменения мажора
+   PostgreSQL или формата дампа.
+6. Только после этих проверок отдельным commit заменить Vercel build на
+   `npm run build`, удалить `build:deploy` и после успешного production/preview
+   release удалить `DIRECT_URL` из Vercel environments.
+
+Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
+сборка Vercel и GitHub migration идут параллельно, и новый код может стать
+доступен раньше схемы.
 
 ## Go/no-go перед production enforcement
 

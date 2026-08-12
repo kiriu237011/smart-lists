@@ -44,7 +44,8 @@ Smart Lists — локализованное веб-приложение для 
 - `src/proxy.ts` — locale middleware-механизм Next.js 16;
 - `next.config.ts` — next-intl и security headers;
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
-- `.github/workflows/` — CI-проверки, синхронизация Preview OAuth proxy и ежедневный бэкап БД в S3;
+- `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
+  синхронизация Preview OAuth proxy и ежедневный бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
 - `DATABASE_SECURITY_PLAN.md` — staged-план Postgres least privilege и
@@ -606,8 +607,13 @@ OAuth. Следствие: колбэк `signIn` E2E не покрывает —
 при падении отчёт со скриншотами и видео выгружается артефактом.
 `secrets` — gitleaks по всей истории (`fetch-depth: 0`), потому что секрет,
 добавленный и удалённый внутри одного PR, остаётся в промежуточных коммитах.
-Боевые ресурсы не затрагиваются ни одной job; миграции против прод-базы
-применяет лишь `build:deploy`, назначенный `buildCommand` в `vercel.json`.
+По умолчанию боевые ресурсы не затрагиваются: production migration job
+fail-closed пропускается без repository variable
+`ENABLE_PRODUCTION_MIGRATION=true`, а Preview migration — без
+`ENABLE_PREVIEW_MIGRATION=true`. Подготовленные job берут `DIRECT_URL` и
+`EXPECTED_DATABASE_HOST` из GitHub Environment, сверяют exact direct host и
+запрещают pooler. До ручного go/no-go рабочим путём остаётся `build:deploy` в
+`vercel.json`; это намеренная совместимость этапа 2a, а не конечная схема.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается
@@ -669,6 +675,14 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-12: этап 2 разделён на подготовку и cutover. В репозиторий добавлен
+  reusable production migration workflow после всех CI job того же SHA и
+  Preview migration-before-push, но оба пути выключены repository variables.
+  Cutover запрещён, пока GitHub Environments не содержат отдельные direct URL,
+  проверка exact Neon host не прошла и Vercel Deployment Check фактически не
+  удержал production alias. До этого `build:deploy` и `DIRECT_URL` в Vercel
+  сохраняются; такой двойной переход позволяет проверить новый путь
+  идемпотентно, не создавая окна «код уже новый, схема ещё старая».
 - 2026-08-12: согласован staged-переход PostgreSQL к least privilege и
   tenant-RLS: design → отдельный release pipeline → runtime без DDL → scoped
   transaction context → policies без enforcement → поэтапное включение после

@@ -37,10 +37,17 @@ describe("sync-preview workflow", () => {
     expect(workflow).not.toContain("git merge --no-edit origin/main");
   });
 
-  it("пишет только в preview и не использует репозиторные секреты", () => {
+  it("пишет только в preview и включает миграцию лишь явным feature flag", () => {
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("git push origin HEAD:preview");
-    expect(workflow).not.toContain("secrets.");
+    expect(workflow).toContain("environment: preview");
+    expect(workflow).toContain(
+      "vars.ENABLE_PREVIEW_MIGRATION == 'true'",
+    );
+    expect(workflow).toContain("DIRECT_URL: ${{ secrets.DIRECT_URL }}");
+    expect(workflow.indexOf("run: npm run migrate:deploy")).toBeLessThan(
+      workflow.indexOf("run: git push origin HEAD:preview"),
+    );
   });
 
   it.each([
@@ -52,6 +59,7 @@ describe("sync-preview workflow", () => {
     "package-lock.json",
     "next.config.ts",
     "vercel.json",
+    "scripts/verify-release-database.mjs",
   ])("следит за runtime-зависимостью %s", (path) => {
     expect(workflow).toContain(path);
   });
