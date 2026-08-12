@@ -1,8 +1,9 @@
 name: CI
 
-# Проверка каждой ветки и каждого PR. Ничего не деплоит и не трогает боевые
-# ресурсы: миграции применяет только `build:deploy`, назначенный buildCommand
-# в vercel.json, а он здесь не вызывается.
+# Проверка каждой ветки и каждого PR. По умолчанию ничего не деплоит и не
+# трогает боевые ресурсы. Подготовленная production migration job доступна
+# только для push в main, после всех проверок и при явном repository flag;
+# до cutover миграции дополнительно применяет Vercel build:deploy.
 #
 # Обычная ветка внутри репозитория уже покрыта событием `push`, поэтому её PR
 # иначе дал бы второй прогон того же коммита. Исключение — ветки Dependabot:
@@ -17,10 +18,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Новый пуш в ту же ветку отменяет предыдущий незавершённый прогон.
+# Пока release-job выключена, main ведёт себя как остальные ветки. После её
+# явного включения уже начатую DDL нельзя прерывать новым push.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' || vars.ENABLE_PRODUCTION_MIGRATION != 'true' }}
 
 permissions:
   contents: read
@@ -209,3 +211,18 @@ jobs:
       # --redact: найденное значение не печатается в лог, который публичен.
       - name: Scan history
         run: gitleaks git --redact --verbose .
+
+  # Подготовленная, но fail-closed выключенная release-job. Переменная
+  # ENABLE_PRODUCTION_MIGRATION создаётся только после настройки GitHub
+  # Environment и Vercel Deployment Check; без точного значения true job
+  # пропускается и production не затрагивает.
+  production-migration:
+    name: Production database migration
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      vars.ENABLE_PRODUCTION_MIGRATION == 'true'
+    needs: [checks, integration, e2e, secrets]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/database-release.yml
