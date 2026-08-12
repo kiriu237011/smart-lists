@@ -45,6 +45,9 @@ describe("sync-preview workflow", () => {
       "vars.ENABLE_PREVIEW_MIGRATION == 'true'",
     );
     expect(workflow).toContain("DIRECT_URL: ${{ secrets.DIRECT_URL }}");
+    expect(workflow).toContain(
+      "EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}",
+    );
     expect(workflow.indexOf("run: npm run migrate:deploy")).toBeLessThan(
       workflow.indexOf("run: git push origin HEAD:preview"),
     );

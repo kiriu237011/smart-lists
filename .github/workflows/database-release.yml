@@ -39,7 +39,7 @@ jobs:
       - name: Verify database target
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
-          EXPECTED_DATABASE_HOST: ${{ vars.EXPECTED_DATABASE_HOST }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
         run: node scripts/verify-release-database.mjs
 
       - name: Apply production migrations

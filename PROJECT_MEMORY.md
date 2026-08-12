@@ -610,8 +610,8 @@ OAuth. Следствие: колбэк `signIn` E2E не покрывает —
 По умолчанию боевые ресурсы не затрагиваются: production migration job
 fail-closed пропускается без repository variable
 `ENABLE_PRODUCTION_MIGRATION=true`, а Preview migration — без
-`ENABLE_PREVIEW_MIGRATION=true`. Подготовленные job берут `DIRECT_URL` и
-`EXPECTED_DATABASE_HOST` из GitHub Environment, сверяют exact direct host и
+`ENABLE_PREVIEW_MIGRATION=true`. Подготовленные job берут два secrets —
+`DIRECT_URL` и `EXPECTED_DATABASE_HOST` — из GitHub Environment, сверяют exact direct host и
 запрещают pooler. До ручного go/no-go рабочим путём остаётся `build:deploy` в
 `vercel.json`; это намеренная совместимость этапа 2a, а не конечная схема.
 

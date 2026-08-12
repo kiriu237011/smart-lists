@@ -175,7 +175,7 @@ Prisma Adapter выполняет запросы до появления `app.us
   `ENABLE_PRODUCTION_MIGRATION=true` и после всех проверок того же main SHA;
 - `sync-preview.yml` мигрирует Preview до push только при
   `ENABLE_PREVIEW_MIGRATION=true`;
-- оба потока сравнивают host `DIRECT_URL` с environment variable
+- оба потока сравнивают host `DIRECT_URL` с отдельным environment secret
   `EXPECTED_DATABASE_HOST` и запрещают pooled endpoint;
 - `build:deploy` остаётся Vercel build-командой до завершения внешней
   настройки. Поэтому merge подготовительного изменения не отключает старый
@@ -184,7 +184,7 @@ Prisma Adapter выполняет запросы до появления `app.us
 Перед cutover обязательно:
 
 1. Создать GitHub Environments `production` и `preview`. В каждом задать secret
-   `DIRECT_URL` соответствующей Neon-ветки и variable
+   `DIRECT_URL` соответствующей Neon-ветки и второй secret
    `EXPECTED_DATABASE_HOST` с точным direct hostname.
 2. Создать repository variables `ENABLE_PRODUCTION_MIGRATION=true` и
    `ENABLE_PREVIEW_MIGRATION=true`. Первый прогон остаётся безопасным:

@@ -7,6 +7,7 @@ const readRepoFile = (path: string) =>
 
 const ci = readRepoFile(".github/workflows/ci.yml");
 const release = readRepoFile(".github/workflows/database-release.yml");
+const guard = readRepoFile("scripts/verify-release-database.mjs");
 
 describe("database release workflow", () => {
   it("вызывается только после всех проверок push в main", () => {
@@ -34,7 +35,7 @@ describe("database release workflow", () => {
     expect(release).toContain("environment: production");
     expect(release).toContain("DIRECT_URL: ${{ secrets.DIRECT_URL }}");
     expect(release).toContain(
-      "EXPECTED_DATABASE_HOST: ${{ vars.EXPECTED_DATABASE_HOST }}",
+      "EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}",
     );
     expect(release).toContain("node scripts/verify-release-database.mjs");
     expect(release).toContain("run: npm run migrate:deploy");
@@ -44,5 +45,7 @@ describe("database release workflow", () => {
     expect(release).toContain(
       "DIRECT_URL: postgresql://release:release@127.0.0.1:5432/placeholder",
     );
+    expect(guard).not.toContain("target.host");
+    expect(guard).not.toContain("target.database");
   });
 });

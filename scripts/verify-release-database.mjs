@@ -19,9 +19,7 @@ export function verifyReleaseDatabaseTarget(directUrl, expectedHost) {
   const actualHost = parsed.hostname.toLowerCase();
   const normalizedExpectedHost = expectedHost.trim().toLowerCase();
   if (actualHost !== normalizedExpectedHost) {
-    throw new Error(
-      "Release DB host не совпадает с ожидаемым: " + (actualHost || "<empty>"),
-    );
+    throw new Error("Release DB host не совпадает с ожидаемым");
   }
   if (actualHost.includes("-pooler")) {
     throw new Error("Release-миграции нельзя выполнять через pooled endpoint");
@@ -34,11 +32,11 @@ export function verifyReleaseDatabaseTarget(directUrl, expectedHost) {
 
 function run() {
   try {
-    const target = verifyReleaseDatabaseTarget(
+    verifyReleaseDatabaseTarget(
       process.env.DIRECT_URL,
       process.env.EXPECTED_DATABASE_HOST,
     );
-    console.log("Release DB verified: " + target.host + "/" + target.database);
+    console.log("Release DB target verified");
   } catch (error) {
     const message = error instanceof Error ? error.message : "неизвестная ошибка";
     console.error("::error::" + message);
