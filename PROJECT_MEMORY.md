@@ -614,6 +614,9 @@ fail-closed пропускается без repository variable
 `DIRECT_URL` и `EXPECTED_DATABASE_HOST` — из GitHub Environment, сверяют exact direct host и
 запрещают pooler. До ручного go/no-go рабочим путём остаётся `build:deploy` в
 `vercel.json`; это намеренная совместимость этапа 2a, а не конечная схема.
+Live-конфигурация GitHub проверена 2026-08-12: Environments `Production` и
+`Preview` содержат оба имени secrets и допускают только `main`. Значения
+нечитаемы через API; feature flags пока отсутствуют.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается

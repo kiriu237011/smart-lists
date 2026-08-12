@@ -201,6 +201,12 @@ Prisma Adapter выполняет запросы до появления `app.us
    `npm run build`, удалить `build:deploy` и после успешного production/preview
    release удалить `DIRECT_URL` из Vercel environments.
 
+**Прогресс 2026-08-12:** пункт 1 подготовлен. Через GitHub API подтверждены
+Environments `Production` и `Preview`, наличие в каждой secrets `DIRECT_URL` и
+`EXPECTED_DATABASE_HOST`, а также branch policy `main`. Значения secrets API
+не раскрывает; соответствие реальным Neon-веткам считается подтверждённым
+только после успешного target guard. Repository feature flags ещё не заданы.
+
 Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
 сборка Vercel и GitHub migration идут параллельно, и новый код может стать
 доступен раньше схемы.
