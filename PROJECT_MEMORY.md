@@ -616,7 +616,8 @@ fail-closed пропускается без repository variable
 `vercel.json`; это намеренная совместимость этапа 2a, а не конечная схема.
 Live-конфигурация GitHub проверена 2026-08-12: Environments `Production` и
 `Preview` содержат оба имени secrets и допускают только `main`. Значения
-нечитаемы через API; feature flags пока отсутствуют.
+нечитаемы через API. Repository variables `ENABLE_PRODUCTION_MIGRATION` и
+`ENABLE_PREVIEW_MIGRATION` включены; workflow после их установки не запускался.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается

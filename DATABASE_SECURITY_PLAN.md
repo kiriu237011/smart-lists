@@ -205,7 +205,9 @@ Prisma Adapter выполняет запросы до появления `app.us
 Environments `Production` и `Preview`, наличие в каждой secrets `DIRECT_URL` и
 `EXPECTED_DATABASE_HOST`, а также branch policy `main`. Значения secrets API
 не раскрывает; соответствие реальным Neon-веткам считается подтверждённым
-только после успешного target guard. Repository feature flags ещё не заданы.
+только после успешного target guard. Repository variables
+`ENABLE_PRODUCTION_MIGRATION` и `ENABLE_PREVIEW_MIGRATION` включены 2026-08-12;
+сама установка переменных workflow не запускает, обращений к БД ещё не было.
 
 Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
 сборка Vercel и GitHub migration идут параллельно, и новый код может стать
