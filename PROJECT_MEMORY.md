@@ -617,11 +617,11 @@ fail-closed пропускается без repository variable
 Live-конфигурация GitHub проверена 2026-08-12: Environments `Production` и
 `Preview` содержат оба имени secrets и допускают только `main`. Значения
 нечитаемы через API. Repository variables `ENABLE_PRODUCTION_MIGRATION` и
-`ENABLE_PREVIEW_MIGRATION` включены. Подготовка опубликована в Draft PR №59:
-CI, integration, E2E, secret scan и CodeQL прошли, production migration
-пропущен как non-main, поэтому target guard ещё не проверял значения secrets.
-Vercel Preview прошёл через сохраняемый на этапе 2a `build:deploy`; новых
-миграций в PR нет.
+`ENABLE_PREVIEW_MIGRATION` включены. PR №59 слит в `main`; CI, integration,
+E2E и secret scan прошли, но production run `31579464717` остановился на
+target guard: reusable workflow получил оба Environment secrets пустыми, шаг
+миграции не запускался. Исправление переносит job непосредственно в `ci.yml`;
+до его main-проверки Vercel сохраняет `build:deploy`.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается
@@ -683,9 +683,11 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
-- 2026-08-12: этап 2 разделён на подготовку и cutover. В репозиторий добавлен
-  reusable production migration workflow после всех CI job того же SHA и
-  Preview migration-before-push, но оба пути выключены repository variables.
+- 2026-08-12: этап 2 разделён на подготовку и cutover. Production migration
+  выполняется после всех CI job того же SHA, Preview migration — до push.
+  Первый production-прогон выявил, что reusable workflow не получил
+  Environment secrets, поэтому production job встроена прямо в `ci.yml`;
+  fail-closed guard не допустил подключения или миграции.
   Cutover запрещён, пока GitHub Environments не содержат отдельные direct URL,
   проверка exact Neon host не прошла и Vercel Deployment Check фактически не
   удержал production alias. До этого `build:deploy` и `DIRECT_URL` в Vercel

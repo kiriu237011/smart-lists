@@ -169,10 +169,11 @@ Prisma Adapter выполняет запросы до появления `app.us
 
 ### Gate этапа 2: подготовка и cutover
 
-Репозиторий сначала получает безопасно выключенный release-контур:
+Репозиторий сначала получает feature flag-закрытый release-контур:
 
-- `database-release.yml` вызывается из CI только при repository variable
-  `ENABLE_PRODUCTION_MIGRATION=true` и после всех проверок того же main SHA;
+- встроенная в `ci.yml` job `production-migration` запускается только при
+  repository variable `ENABLE_PRODUCTION_MIGRATION=true` и после всех
+  проверок того же main SHA;
 - `sync-preview.yml` мигрирует Preview до push только при
   `ENABLE_PREVIEW_MIGRATION=true`;
 - оба потока сравнивают host `DIRECT_URL` с отдельным environment secret
@@ -207,10 +208,13 @@ Environments `Production` и `Preview`, наличие в каждой secrets `
 не раскрывает; соответствие реальным Neon-веткам считается подтверждённым
 только после успешного target guard. Repository variables
 `ENABLE_PRODUCTION_MIGRATION` и `ENABLE_PREVIEW_MIGRATION` включены 2026-08-12.
-Ветка опубликована в Draft PR №59: обычный CI прошёл, а production migration
-ожидаемо получил `skipped`, потому что событие не было push в `main`. Поэтому
-target guard ещё не запускался и GitHub workflow к БД не обращался. Vercel
-Preview пока использует существующий `build:deploy`; новых миграций в PR нет.
+PR №59 слит в `main`. Все тестовые gates прошли, но первый production target
+guard безопасно остановился до подключения: внутри reusable workflow оба
+Environment secrets пришли пустыми, `Apply production migrations` получил
+`skipped`. Исправление переносит job непосредственно в `ci.yml`, сохраняя
+Environment, порядок gates, concurrency и placeholder для `npm ci`; результат
+ещё должен быть подтверждён следующим main-прогоном. Vercel пока использует
+существующий `build:deploy`.
 
 Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
 сборка Vercel и GitHub migration идут параллельно, и новый код может стать
