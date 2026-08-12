@@ -206,8 +206,11 @@ Environments `Production` и `Preview`, наличие в каждой secrets `
 `EXPECTED_DATABASE_HOST`, а также branch policy `main`. Значения secrets API
 не раскрывает; соответствие реальным Neon-веткам считается подтверждённым
 только после успешного target guard. Repository variables
-`ENABLE_PRODUCTION_MIGRATION` и `ENABLE_PREVIEW_MIGRATION` включены 2026-08-12;
-сама установка переменных workflow не запускает, обращений к БД ещё не было.
+`ENABLE_PRODUCTION_MIGRATION` и `ENABLE_PREVIEW_MIGRATION` включены 2026-08-12.
+Ветка опубликована в Draft PR №59: обычный CI прошёл, а production migration
+ожидаемо получил `skipped`, потому что событие не было push в `main`. Поэтому
+target guard ещё не запускался и GitHub workflow к БД не обращался. Vercel
+Preview пока использует существующий `build:deploy`; новых миграций в PR нет.
 
 Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
 сборка Vercel и GitHub migration идут параллельно, и новый код может стать

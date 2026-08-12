@@ -617,7 +617,11 @@ fail-closed пропускается без repository variable
 Live-конфигурация GitHub проверена 2026-08-12: Environments `Production` и
 `Preview` содержат оба имени secrets и допускают только `main`. Значения
 нечитаемы через API. Repository variables `ENABLE_PRODUCTION_MIGRATION` и
-`ENABLE_PREVIEW_MIGRATION` включены; workflow после их установки не запускался.
+`ENABLE_PREVIEW_MIGRATION` включены. Подготовка опубликована в Draft PR №59:
+CI, integration, E2E, secret scan и CodeQL прошли, production migration
+пропущен как non-main, поэтому target guard ещё не проверял значения secrets.
+Vercel Preview прошёл через сохраняемый на этапе 2a `build:deploy`; новых
+миграций в PR нет.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается

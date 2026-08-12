@@ -244,18 +244,21 @@ credential: роль приложения способна установить 
 **Подготовка этапа 2a не считается новым контролем.** Workflow миграции
 production вызывается только после всех job CI того же SHA, а Preview —
 до push постоянной ветки. Оба сверяют direct hostname и запрещают pooler.
-Оба feature flags включены 2026-08-12, но подготовленный workflow ещё не
-опубликован и не запускался. Vercel всё ещё выполняет `build:deploy`, а факт
-настройки Deployment Check вне репозитория пока не подтверждён. До
-подтверждения A32 удалять миграцию из Vercel build нельзя.
+Оба feature flags включены 2026-08-12. Подготовленный workflow опубликован в
+Draft PR №59, но ещё не находится в `main`: PR-проверка подтвердила, что
+production migration получает `skipped`, а target guard не запускается. Vercel
+Preview успешно собрал PR через всё ещё действующий `build:deploy`; новых
+миграций в PR нет. Факт настройки Deployment Check вне репозитория пока не
+подтверждён. До подтверждения A32 удалять миграцию из Vercel build нельзя.
 
 **GitHub Environments проверены 2026-08-12.** `Production` и `Preview`
 ограничены branch policy `main`; API подтверждает наличие в каждой двух
 secrets — `DIRECT_URL` и `EXPECTED_DATABASE_HOST`. Их значения намеренно
 нечитаемы, поэтому это подтверждает размещение и границу доступа, но не
 правильность URL. Repository variables `ENABLE_PRODUCTION_MIGRATION` и
-`ENABLE_PREVIEW_MIGRATION` имеют значение `true`; их установка не запускала
-workflow, поэтому target guard ещё не проверял URL и к БД не обращался.
+`ENABLE_PREVIEW_MIGRATION` имеют значение `true`. CI Draft PR №59 завершён
+успешно; production migration пропущен условием non-main, поэтому target guard
+ещё не проверял URL и GitHub workflow к БД не обращался.
 
 Изолированная runtime-роль при старом процессе была бы контролем, который
 выглядит как защита и ею не является, — ровно тот класс ошибки, который этот
