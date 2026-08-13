@@ -1,7 +1,7 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этапы 2a и 2b завершены в Preview и Production; migration scope
-этапа 2c завершён и проверен в обеих средах; backup scope ещё не менялся
+**Статус:** этапы 2a и 2b завершены в Preview и Production; migration и backup
+scopes этапа 2c завершены и проверены в целевых средах
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -43,10 +43,10 @@ JWT или отдельные DB-роли на каждого пользоват
 `GRANT`/`REVOKE`, default privileges и политики, но не credentials.
 
 `DIRECT_URL` удалён из окружения Vercel Production и Preview после успешного
-cutover-релиза. Репозиторий не использует его в build/generate; прямой
-credential остаётся только в защищённых release/backup workflow и локальной
-среде. Поэтому уже завершённый этап runtime-роли без DDL не обесценивается
-соседней владельческой строкой подключения.
+cutover-релиза. Репозиторий не использует его в build/generate; прямые
+credentials ограниченных migrator/backup ролей остаются только в защищённых
+release/backup workflow. Поэтому уже завершённый этап runtime-роли без DDL не
+обесценивается соседней владельческой строкой подключения.
 
 ## Gate этапа 2b: runtime least privilege без RLS
 
@@ -358,8 +358,20 @@ PR №68 merged в `main` SHA `9a4ebb73`. Main CI `31677854835` прошёл che
 Migration deployment получил `success` в `07:31:16Z`, а Vercel Production —
 в `07:31:17Z`, поэтому promotion состоялся после БД для того же SHA.
 `Sync Preview Proxy` `31678100642` также завершился успешно. Production
-owner/migrator gate закрыт полностью; backup остаётся следующим отдельным
-этапом.
+owner/migrator gate закрыт полностью.
+
+Production backup scope применён 2026-08-13 на том же direct endpoint
+`eec09bcdb874`. `smartlists_backup` имеет `LOGIN NOINHERIT BYPASSRLS`, не имеет
+membership, write/DDL/role-прав и получает только `CONNECT`, `USAGE public` и
+`SELECT` на текущие и будущие tables/sequences. Полный Production dump
+PostgreSQL 17 размером 57 570 байт восстановлен в изолированную временную БД:
+проверены 15 таблиц, 3 enum, 18 завершённых миграций, отсутствие незавершённых
+миграций и невалидированных FK. Контейнер и локальный operator-файл удалены.
+Repository secret `DIRECT_URL` заменён на backup credential; owner credential
+в GitHub Actions больше не используется. Ручной workflow run `31681055043` на
+main SHA `53bcba40edfeadf7022ed2b5b0b61242da456846` успешно выполнил `pg_dump`,
+проверку каталога, получение AWS credentials через GitHub OIDC и upload в S3.
+Runtime contract до/после совпал. Следующий этап — scoped-контекст запросов.
 
 ## Контексты запросов
 
