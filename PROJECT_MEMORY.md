@@ -826,7 +826,13 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   на старой модели откатился до commit; откатываемый probe нашёл различие, а
   локальный runner теперь воспроизводит non-superuser `CREATEROLE` admin и
   снова проходит полный migration/runtime/backup/restore контур. Production и
-  backup credential не менялись.
+  backup credential не менялись. После merge PR №66 main CI прошёл весь контур
+  и Production no-op migration; `Sync Preview Proxy` run `31674172929` для
+  точного merge SHA успешно выполнил Preview target guard и no-op всех 18
+  миграций уже с новым Environment secret. Ветка `preview` стала `4a108cb`,
+  содержит main merge, а её Vercel deployment получил `success`. Тем самым
+  Preview gate закрыт; следующий отдельный go/no-go — Production migration
+  scope.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как
