@@ -97,14 +97,16 @@ async function role(client, name) {
 async function membershipsAsMember(client, name) {
   const result = await client.query(
     `SELECT parent.rolname AS granted_role,
+            grantor.rolname AS grantor,
             membership.admin_option,
             membership.inherit_option,
             membership.set_option
      FROM pg_auth_members membership
      JOIN pg_roles parent ON parent.oid = membership.roleid
      JOIN pg_roles member ON member.oid = membership.member
+     JOIN pg_roles grantor ON grantor.oid = membership.grantor
      WHERE member.rolname = $1
-     ORDER BY granted_role, admin_option, inherit_option, set_option`,
+     ORDER BY granted_role, grantor, admin_option, inherit_option, set_option`,
     [name],
   );
   return result.rows;
@@ -140,9 +142,9 @@ async function databaseRoleSettings(client, name) {
   );
 }
 
-async function membershipToRole(client, member, parent) {
+async function membershipsToRole(client, member, parent) {
   const memberships = await membershipsAsMember(client, member);
-  return memberships.find(
+  return memberships.filter(
     (membership) => membership.granted_role === parent,
   );
 }
@@ -317,16 +319,29 @@ async function assertExistingRolesAreSafe(client, database, adminRole) {
       [adminRole, ...(migrator ? [DATABASE_ROLES.migrator] : [])],
       "Owner members",
     );
-    const adminMembership = await membershipToRole(
+    const adminMemberships = await membershipsToRole(
       client,
       adminRole,
       DATABASE_ROLES.owner,
     );
+    const actualAdminMemberships = adminMemberships.map(
+      (membership) =>
+        `${membership.grantor}:${membership.admin_option}:` +
+        `${membership.inherit_option}:${membership.set_option}`,
+    );
+    const directGrant =
+      `${adminRole}:false:false:true`;
+    const allowedProfiles = [
+      [directGrant],
+      [directGrant, "cloud_admin:true:false:false"],
+      [directGrant, "postgres:true:false:false"],
+    ].map(sorted);
     if (
-      !adminMembership ||
-      !adminMembership.admin_option ||
-      adminMembership.inherit_option ||
-      !adminMembership.set_option
+      !allowedProfiles.some(
+        (profile) =>
+          JSON.stringify(profile) ===
+          JSON.stringify(sorted(actualAdminMemberships)),
+      )
     ) {
       throw new Error("Owner admin membership does not match the contract.");
     }
@@ -451,7 +466,7 @@ async function applyMigrationRoles(client, context) {
   }
   await client.query(
     `GRANT ${ownerIdentifier} TO ${adminIdentifier} ` +
-      "WITH ADMIN TRUE, SET TRUE, INHERIT FALSE",
+      "WITH ADMIN FALSE, SET TRUE, INHERIT FALSE",
   );
   await createOrRotateLoginRole(client, {
     name: DATABASE_ROLES.migrator,
@@ -473,16 +488,6 @@ async function applyMigrationRoles(client, context) {
   );
   await client.query(
     `GRANT CONNECT ON DATABASE ${databaseIdentifier} TO ${migratorIdentifier}`,
-  );
-  await client.query(`REVOKE ALL PRIVILEGES ON SCHEMA public FROM ${migratorIdentifier}`);
-  await client.query(
-    `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ${migratorIdentifier}`,
-  );
-  await client.query(
-    `REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM ${migratorIdentifier}`,
-  );
-  await client.query(
-    `REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM ${migratorIdentifier}`,
   );
 
   const transfer = async (owner, sql) => {
@@ -534,6 +539,18 @@ async function applyMigrationRoles(client, context) {
   }
 
   await client.query(`SET LOCAL ROLE ${ownerIdentifier}`);
+  await client.query(
+    `REVOKE ALL PRIVILEGES ON SCHEMA public FROM ${migratorIdentifier}`,
+  );
+  await client.query(
+    `REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ${migratorIdentifier}`,
+  );
+  await client.query(
+    `REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM ${migratorIdentifier}`,
+  );
+  await client.query(
+    `REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM ${migratorIdentifier}`,
+  );
   for (const objectType of ["TABLES", "SEQUENCES", "FUNCTIONS"]) {
     await client.query(
       `ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerIdentifier} IN SCHEMA public ` +

@@ -6,13 +6,15 @@ import pg from "pg";
 import { DATABASE_ROLES, EXPECTED_TABLES } from "./database-role-contract.mjs";
 
 const { Client } = pg;
-const adminDatabaseUrl =
+const bootstrapDatabaseUrl =
   process.env.TEST_ADMIN_DATABASE_URL ??
   process.env.DIRECT_URL ??
   "postgresql://postgres:postgres@localhost:5433/smartlists_test";
-const adminUrl = new URL(adminDatabaseUrl);
+let adminDatabaseUrl = bootstrapDatabaseUrl;
+const adminUrl = new URL(bootstrapDatabaseUrl);
 const databaseName = adminUrl.pathname.slice(1);
 const prismaCli = "node_modules/prisma/build/index.js";
+const localAdminRole = "smartlists_test_admin";
 
 function password() {
   return randomBytes(32).toString("base64url");
@@ -57,6 +59,29 @@ function assertLocalTestTarget() {
       "Operational role integration разрешён только для локальной test-БД.",
     );
   }
+}
+
+async function createLocalOperationalAdmin(rolePassword) {
+  const client = new Client({ connectionString: bootstrapDatabaseUrl });
+  await client.connect();
+  try {
+    const roleIdentifier = client.escapeIdentifier(localAdminRole);
+    const databaseIdentifier = client.escapeIdentifier(databaseName);
+    await client.query(
+      `CREATE ROLE ${roleIdentifier} LOGIN ` +
+        `PASSWORD ${client.escapeLiteral(rolePassword)} ` +
+        "NOSUPERUSER INHERIT CREATEROLE CREATEDB REPLICATION BYPASSRLS",
+    );
+    await client.query(
+      `ALTER DATABASE ${databaseIdentifier} OWNER TO ${roleIdentifier}`,
+    );
+  } finally {
+    await client.end();
+  }
+  const url = new URL(bootstrapDatabaseUrl);
+  url.username = localAdminRole;
+  url.password = rolePassword;
+  adminDatabaseUrl = url.toString();
 }
 
 async function recreateRestoreDatabase(name) {
@@ -215,6 +240,7 @@ async function proveUnexpectedOwnerMemberRejected(
 
 async function main() {
   assertLocalTestTarget();
+  await createLocalOperationalAdmin(password());
   const initialRuntimePassword = password();
   const runtimePassword = password();
   const initialMigratorPassword = password();

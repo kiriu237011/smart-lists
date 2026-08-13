@@ -812,6 +812,21 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   с контрольной строкой. CI теперь запускает эту полную проверку. Live-роли,
   ownership и GitHub secrets по-прежнему не менялись; следующий отдельный шаг
   требует go/no-go на Preview migration scope.
+- 2026-08-13: Preview migration scope этапа owner/migrator применён к Neon
+  `dev`. `smartlists_owner` стал владельцем `public`, 15 таблиц и 3 enum;
+  `smartlists_migrator` имеет безопасный login, единственную membership в owner
+  с `SET=true`, database-specific `role=smartlists_owner` и заменил
+  `neondb_owner` в GitHub Environment `Preview` secret `DIRECT_URL`. Два
+  idempotent apply, no-op 18 миграций, временный ownership-probe и аудит
+  endpoint `d95cc95b87c7` прошли; runtime ACL не изменился, database owner
+  остался `neondb_owner`, Vercel не трогался. Neon автоматически создаёт для
+  admin дополнительную membership от `cloud_admin` с `ADMIN=true/SET=false`;
+  configurator принимает только её вместе с прямой
+  `neondb_owner:false:false:true` либо обычный PostgreSQL-профиль. Первый apply
+  на старой модели откатился до commit; откатываемый probe нашёл различие, а
+  локальный runner теперь воспроизводит non-superuser `CREATEROLE` admin и
+  снова проходит полный migration/runtime/backup/restore контур. Production и
+  backup credential не менялись.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как

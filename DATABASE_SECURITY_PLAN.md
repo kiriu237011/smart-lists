@@ -1,7 +1,7 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этапы 2a и 2b завершены в Preview и Production; этап 2c
-owner/migrator/backup прошёл design и read-only audit, инфраструктура ещё не менялась
+**Статус:** этапы 2a и 2b завершены в Preview и Production; migration scope
+этапа 2c завершён в Preview, Production и backup scope ещё не менялись
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -256,6 +256,13 @@ repository-level backup secret пока содержат разные экзем
 | `smartlists_backup` | `LOGIN NOINHERIT BYPASSRLS`, без membership и остальных специальных атрибутов | `CONNECT`, `USAGE public`, `SELECT` текущих и будущих tables/sequences; без write, DDL и function `EXECUTE`; только backup workflow |
 | `neondb_owner` | Neon admin и database owner; член `neon_superuser` | остаётся break-glass/control-plane ролью, но после cutover отсутствует в Vercel и GitHub Actions secrets |
 
+В Neon роль, созданная `neondb_owner`, автоматически получает отдельную
+membership-строку от `cloud_admin`: `ADMIN=true`, `SET=false`,
+`INHERIT=false`. Для `SET ROLE` configurator создаёт вторую строку с grantor
+`neondb_owner`: `ADMIN=false`, `SET=true`, `INHERIT=false`. Он принимает только
+этот точный Neon-профиль либо обычный PostgreSQL-профиль с одной прямой строкой;
+другой grantor или option означает fail-closed отказ.
+
 `BYPASSRLS` у backup — узкое осознанное исключение. По документации PostgreSQL
 `pg_dump` по умолчанию выключает row security и завершится ошибкой, если роль
 не может его обойти. Атрибут не даёт доступ сам по себе: backup дополнительно
@@ -311,15 +318,24 @@ Runtime не переключается и не redeploy-ится.
 workflow повторяется. Ограниченные роли не удаляются: их переводят в `NOLOGIN`
 при подозрении на credential compromise и ротируют пароль после разбора.
 
-**Статус 2026-08-13:** design, live read-only audit и implementation
-configurator завершены. На чистой PostgreSQL 17 применены 18 миграций,
-раздельно и повторно выполнены `migration`/`backup` scopes, no-op Prisma прошёл
-под migrator, 213 integration-тестов — под runtime. Лишний owner-member дал
-ожидаемый fail-closed отказ; `pg_dump` восстановлен в отдельную БД с совпавшей
-схемой и контрольной строкой. Полная проверка включена в CI командой
-`test:integration:roles`. Роли Neon, ownership и GitHub secrets не менялись.
-Следующий шаг — отдельный go/no-go на Preview `scope=migration`; backup scope в
-Preview не применяется.
+**Статус 2026-08-13:** Preview `scope=migration` завершён. В Neon `dev`
+`smartlists_owner` владеет `public`, 15 таблицами и 3 enum, а
+`smartlists_migrator` подключается как `session_user` и автоматически работает
+как `current_user=smartlists_owner`. Два idempotent apply, target guard, no-op
+18 миграций, временный ownership-probe и post-cutover audit прошли на direct
+endpoint `d95cc95b87c7`; runtime ACL до/после совпал. GitHub Environment
+`Preview` `DIRECT_URL` заменён на migrator credential, Vercel не менялся.
+
+Первый apply безопасно откатился до commit на Neon-специфичном запрете повторно
+выдать `ADMIN` option grantor-у. Откатываемый probe установил точный
+`cloud_admin`/`neondb_owner` membership-профиль; configurator и локальный runner
+были усилены. Полный PostgreSQL 17 прогон теперь выполняется через
+несуперпользовательскую `CREATEROLE` admin-роль и повторно прошёл оба scopes,
+213 runtime-тестов и dump/restore. Production по control-plane audit всё ещё
+содержит только `neondb_owner` и `smartlists_runtime`; backup scope не
+применялся. Следующий gate — опубликовать изменения, дождаться реального
+`Sync Preview Proxy` с новым Environment secret и только затем отдельно
+согласовать Production.
 
 ## Контексты запросов
 
