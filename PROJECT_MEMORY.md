@@ -621,9 +621,12 @@ Live-конфигурация GitHub проверена 2026-08-12: Environments
 слит в `main`: production run `31652132055` прошёл target guard и no-op
 миграцию (18 миграций, pending нет), Preview run `31652333174` сделал то же до
 push и успешного Vercel deployment. Секреты и hostname в логах не раскрыты.
-В Vercel вручную добавлен обязательный GitHub Deployment Check
-`Production database migration`, но его удержание production alias ещё нужно
-доказать контрольным release. До этой проверки сохраняется `build:deploy`.
+Обязательный Vercel GitHub Deployment Check `Production database migration`
+доказан контрольным release PR №62 (merge SHA `c0e5388829b8aa8df5efbe5d90ca8d5b0dbdae65`):
+Vercel ждал checks с `00:30:46Z`, migration job run `31654625609` завершилась в
+`00:33:20Z`, а Production deployment получил `success` только в `00:33:23Z`.
+Target guard прошёл, 18 миграций найдены, pending нет. До отдельного cutover
+сохраняется `build:deploy`.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается
