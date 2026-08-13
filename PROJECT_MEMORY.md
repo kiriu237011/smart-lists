@@ -787,8 +787,8 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   ручные gates Preview и Production также закрыты.
 - 2026-08-13: для следующего этапа owner/migrator/backup выполнены design,
   read-only audit обеих Neon-веток и локальная проверка на PostgreSQL 17.
-  Фактически `neondb_owner` пока остаётся owner БД, `public`, 15 таблиц и трёх
-  enum, а GitHub release и backup secrets всё ещё используют владельческие
+  На момент аудита `neondb_owner` оставался owner БД, `public`, 15 таблиц и
+  трёх enum, а GitHub release и backup secrets использовали владельческие
   credentials. Целевая схема: `smartlists_owner` — `NOLOGIN` owner прикладных
   объектов; `smartlists_migrator` — безопасный login с `SET TRUE, INHERIT
   FALSE` и database-specific `role=smartlists_owner`; `smartlists_backup` —
@@ -809,9 +809,9 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   runtime ACL. Чистый PostgreSQL 17 прогон применил 18 миграций, повторил оба
   scope, получил no-op Prisma под migrator, прошёл 16 integration-файлов/213
   тестов под runtime, отверг лишнего owner-member и восстановил backup вместе
-  с контрольной строкой. CI теперь запускает эту полную проверку. Live-роли,
-  ownership и GitHub secrets по-прежнему не менялись; следующий отдельный шаг
-  требует go/no-go на Preview migration scope.
+  с контрольной строкой. CI теперь запускает эту полную проверку. На этом
+  implementation-подэтапе live-роли, ownership и GitHub secrets не менялись;
+  следующий отдельный шаг требовал go/no-go на Preview migration scope.
 - 2026-08-13: Preview migration scope этапа owner/migrator применён к Neon
   `dev`. `smartlists_owner` стал владельцем `public`, 15 таблиц и 3 enum;
   `smartlists_migrator` имеет безопасный login, единственную membership в owner
@@ -831,8 +831,18 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   точного merge SHA успешно выполнил Preview target guard и no-op всех 18
   миграций уже с новым Environment secret. Ветка `preview` стала `4a108cb`,
   содержит main merge, а её Vercel deployment получил `success`. Тем самым
-  Preview gate закрыт; следующий отдельный go/no-go — Production migration
-  scope.
+  Preview gate закрыт.
+- 2026-08-13: Production migration scope применён после отдельного go/no-go на
+  direct endpoint `eec09bcdb874`. `smartlists_owner` стал владельцем `public`,
+  15 таблиц и 3 enum; `smartlists_migrator` заменил `neondb_owner` в GitHub
+  Environment `Production` secret `DIRECT_URL`. Database owner остался
+  `neondb_owner`, runtime role/ACL и Vercel не менялись. Configurator,
+  post-cutover audit, target guard, no-op 18 миграций и откатываемый
+  ownership-probe прошли; probe подтвердил `session_user=smartlists_migrator`,
+  `current_user=smartlists_owner` и owner нового объекта `smartlists_owner`.
+  Финальный Production gate ожидает main workflow proof нового Environment
+  secret до Vercel promotion. Backup credential и `smartlists_backup` ещё не
+  менялись.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как

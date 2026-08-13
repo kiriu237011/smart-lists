@@ -1,7 +1,8 @@
 # План усиления доступа к PostgreSQL
 
 **Статус:** этапы 2a и 2b завершены в Preview и Production; migration scope
-этапа 2c завершён в Preview, Production и backup scope ещё не менялись
+этапа 2c применён в обеих средах, для Production ожидается доказательство
+через main workflow; backup scope ещё не менялся
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -331,9 +332,9 @@ endpoint `d95cc95b87c7`; runtime ACL до/после совпал. GitHub Enviro
 `cloud_admin`/`neondb_owner` membership-профиль; configurator и локальный runner
 были усилены. Полный PostgreSQL 17 прогон теперь выполняется через
 несуперпользовательскую `CREATEROLE` admin-роль и повторно прошёл оба scopes,
-213 runtime-тестов и dump/restore. Production по control-plane audit всё ещё
-содержит только `neondb_owner` и `smartlists_runtime`; backup scope не
-применялся.
+213 runtime-тестов и dump/restore. До отдельного Production go/no-go
+control-plane audit показывал только `neondb_owner` и `smartlists_runtime`;
+backup scope не применялся.
 
 PR №66 merged в `main` SHA `4a497759`. Main CI `31673950201` прошёл checks,
 213 role-integration tests, 100 E2E и штатную Production no-op migration.
@@ -341,8 +342,19 @@ PR №66 merged в `main` SHA `4a497759`. Main CI `31673950201` прошёл che
 новый Preview Environment secret, прошёл target guard и получил
 `No pending migrations to apply` для 18 миграций. После этого workflow
 продвинул `preview` на `4a108cb`, а Vercel deployment для этого SHA получил
-`success`. Preview owner/migrator gate закрыт полностью. Следующий отдельный
-go/no-go — Production migration scope; backup остаётся последующим этапом.
+`success`. Preview owner/migrator gate закрыт полностью.
+
+Production migration scope применён 2026-08-13 на direct endpoint
+`eec09bcdb874`. Транзакционный configurator передал `public`, 15 таблиц и
+3 enum роли `smartlists_owner`, создал `smartlists_migrator` и подтвердил
+неизменность runtime contract. База осталась во владении `neondb_owner`.
+GitHub Environment `Production` `DIRECT_URL` заменён на migrator credential;
+локальные target guard, no-op всех 18 миграций и откатываемый ownership-probe
+прошли. Probe подтвердил `session_user=smartlists_migrator`,
+`current_user=smartlists_owner` и owner нового объекта `smartlists_owner`.
+Финальный gate пока не закрыт: новый Environment secret должен пройти
+Production migration job опубликованного main SHA до Vercel promotion. Backup
+остаётся следующим отдельным этапом.
 
 ## Контексты запросов
 

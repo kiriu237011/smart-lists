@@ -53,9 +53,11 @@ AI; удаление и повторяемая уборка объектов з�
    release. Cutover PR №64 прошёл в обеих средах, после чего `DIRECT_URL` удалён
    из Vercel Production и Preview. Runtime без DDL включён и автоматически
    проверен в обеих средах 2026-08-13; Preview и Production прошли ручные
-   gates. Owner/migrator migration scope завершён в Preview и проверен
-   idempotent apply, no-op Prisma и ownership-probe; Production и backup
-   credential ещё не менялись. Scoped-контекст и RLS также не внедрены.
+   gates. Owner/migrator migration scope применён в Preview и Production:
+   direct apply, no-op Prisma, ownership-probe и неизменность runtime ACL
+   подтверждены в обеих средах. Preview workflow gate закрыт; Production
+   ожидает доказательства новым Environment secret внутри main workflow.
+   Backup credential ещё не менялся. Scoped-контекст и RLS также не внедрены.
    Матрица и gate:
    `DATABASE_SECURITY_PLAN.md`.
 3. **Infrastructure drift:** IAM, versioning, CORS, Force TLS и настройки Neon
@@ -611,7 +613,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | A33 | Ответ AI не создаёт навигацию по URL модели | Prompt injection превращается в фишинг от имени приложения без необходимости XSS | ✅ `SafeMarkdown.test.ts` требует текст ссылки без `<a>`, `href` и URL |
 | A34 | Лимит FastAPI считается по фактически прочитанным байтам, а auth идёт до body parsing | Chunked body обходит 100 KB; анонимный malformed запрос тратит parser/Pydantic и раскрывает схему через 422 | ✅ ASGI-тест подаёт два чанка сверх лимита; API-тест требует 403 до валидации |
 | A35 | Уборка stale `PENDING` не теряет единственную ссылку на объект S3 | Загруженные без confirm объекты копятся вне файловой квоты и lifecycle текущих версий | ✅ DB-интеграция проверяет `DeleteObjects`, а при его сбое — восстановление `PENDING` для повторной попытки |
-| A36 | Release workflow входит как `smartlists_migrator`, но создаёт объекты от имени `smartlists_owner` | Иначе login-role снова совмещает credential и ownership либо новые объекты получают неправильного owner | 🟡 **Preview live apply завершён 08-13, Production открыт**: в Neon `dev` два idempotent apply подтвердили `session_user=smartlists_migrator`, `current_user=smartlists_owner`, ownership 15 таблиц/3 enum и временного объекта, no-op Prisma и неизменный runtime ACL; GitHub Preview secret уже ограничен migrator. Production Environment пока использует `neondb_owner` |
+| A36 | Release workflow входит как `smartlists_migrator`, но создаёт объекты от имени `smartlists_owner` | Иначе login-role снова совмещает credential и ownership либо новые объекты получают неправильного owner | 🟡 **Live apply завершён в обеих средах 08-13; Production workflow proof ожидается**: Preview и Production подтвердили `session_user=smartlists_migrator`, `current_user=smartlists_owner`, ownership 15 таблиц/3 enum и временного объекта, no-op Prisma и неизменный runtime ACL. Оба GitHub Environment secrets заменены на migrator credentials; Preview уже прошёл реальный workflow, Production должен подтвердить новый secret на опубликованном main SHA |
 | A37 | Backup credential умеет читать все строки, но не умеет write/DDL/role operations | Текущий owner URL в backup workflow даёт несоразмерный blast radius; после RLS обычный read-only dump может стать неполным или завершиться ошибкой | 🟡 **реализация и CI-доказательство готовы 08-13, live apply не выполнен**: отдельный backup scope дважды проверен локально, точечный `SELECT`/`BYPASSRLS` прошёл полный `pg_dump -> pg_restore` с проверкой схемы и строки данных; repository secret пока остаётся owner credential |
 
 **Техника, которая работает лучше регулярных ревью:** привязывать допущение к автоматической проверке. Допущение в документе живёт до первого человека, который документ не прочитал. Допущение в тесте живёт, пока кто-то осознанно не удалит тест. A1 и A3 — уже сделанные примеры; они не были задуманы как контроли threat model, но являются ими.
@@ -685,7 +687,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | ~~2.2~~ | ~~Versioning на бакете вложений~~ | Mitigate | ✅ **Сделано 2026-08-10** на обоих бакетах вложений. Lifecycle отличается от бэкапного одной строкой, и это существенно: у бэкапов `Expiration` текущих версий нужен, у пользовательских файлов он означал бы пропажу по расписанию — поэтому здесь ограничены только noncurrent-версии, 30 дней. Проверено учением на dev: удаление ключом приложения, delete marker, восстановление |
 | ~~2.3~~ | ~~Проверка `AllowedEmail` в `session` callback~~ | Mitigate | ✅ **Сделано 2026-08-10.** Проверка **и** очистка `Session`: одного отказа мало, cookie осталась бы валидной. Покрыто интеграционно (обе функции против живой БД) и E2E (отозванный пользователь оказывается на экране входа) |
 | ~~2.4~~ | ~~Строка в UI о передаче данных; флаг `aiEnabled` на списке~~ | Mitigate | ✅ **Сделано 2026-08-10, оба средства.** Строка закрывает осведомлённость, флаг — субъектность; одно другого не заменяет. Выключить может любой участник: владельческая проверка оставила бы человека, чьи данные уходят, без средств. Запрет проверяется в Action, а не только скрытием кнопки |
-| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Этапы 2a/2b завершены в обеих средах; owner/migrator полностью завершён в Preview 2026-08-13.** Помимо direct apply/audit, опубликованный merge SHA прошёл main CI и реальный `Sync Preview Proxy`: новый Environment secret выдержал target guard и no-op 18 миграций, preview ref содержит проверенный main, Vercel deployment зелёный. Neon-специфичный двойной grant закреплён fail-closed и проверяется локально через non-superuser `CREATEROLE` admin. Следующие шаги — отдельный Production migration scope, Production backup scope, scoped context и tenant-RLS |
+| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Этапы 2a/2b завершены; owner/migrator live apply завершён в Preview и Production 2026-08-13.** Preview Environment secret прошёл опубликованный workflow. В Production direct apply, no-op Prisma и ownership-probe зелёные, Environment secret заменён, но окончательный main workflow proof ещё ожидается. Neon-специфичный двойной grant закреплён fail-closed и проверяется локально через non-superuser `CREATEROLE` admin. Следующие шаги — закрыть Production workflow gate, отдельно выполнить backup scope, затем scoped context и tenant-RLS |
 | ~~2.6~~ | ~~`USER` в `Dockerfile` сервиса~~ | Mitigate | ✅ **Сделано 2026-08-09.** `USER appuser`, uid 10001. Документ снова вправе считать это контролем — но не более чем сужением ущерба внутри контейнера (A25) |
 | ~~2.7~~ | ~~`openapi_url=None` при `debug=false`~~ | Mitigate | ✅ **Сделано 2026-08-09.** Схема больше не зависит от того, открыт сервис или нет |
 | ~~2.8~~ | ~~Включить Force TLS в приложении Pusher~~ | Mitigate | ✅ **Сделано 2026-08-09** в обоих приложениях, prod и dev. Гарантия перенесена с дефолта `pusher-js` на сервис |
@@ -697,7 +699,7 @@ design и release cutover; каждый следующий этап меняет
 
 | Порядок | Действие | Что меняет |
 |---|---|---|
-| 1 | Реализовать configurator, затем отдельно провести Preview и Production owner/migrator cutover и Production backup cutover; после этого внедрить scoped context | Убирает owner credential из GitHub workflows и готовит безопасное включение tenant-RLS |
+| 1 | Закрыть Production owner/migrator workflow gate, затем отдельно провести Production backup cutover; после этого внедрить scoped context | Убирает последний owner credential из GitHub workflows и готовит безопасное включение tenant-RLS |
 | 2 | Добавить audit trail для чувствительных мутаций и ручных административных изменений | Закрывает корень C; требует отдельного решения по сроку хранения и приватности |
 | 3 | Добавить `request_id` между Vercel и Cloud Run | Даёт корреляцию инцидента без логирования пользователя и содержимого |
 | 4 | Включить CloudTrail data events хотя бы на бэкап-бакете | Делает чтение, перезапись и удаление объектов наблюдаемыми |
