@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isEmailAllowed, revokeUserSessions } from "@/lib/allowed-email";
-import { prisma } from "./setup";
+import { adminPrisma, prisma } from "./setup";
 import { makeUser } from "./factories";
 
 /** Сессия пользователя — такая же строка, какую создаёт Prisma Adapter. */
@@ -32,7 +32,7 @@ async function makeSession(userId: string) {
 describe("whitelist доступа", () => {
   it("пускает email из AllowedEmail", async () => {
     const user = await makeUser();
-    await prisma.allowedEmail.create({ data: { email: user.email! } });
+    await adminPrisma.allowedEmail.create({ data: { email: user.email! } });
 
     expect(await isEmailAllowed(user.email)).toBe(true);
   });

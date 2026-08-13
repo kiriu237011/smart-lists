@@ -18,7 +18,9 @@
  * PostgreSQL из `vitest.integration.config.ts`.
  */
 
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, vi } from "vitest";
+
+import { createPrismaClient } from "@/lib/prisma-client";
 
 // Разделяемое между фабриками vi.mock состояние. vi.mock хойстится выше
 // импортов, поэтому его фабрики не видят обычные переменные модуля — только
@@ -87,7 +89,11 @@ vi.mock("@/lib/s3", async (importOriginal) => {
 // Реальный Prisma-клиент против тестовой БД (тот же, что используют Actions).
 import prisma from "@/lib/db";
 
-export { prisma };
+const adminPrisma = createPrismaClient(
+  process.env.TEST_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL!,
+);
+
+export { adminPrisma, prisma };
 
 /** Задаёт текущего авторизованного пользователя для `auth()`. */
 export function setSessionUser(userId: string): void {
@@ -141,7 +147,7 @@ const TABLES = [
 beforeEach(async () => {
   // Чистое состояние на каждый тест: одну БД делят все тесты, поэтому остатки
   // прошлого теста иначе протекли бы в следующий.
-  await prisma.$executeRawUnsafe(
+  await adminPrisma.$executeRawUnsafe(
     `TRUNCATE ${TABLES.map((table) => `"${table}"`).join(", ")} RESTART IDENTITY CASCADE`,
   );
   clearSession();
@@ -152,4 +158,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   mockState.afterCallbacks.length = 0;
+});
+
+afterAll(async () => {
+  await adminPrisma.$disconnect();
 });

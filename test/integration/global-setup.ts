@@ -11,13 +11,17 @@ import { execSync } from "node:child_process";
 
 import { createPrismaClient } from "@/lib/prisma-client";
 
-const DATABASE_URL =
+const RUNTIME_DATABASE_URL =
   process.env.DATABASE_URL ??
   "postgresql://postgres:postgres@localhost:5433/smartlists_test";
+const ADMIN_DATABASE_URL =
+  process.env.TEST_ADMIN_DATABASE_URL ??
+  process.env.DIRECT_URL ??
+  RUNTIME_DATABASE_URL;
 
 /** Пингует БД с ретраями: контейнер может быть ещё не готов к подключению. */
 async function waitForDatabase(): Promise<void> {
-  const prisma = createPrismaClient(DATABASE_URL);
+  const prisma = createPrismaClient(ADMIN_DATABASE_URL);
   const deadline = Date.now() + 45_000;
   let lastError: unknown;
 
@@ -36,7 +40,7 @@ async function waitForDatabase(): Promise<void> {
   }
 
   throw new Error(
-    `Тестовая БД недоступна по ${DATABASE_URL}. ` +
+    `Тестовая БД недоступна по admin URL. ` +
       `Подними её: npm run test:integration:db. Последняя ошибка: ${String(lastError)}`,
   );
 }
@@ -63,11 +67,15 @@ function assertTestDatabase(url: string): void {
 }
 
 export async function setup(): Promise<void> {
-  assertTestDatabase(DATABASE_URL);
+  assertTestDatabase(ADMIN_DATABASE_URL);
   await waitForDatabase();
 
   execSync("npx prisma migrate deploy", {
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL, DIRECT_URL: DATABASE_URL },
+    env: {
+      ...process.env,
+      DATABASE_URL: RUNTIME_DATABASE_URL,
+      DIRECT_URL: ADMIN_DATABASE_URL,
+    },
   });
 }

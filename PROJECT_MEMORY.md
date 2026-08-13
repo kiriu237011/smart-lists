@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-13 (repository cutover Vercel build)
+**Последнее обновление:** 2026-08-13 (PostgreSQL runtime least privilege включён в Preview и Production)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -125,6 +125,11 @@ Smart Lists — локализованное веб-приложение для 
   переход: release migration вне Vercel, runtime без DDL, проверенный
   транзакционный контекст и только затем tenant-RLS. Прикладные фильтры
   сохраняются как обязательный первый слой.
+- В Neon `dev` и `production` создана SQL-роль `smartlists_runtime` без ownership, DDL,
+  `BYPASSRLS`, `CREATEROLE`, membership и доступа к migration metadata. С
+  2026-08-13 Vercel Preview и Production используют её отдельные pooled
+  credentials. Это ограничивает класс операций и таблиц, но ещё не изолирует
+  строки одного tenant от другого.
 
 ### Записи и заметки
 
@@ -303,7 +308,9 @@ Smart Lists — локализованное веб-приложение для 
 
 Секретные значения никогда не записываются в репозиторий.
 
-- БД: `DATABASE_URL` для runtime через PrismaPg остаётся в Vercel;
+- БД: `DATABASE_URL` для runtime через PrismaPg остаётся в Vercel; Preview и
+  Production используют разные credentials роли `smartlists_runtime` в своих
+  ветках Neon;
   `DIRECT_URL` нужен только Prisma CLI — локально его загружает корневой `.env`,
   а Production и Preview migration jobs получают отдельные значения из
   GitHub Environments. `prisma generate` и Vercel build работают без него;
@@ -326,10 +333,9 @@ Smart Lists — локализованное веб-приложение для 
 - БД — отдельная ветка Neon. Локальные команды Prisma получают `DIRECT_URL` из
   корневого `.env`, поэтому боевой URL в нём означал бы работу с production.
   Runtime production URL хранится в Vercel, а прямые migration URL — в
-  GitHub Environments и отдельном backup workflow. До проверки первого cutover-
-  релиза прежний `DIRECT_URL` ещё физически присутствует в Vercel, но код
-  сборки его больше не читает; после успешных Production и Preview deployment
-  его нужно удалить вручную из обоих Vercel environments.
+  GitHub Environments и отдельном backup workflow. После проверенного cutover-
+  релиза `DIRECT_URL` удалён из Vercel Production и Preview; приложение и
+  Vercel build владельческий migration credential больше не получают.
 - Auth.js — разные `AUTH_SECRET` и Google OAuth clients для Production и
   Preview. Все Preview deployments делят только Preview-секрет и Preview OAuth
   client. Постоянная ветка `preview` служит redirect proxy Auth.js и не
@@ -441,6 +447,16 @@ AI-сервис вызывается с сервера и в политику н
 - `npm run test:integration:db` — поднять тестовый PostgreSQL в Docker
   (порт 5433 доступен только через `127.0.0.1`);
 - `npm run test:integration` — интеграционные тесты Server Actions против этой БД;
+- `npm run db:configure-operational-roles` — plan-only configurator ролей
+  `smartlists_owner`, `smartlists_migrator`, `smartlists_backup`; apply требует
+  явного scope, exact host и отдельные пароли, не печатает credentials;
+- `npm run test:integration:roles` — на чистой test-БД применяет миграции,
+  создаёт и повторно ротирует runtime/migrator/backup, запускает no-op Prisma
+  migration под migrator и 213 integration-тестов под runtime, доказывает
+  fail-closed отказ при лишнем owner-member и выполняет полный
+  `pg_dump -> pg_restore` с проверкой контрольной строки;
+- `npm run test:integration:runtime` — совместимый alias той же полной
+  role-integration проверки;
 - `npm run test:integration:db:down` — погасить тестовый контейнер;
 - `npm run test:e2e:db` — поднять базу E2E в Docker (порт 5434 доступен
   только через `127.0.0.1`, профиль `e2e`);
@@ -633,11 +649,43 @@ push и успешного Vercel deployment. Секреты и hostname в ло
 доказан контрольным release PR №62 (merge SHA `c0e5388829b8aa8df5efbe5d90ca8d5b0dbdae65`):
 Vercel ждал checks с `00:30:46Z`, migration job run `31654625609` завершилась в
 `00:33:20Z`, а Production deployment получил `success` только в `00:33:23Z`.
-Target guard прошёл, 18 миграций найдены, pending нет. Cutover-код от
-2026-08-13 заменяет Vercel build на `npm run build`, удаляет `build:deploy` и
-делает `prisma generate` независимым от `DIRECT_URL`. Остаточный ручной шаг —
-после успешного Production и Preview release удалить прежний `DIRECT_URL` из
-Vercel; до этого инфраструктурный факт считается неизменённым.
+Target guard прошёл, 18 миграций найдены, pending нет. Cutover PR №64, merge
+SHA `90345676199951798bcc1597f8da410ad6f75c90`, заменил Vercel build на
+`npm run build`, удалил `build:deploy` и сделал `prisma generate` независимым
+от `DIRECT_URL`. Production migration run `31657217922` прошёл target guard и
+no-op миграцию; migration job завершилась в `01:20:16Z`, а Vercel Production
+получил `success` в `01:20:22Z`. Preview run `31657384104` сначала проверил
+target и применил no-op миграцию, затем обновил ветку до `3a946b0`; Vercel
+Preview завершился в `01:21:29Z`. После обеих проверок `DIRECT_URL` удалён из
+  Vercel Production и Preview; повторный `vercel env ls` подтвердил отсутствие
+  переменной при сохранённых `DATABASE_URL`.
+
+PostgreSQL least-privilege cutover Preview выполнен 2026-08-13 отдельно от
+Production. Роль `smartlists_runtime` создана SQL в Neon `dev`, получила точную
+DML-матрицу и не получила DDL, ownership, role attributes, membership либо
+доступ к `_prisma_migrations`. Vercel Preview `DATABASE_URL` переключён на её
+pooled credential; deployment `dpl_2Q3NqEW1QfNZxTpa1tRgXaoZwBu6` имеет статус
+`Ready` и branch alias. Protected deployment ответил `200 /en` через временный
+automation bypass; bypass сразу отозван, временные OIDC-файлы удалены. Первый
+пробный cutover штатно откатился на owner из-за слишком строгой трактовки SSO
+`302`; после исправления критерия финальный cutover прошёл. Production не
+менялся. Ручной gate затем подтвердил OAuth/session, CRUD
+списков/записей/групп/заметок, sharing и разделение владельца/редактора,
+realtime и вложения; Vercel runtime logs остались без ошибок. AI в Preview
+намеренно не проверяется, потому что среда не получает `INSIGHTS_SERVICE_*` и
+не допущена GCP federation.
+
+Production least-privilege cutover выполнен 2026-08-13 после отдельного
+go/no-go. В Neon `production` SQL-командой создана `smartlists_runtime`, Vercel
+Production `DATABASE_URL` переключён на её pooled credential, deployment
+`dpl_2T9N6y3ugsuWmn7gN4yXQWp2u6YT` для `main` SHA `3213ce7` получил `Ready` и
+production alias. Публичный `/en` вернул `200`, а независимый post-cutover
+catalog audit подтвердил exact endpoint и полную privilege-матрицу. Пароль и
+owner rollback URL не печатались и не сохранялись; rollback не потребовался.
+Ручной Production gate затем подтвердил OAuth/session, CRUD
+списков/записей/групп/заметок, sharing с разделением владельца/редактора,
+realtime и вложения. Ошибок доступа к БД в логах нет; предупреждение Node.js
+`DEP0169` уже отслеживается issue №26 и не относится к privilege-cutover.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается
@@ -707,9 +755,10 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   Cutover был запрещён, пока GitHub Environments не содержали отдельные direct
   URL, проверка exact Neon host не прошла и Vercel Deployment Check фактически
   не удержал production alias. Все условия доказаны 2026-08-13; отдельный
-  cutover заменил build-команду в репозитории. Прежний `DIRECT_URL` удаляется
-  из Vercel вручную только после успешного Production и Preview release этого
-  изменения, чтобы сохранить обратимость до проверки.
+  cutover заменил build-команду в репозитории. Production и Preview release
+  прошли успешно, после чего прежний `DIRECT_URL` удалён из обоих Vercel
+  environments. Миграционный credential теперь существует только в отдельных
+  GitHub release/backup границах и локальной среде разработки.
 - 2026-08-12: согласован staged-переход PostgreSQL к least privilege и
   tenant-RLS: design → отдельный release pipeline → runtime без DDL → scoped
   transaction context → policies без enforcement → поэтапное включение после
@@ -719,14 +768,74 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   realtime `after()`, stale `PENDING` attachments и Auth.js до появления
   пользовательского контекста. Детали и откат — в
   `DATABASE_SECURITY_PLAN.md`.
+- 2026-08-13: подготовлен этап runtime least privilege без RLS. По фактическим
+  Prisma/Auth.js/raw SQL обращениям зафиксирована точная DML-матрица; runtime
+  не получает DDL, ownership, role attributes, membership, доступ к
+  `_prisma_migrations` и автоматические права на будущие объекты. Добавлены
+  read-only catalog audit и fail-closed role configurator с exact-host guard,
+  транзакционными `REVOKE/GRANT`, post-apply переподключением и rollback-планом.
+  На Docker PostgreSQL весь integration suite прошёл под restricted role:
+  16 файлов, 213 тестов, включая Google OAuth/session adapter и отрицательные
+  privilege-проверки. Последующий read-only audit Neon подтвердил: `dev` и `production`
+  используют разные direct endpoints, но в обеих ветках единственная login-
+  роль `neondb_owner` наследует `neon_superuser`, владеет всеми 15 таблицами и
+  имеет DDL/BYPASS; RLS и policies отсутствуют. Схема совпала с fail-closed
+  матрицей. После аудита `smartlists_runtime` последовательно создана и
+  проверена в `dev`, затем после полного Preview gate — в `production`.
+  Vercel обеих сред переведён на раздельные pooled runtime credentials;
+  автоматические deployment, HTTP и post-cutover privilege gates пройдены;
+  ручные gates Preview и Production также закрыты.
+- 2026-08-13: для следующего этапа owner/migrator/backup выполнены design,
+  read-only audit обеих Neon-веток и локальная проверка на PostgreSQL 17.
+  Фактически `neondb_owner` пока остаётся owner БД, `public`, 15 таблиц и трёх
+  enum, а GitHub release и backup secrets всё ещё используют владельческие
+  credentials. Целевая схема: `smartlists_owner` — `NOLOGIN` owner прикладных
+  объектов; `smartlists_migrator` — безопасный login с `SET TRUE, INHERIT
+  FALSE` и database-specific `role=smartlists_owner`; `smartlists_backup` —
+  отдельный read-only login с точечным `SELECT` и `BYPASSRLS`, необходимым для
+  полного `pg_dump`. `neondb_owner` остаётся Neon database owner и
+  операторской break-glass ролью, но должен исчезнуть из GitHub secrets после
+  последовательных Preview, Production и backup cutovers. Локальный тест
+  подтвердил ownership новых объектов, сохранение runtime ACL и полный dump
+  при forced RLS. Инфраструктура на design-подэтапе не менялась; точный порядок
+  и rollback записаны в `DATABASE_SECURITY_PLAN.md`.
+- 2026-08-13: implementation-подэтап owner/migrator/backup подготовлен без
+  изменения Neon. Единый fail-closed contract перечисляет 15 таблиц, три enum
+  и пустые разрешённые наборы sequences/views/routines/domains; новая сущность
+  требует явного review сразу для runtime и operational ролей. Configurator
+  имеет раздельные `migration` и `backup` scopes, exact-host/direct-endpoint
+  guard, транзакционный apply, idempotent rotation и post-connect проверку
+  ownership, role settings, membership, default privileges и неизменности
+  runtime ACL. Чистый PostgreSQL 17 прогон применил 18 миграций, повторил оба
+  scope, получил no-op Prisma под migrator, прошёл 16 integration-файлов/213
+  тестов под runtime, отверг лишнего owner-member и восстановил backup вместе
+  с контрольной строкой. CI теперь запускает эту полную проверку. Live-роли,
+  ownership и GitHub secrets по-прежнему не менялись; следующий отдельный шаг
+  требует go/no-go на Preview migration scope.
+- 2026-08-13: Preview migration scope этапа owner/migrator применён к Neon
+  `dev`. `smartlists_owner` стал владельцем `public`, 15 таблиц и 3 enum;
+  `smartlists_migrator` имеет безопасный login, единственную membership в owner
+  с `SET=true`, database-specific `role=smartlists_owner` и заменил
+  `neondb_owner` в GitHub Environment `Preview` secret `DIRECT_URL`. Два
+  idempotent apply, no-op 18 миграций, временный ownership-probe и аудит
+  endpoint `d95cc95b87c7` прошли; runtime ACL не изменился, database owner
+  остался `neondb_owner`, Vercel не трогался. Neon автоматически создаёт для
+  admin дополнительную membership от `cloud_admin` с `ADMIN=true/SET=false`;
+  configurator принимает только её вместе с прямой
+  `neondb_owner:false:false:true` либо обычный PostgreSQL-профиль. Первый apply
+  на старой модели откатился до commit; откатываемый probe нашёл различие, а
+  локальный runner теперь воспроизводит non-superuser `CREATEROLE` admin и
+  снова проходит полный migration/runtime/backup/restore контур. Production и
+  backup credential не менялись.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как
   изолированную полумеру. Тогда `build:deploy` выполнял миграции в Vercel под
   `DIRECT_URL`, и владельческий секрет был доступен тому же окружению, что
-  runtime. Release workflow и cutover-код подготовлены 2026-08-13, но вывод о
-  контроле остаётся: runtime-роль без DDL вводится только после проверенного
-  релиза и фактического удаления owner credential из Vercel.
+  runtime. Release workflow и cutover завершены 2026-08-13, owner credential
+  удалён из Vercel. Отдельная runtime-роль без DDL введена в обеих средах
+  2026-08-13 и стала реальным контролем, а не декоративным разделением соседних
+  переменных.
 - 2026-08-10: выключать AI для списка может любой участник, а не владелец. Находка LINDDUN U: список расшарен, инсайт запрашивает A, наружу уходят в том числе заметки B — который действия не совершал и запретить его не мог. Владельческая проверка выглядела бы естественнее и согласовывалась бы с удалением и переименованием, но оставила бы B ровно там же: он узнал бы о передаче и по-прежнему не смог бы ей помешать. Умолчание оставлено «включено»: обратное молча поменяло бы поведение существующих списков, а осведомлённость обеспечивается постоянной строкой в панели, а не значением по умолчанию. Чего решение не даёт: уже отправленное не отзывается, флаг действует только вперёд.
 - 2026-08-10: ограничение мутаций сделано двумя слоями, а не одним. План модели угроз предлагал выбор — счётчик действий **либо** потолки на число сущностей — и обещал, что один фикс закроет три симптома. При разборе выяснилось, что это верно только для счётчика: потолки ограничивают размер контейнера, но не темп, а переключать отметку у одного пункта можно бесконечно, ничего не создавая, и каждый такой вызов — запрос к Neon и событие Pusher. Поэтому сделаны оба слоя, и у них разные задачи: потолки держат список в размере, при котором интерфейс отзывчив, бюджет ограничивает совокупный рост, compute и квоту Pusher. Побочно закрыт давний хвост: таблица суточных счётчиков переименована в `UserDailyUsage`, получила второй счётчик и ленивую уборку — прежняя `AiInsightUsage` не чистилась никогда. Объём там был ничтожный, но таблица без верхней границы — это то, о чём приходится думать заново при каждом разборе.
 - 2026-08-10: whitelist сверяется при каждом чтении сессии, а не только при входе. Раньше удаление строки `AllowedEmail` не завершало выданную сессию — доступ считался отозванным, фактически работал до истечения срока. Развилка была между проверкой в колбэке `session` и очисткой `Session` при отзыве; выбрано и то, и другое. Только проверка оставила бы cookie валидной и повторяла бы отказ на каждом запросе; только очистка требовала бы триггера в БД, потому что список правится руками и кода в этом пути нет. Цена — запрос по уникальному индексу на каждое чтение сессии, и кешировать его нельзя, иначе теряется смысл. Замечание на будущее: этот gap выглядел закрытым — механизм существовал, был описан и работал, просто не в тот момент, когда от него ждали результата.

@@ -112,8 +112,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Integration tests
-        run: npm run test:integration
+      - name: Integration tests under separated database roles
+        run: npm run test:integration:roles
 
   # E2E: настоящий браузер против собранного приложения и отдельной базы.
   # Своя job, потому что дольше остальных и требует загрузки Chromium. База —
