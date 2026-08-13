@@ -1,6 +1,6 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этап 2a — release-контур проверен в Production и Preview, cutover не выполнен
+**Статус:** этап 2a — release-контур и repository cutover подготовлены; проверка релиза и удаление Vercel `DIRECT_URL` ещё не выполнены
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -41,9 +41,11 @@ JWT или отдельные DB-роли на каждого пользоват
 попадают в миграции или репозиторий. Миграции содержат владение объектами,
 `GRANT`/`REVOKE`, default privileges и политики, но не credentials.
 
-`DIRECT_URL` должен исчезнуть из окружения Vercel Functions. Пока миграция
-выполняется командой `build:deploy` внутри Vercel, отделение runtime-роли
-считается декоративным: работающий процесс видит соседний владельческий секрет.
+`DIRECT_URL` должен исчезнуть из окружения Vercel Functions. Репозиторий больше
+не использует его в build/generate, но до успешного cutover-релиза прежний
+secret остаётся в Vercel ради обратимости. Пока он физически не удалён,
+отделение runtime-роли считается декоративным: работающий процесс всё ещё может
+прочитать соседний владельческий credential.
 
 ## Контексты запросов
 
@@ -178,9 +180,9 @@ Prisma Adapter выполняет запросы до появления `app.us
   `ENABLE_PREVIEW_MIGRATION=true`;
 - оба потока сравнивают host `DIRECT_URL` с отдельным environment secret
   `EXPECTED_DATABASE_HOST` и запрещают pooled endpoint;
-- `build:deploy` остаётся Vercel build-командой до завершения внешней
-  настройки. Поэтому merge подготовительного изменения не отключает старый
-  рабочий путь миграций.
+- после доказанного внешнего gate Vercel build заменяется на обычный
+  `npm run build`; `prisma generate` не требует `DIRECT_URL`, а dependency
+  install не получает даже placeholder этого секрета.
 
 Перед cutover обязательно:
 
@@ -188,8 +190,8 @@ Prisma Adapter выполняет запросы до появления `app.us
    `DIRECT_URL` соответствующей Neon-ветки и второй secret
    `EXPECTED_DATABASE_HOST` с точным direct hostname.
 2. Создать repository variables `ENABLE_PRODUCTION_MIGRATION=true` и
-   `ENABLE_PREVIEW_MIGRATION=true`. Первый прогон остаётся безопасным:
-   `build:deploy` ещё применяет те же миграции идемпотентно.
+   `ENABLE_PREVIEW_MIGRATION=true`. Первый прогон оставался безопасным:
+   временный `build:deploy` ещё применял те же миграции идемпотентно.
 3. Убедиться, что main CI создал зелёную check job production migration, а
    Preview sync применил миграции до push.
 4. В Vercel Production Deployment Checks сделать эту GitHub job обязательной
@@ -199,8 +201,8 @@ Prisma Adapter выполняет запросы до появления `app.us
    полная restore-проверка остаётся действительной только до изменения мажора
    PostgreSQL или формата дампа.
 6. Только после этих проверок отдельным commit заменить Vercel build на
-   `npm run build`, удалить `build:deploy` и после успешного production/preview
-   release удалить `DIRECT_URL` из Vercel environments.
+   `npm run build`, удалить `build:deploy`, доказать успешный Production и
+   Preview release и затем удалить `DIRECT_URL` из Vercel environments.
 
 **Прогресс 2026-08-12:** пункт 1 подготовлен. Через GitHub API подтверждены
 Environments `Production` и `Preview`, наличие в каждой secrets `DIRECT_URL` и
@@ -213,8 +215,7 @@ production target guard подтвердил direct host, а Prisma обнару
 миграций и отсутствие pending-изменений. Следующий run `31652333174` тем же
 образом проверил Preview до push постоянной ветки; Vercel deployment нового
 preview SHA завершился успешно. Секреты и hostname в логи не попали.
-Release-контур этапа 2a доказан для обеих сред, но Vercel пока использует
-`build:deploy`. Обязательный GitHub Deployment Check
+Release-контур этапа 2a доказан для обеих сред. Обязательный GitHub Deployment Check
 `Production database migration` доказан контрольным release PR №62, merge SHA
 `c0e5388829b8aa8df5efbe5d90ca8d5b0dbdae65`: Vercel перешёл в
 `Waiting for checks to complete` в `00:30:46Z`, migration job стартовала в
@@ -223,7 +224,11 @@ Release-контур этапа 2a доказан для обеих сред, н
 и no-op миграцию (18 миграций, pending нет). Последний scheduled backup run
 `31614719537` успешен; схема, мажор PostgreSQL и формат дампа после полной
 restore-проверки не менялись. Пункты 4 и 5 выполнены, cutover теперь разрешён
-отдельным изменением.
+отдельным изменением. Repository-часть пункта 6 подготовлена 2026-08-13:
+`vercel.json` использует `npm run build`, `build:deploy` удалён, а Prisma Client
+генерируется без `DIRECT_URL`. Пункт 6 остаётся незавершённым до успешного
+Production и Preview release и последующего ручного удаления прежнего секрета
+из обоих Vercel environments.
 
 Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
 сборка Vercel и GitHub migration идут параллельно, и новый код может стать

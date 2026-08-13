@@ -187,13 +187,13 @@ Every component holds the narrowest set of rights that still lets it do its job.
 
 **Guest mode is minimal by construction.** Guest data never leaves the browser, and the guest flag is an httpOnly cookie whose issuance the server re-checks against `AppSetting`, so a client cannot forge its way in when guest mode is off.
 
-**Rights are bounded in time and volume, too.** Presigned links expire in five minutes, AI insights are capped per user per UTC day, and `npm run build` deliberately has no migration step. Schema changes are limited to the current `build:deploy` path or the explicitly enabled release jobs. See [Limits](#limits).
+**Rights are bounded in time and volume, too.** Presigned links expire in five minutes, AI insights are capped per user per UTC day, and `npm run build` deliberately has no migration step. Schema changes are applied only by the explicitly enabled release jobs. See [Limits](#limits).
 
 ### Separated CI/CD credentials
 
 Regular CI checks never receive production credentials. Database release credentials are isolated in GitHub Environments and are unavailable to pull requests and branch checks.
 
-**No real secrets in CI.** The checks job runs with deliberately non-functional placeholder values, present only because `prisma generate` needs a datasource and Next inlines `NEXT_PUBLIC_*` at build time — the build never opens a database connection ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The CI token is restricted to `permissions: contents: read`. The separate Preview proxy sync has `contents: write`, receives no repository secrets, runs only after a successful `main` push CI, and pushes explicitly to `preview` ([`.github/workflows/sync-preview.yml`](.github/workflows/sync-preview.yml)).
+**No real secrets in CI.** The checks job runs with deliberately non-functional runtime and public placeholder values because imported application modules validate their environment and Next inlines `NEXT_PUBLIC_*` at build time — the build never opens a database connection and receives no `DIRECT_URL` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The CI token is restricted to `permissions: contents: read`. The separate Preview proxy sync has `contents: write`, receives no repository secrets outside its guarded migration step, runs only after a successful `main` push CI, and pushes explicitly to `preview` ([`.github/workflows/sync-preview.yml`](.github/workflows/sync-preview.yml)).
 
 **CI checks do not deploy or migrate.** A separate reusable database-release job can run only after every check for the same `main` SHA, and remains fail-closed disabled until `ENABLE_PRODUCTION_MIGRATION=true` is configured. Preview has the same opt-in guard and migrates before pushing its stable proxy branch. Both jobs verify the exact direct database host before invoking Prisma.
 
@@ -274,12 +274,13 @@ Auth.js appends the provider callback path and securely returns the browser to t
 
 The development environment is a separate Neon branch created from the main one: a copy of the data appears instantly and then lives independently.
 
-- production `DATABASE_URL` remains in Vercel; during the transition,
-  `DIRECT_URL` is scoped to Vercel plus the dedicated GitHub Environment and
-  backup workflow;
+- production `DATABASE_URL` remains in Vercel, while migration `DIRECT_URL`
+  credentials are scoped to the dedicated GitHub Environments and backup
+  workflow;
 - the local `.env` holds the dev branch connection strings;
-- production migrations still use `build:deploy` until the gated release job
-  is enabled, verified, and made a required Vercel Deployment Check;
+- production migrations run in the guarded GitHub release job, and Vercel
+  promotion waits for its required `Production database migration` check;
+- Preview migrations run before the stable proxy branch is pushed;
 - migrations are developed against the dev branch with `npx prisma migrate dev`;
 - when fresh data is needed, the dev branch is recreated from the main one in the Neon console.
 
@@ -330,13 +331,12 @@ The same three levels run in GitHub Actions on every branch and pull request. Be
 | `npm run test:integration` | Run integration tests against the test database |
 | `npm run test:e2e` | Run Playwright E2E tests |
 | `npm run build` | Build the production bundle without migrations (safe locally) |
-| `npm run build:deploy` | Apply migrations and build; used by the hosting provider |
 | `npm run migrate:deploy` | Apply existing migrations to the current `DIRECT_URL` |
 | `npm start` | Serve a built production bundle |
 | `npx prisma migrate dev` | Create and apply a migration during schema development |
 | `npx prisma studio` | Open a UI for the current database |
 
-> `npm run build` deliberately leaves the database alone: a local build must not be able to apply a migration. During transition, Vercel still calls `build:deploy`; the replacement GitHub jobs remain disabled until their external safety gate is verified.
+> `npm run build` and `prisma generate` deliberately work without `DIRECT_URL`. Database credentials are supplied only to guarded release jobs or an explicitly invoked migration command.
 
 ## Limits
 
@@ -348,12 +348,12 @@ The same three levels run in GitHub Actions on every branch and pull request. Be
 
 ## Deployment
 
-The project targets Vercel and uses the `sin1` region. During the guarded release-pipeline transition, the hosting build still runs `npm run build:deploy`. The replacement GitHub migration jobs are present but disabled by default; removing migrations and `DIRECT_URL` from Vercel is allowed only after the production job is configured as a required Vercel Deployment Check and has demonstrably held promotion until migration completed.
+The project targets Vercel and uses the `sin1` region. Vercel runs the ordinary `npm run build`; database migrations run separately in GitHub Actions. The required `Production database migration` Deployment Check holds production promotion until the migration job for the same SHA succeeds. Preview follows the same ordering by migrating before its stable proxy branch is pushed.
 
 Before a production deploy:
 
 1. configure all required environment variables;
-2. make sure `DIRECT_URL` allows migrations to be applied;
+2. make sure the matching GitHub Environment contains the guarded direct migration connection and expected database host;
 3. allow the production origin in Google OAuth, Pusher and the S3 CORS configuration;
 4. verify that PostgreSQL and, if those features are enabled, the insights service are reachable;
 5. run `npm run lint` and a production build in a safe environment.

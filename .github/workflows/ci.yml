@@ -2,8 +2,8 @@ name: CI
 
 # Проверка каждой ветки и каждого PR. По умолчанию ничего не деплоит и не
 # трогает боевые ресурсы. Подготовленная production migration job доступна
-# только для push в main, после всех проверок и при явном repository flag;
-# до cutover миграции дополнительно применяет Vercel build:deploy.
+# только для push в main, после всех проверок и при явном repository flag.
+# Vercel build не применяет миграции и ждёт эту job через Deployment Check.
 #
 # Обычная ветка внутри репозитория уже покрыта событием `push`, поэтому её PR
 # иначе дал бы второй прогон того же коммита. Исключение — ветки Dependabot:
@@ -33,13 +33,12 @@ jobs:
     # Свои ветки проверяет `push`; здесь остаются PR из форков и от Dependabot.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
 
-    # Заведомо нерабочие значения. Нужны, потому что `prisma generate` читает
-    # datasource из схемы, а Next при сборке подставляет NEXT_PUBLIC_* в бандл.
+    # Заведомо нерабочие значения. DATABASE_URL нужен импортируемому runtime-
+    # коду, а Next при сборке подставляет NEXT_PUBLIC_* в бандл.
     # Реальные секреты сюда не попадают намеренно: сборка в БД не ходит, и
     # подключение по этому адресу в раннере невозможно.
     env:
       DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
-      DIRECT_URL: postgresql://ci:ci@127.0.0.1:5432/ci
       AUTH_SECRET: ci-placeholder-not-a-real-secret
       NEXT_PUBLIC_PUSHER_KEY: ci-placeholder
       NEXT_PUBLIC_PUSHER_CLUSTER: ap1
@@ -243,11 +242,9 @@ jobs:
           node-version: 24
           cache: npm
 
-      # postinstall запускает prisma generate и требует синтаксически валидный
-      # URL, но к БД не подключается. Реальный секрет этому шагу не выдаётся.
+      # postinstall запускает prisma generate без доступа к БД. DIRECT_URL
+      # намеренно появляется только в guard и migration steps ниже.
       - name: Install dependencies
-        env:
-          DIRECT_URL: postgresql://release:release@127.0.0.1:5432/placeholder
         run: npm ci
 
       - name: Verify database target

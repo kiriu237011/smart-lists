@@ -44,9 +44,12 @@ describe("database release workflow", () => {
   });
 
   it("не выдаёт настоящий DB secret npm lifecycle scripts", () => {
-    expect(productionJob).toContain(
-      "DIRECT_URL: postgresql://release:release@127.0.0.1:5432/placeholder",
+    const installStep = productionJob.slice(
+      productionJob.indexOf("- name: Install dependencies"),
+      productionJob.indexOf("- name: Verify database target"),
     );
+
+    expect(installStep).not.toContain("DIRECT_URL");
     expect(guard).not.toContain("target.host");
     expect(guard).not.toContain("target.database");
   });
