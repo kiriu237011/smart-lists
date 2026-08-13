@@ -47,6 +47,105 @@ credential остаётся только в защищённых release/backup 
 среде. Поэтому следующий этап — runtime-роль без DDL — больше не обесценивается
 соседней владельческой строкой подключения.
 
+## Gate этапа 2b: runtime least privilege без RLS
+
+Первый cutover прав отделяет только runtime. Текущая Neon-роль-владелец пока
+остаётся совмещённой owner/migrator ролью в GitHub release-контуре; перенос
+ownership на отдельную `NOLOGIN`-роль не объединяется с заменой runtime
+credential. Это уменьшает число одновременно меняющихся условий и сохраняет
+простой откат. Backup также остаётся отдельным следующим изменением: сейчас он
+использует `pg_dump` через защищённый workflow и не попадает в Vercel runtime.
+
+### Фактические обращения приложения
+
+Матрица ниже получена из Server Components, Server Actions, raw SQL и текущего
+`@auth/prisma-adapter`. Она описывает права до RLS: роль всё ещё технически
+может обращаться к любым строкам разрешённой таблицы. Поэтому этот этап
+ограничивает последствия компрометации runtime на уровне DDL и состава таблиц,
+но ещё не создаёт tenant-изоляцию внутри таблицы.
+
+| Таблица | Runtime-права | Причина |
+|---|---|---|
+| `User` | `SELECT, INSERT, UPDATE` | Google OAuth: поиск, создание и обновление профиля |
+| `Account` | `SELECT, INSERT` | поиск и привязка Google account; unlink/delete потока сейчас нет |
+| `Session` | `SELECT, INSERT, UPDATE, DELETE` | database sessions Auth.js, sign-out и отзыв сессий |
+| `VerificationToken` | нет | email/passwordless provider не настроен |
+| `AllowedEmail` | `SELECT` | whitelist управляется вне runtime |
+| `AppSetting` | `SELECT` | глобальный feature flag управляется вне runtime |
+| `Space` | `SELECT, INSERT, UPDATE, DELETE` | default-space, rename и удаление пространства |
+| `List`, `ListGroup`, `_ListGroupMembers`, `ListShare`, `Item`, `Attachment` | `SELECT, INSERT, UPDATE, DELETE` | действующие CRUD, reorder, sharing и two-phase attachments |
+| `UserDailyUsage` | `SELECT, INSERT, UPDATE, DELETE` | upsert счётчика, компенсация и очистка старых собственных строк |
+| `_prisma_migrations` | нет | доступен только миграционному контуру |
+
+Во всей схеме runtime не получает `TRUNCATE`, `REFERENCES`, `TRIGGER`, права на
+sequences/functions и автоматический доступ к будущим объектам. Сейчас
+application sequences в `public` отсутствуют: идентификаторы создаются в коде.
+Новая таблица намеренно ломает runtime до явного review и добавления в матрицу,
+а не наследует широкий `GRANT ALL`.
+
+Роль создаётся SQL-командой, а не через Neon Console/CLI: роли, созданные
+control plane Neon, получают membership в `neon_superuser`, что уничтожило бы
+изоляцию. Контракт роли:
+
+- `LOGIN`, но `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOINHERIT`,
+  `NOREPLICATION`, `NOBYPASSRLS` и без membership в других ролях;
+- только `CONNECT` к нужной БД и `USAGE` схемы `public`;
+- без database/schema `CREATE`, ownership и доступа к
+  `_prisma_migrations`;
+- `TEMP` пока наследуется от стандартного `PUBLIC`: приложение его не
+  использует, но глобальный `REVOKE TEMP FROM PUBLIC` затронул бы все роли и
+  не входит в этот узкий cutover. Это остаточный privilege, а не право менять
+  постоянную схему.
+
+### Инструменты и защита от ошибочного target
+
+`npm run db:audit-privileges` выполняет только `BEGIN READ ONLY`, читает
+Postgres catalogs и выводит fingerprint endpoint, атрибуты роли, ownership,
+эффективные права и RLS-состояние. Connection string и строки данных не
+выводятся. Источник выбирается в порядке `AUDIT_DATABASE_URL`, `DIRECT_URL`,
+`DATABASE_URL`.
+
+`npm run db:configure-runtime-role` по умолчанию показывает план. Реальное
+изменение требует аргумента `-- --apply` и трёх env-переменных:
+`DIRECT_URL`, `EXPECTED_DATABASE_HOST`, `RUNTIME_ROLE_PASSWORD`. Скрипт
+запрещает pooled admin endpoint, сравнивает exact host, отказывается работать
+при неожиданном наборе таблиц, выполняет `REVOKE` и точечные `GRANT` в одной
+транзакции, затем подключается новым credential и повторно проверяет полный
+контракт. Существующий пароль не меняется без отдельного
+`--rotate-password`; пароль и runtime URL никогда не печатаются.
+
+До применения в любой облачной среде read-only audit обязан подтвердить её
+фактическую роль и endpoint. Метаданных Vercel недостаточно: `DATABASE_URL`
+имеет тип `sensitive`, его значение нельзя считать обратно через CLI. Для
+аудита используется прямой credential соответствующего GitHub Environment или
+доступ к выбранной ветке Neon; локальный `.env` доказательством Preview или
+Production не считается.
+
+### Cutover и rollback
+
+Порядок не меняется местами:
+
+1. Read-only audit Preview, сохранение текущего owner pooled URL в защищённом
+   операторском хранилище и проверка, что им можно восстановить Vercel
+   `DATABASE_URL`. Без этого rollback не подготовлен.
+2. Создание/сверка `smartlists_runtime` в Preview, запуск интеграционных и
+   отрицательных privilege-тестов новым credential.
+3. Замена только Preview `DATABASE_URL`, новый deployment, проверка Google
+   sign-in/session, списков, sharing, групп, reorder, заметок, вложений, AI и
+   realtime. Миграционный secret и схема не меняются.
+4. При ошибке вернуть сохранённый owner pooled URL, redeploy и только после
+   восстановления разбирать недостающий `GRANT`. Роль не удалять; при
+   подозрении на компрометацию перевести в `NOLOGIN` и ротировать пароль.
+5. После стабильного Preview повторить read-only audit и тот же процесс для
+   Production отдельным go/no-go. Старый owner URL не хранить в Vercel рядом с
+   runtime: после окна отката удалить операторскую копию по принятой процедуре.
+
+Структурный rollback не нужен: создание ограниченной роли и `GRANT` не меняют
+данные, ownership или схему. Функциональный откат — только возврат Vercel на
+прежний credential и redeploy. Production запрещён, пока Preview не прошёл
+полный поток и post-cutover audit не доказал `current_user =
+smartlists_runtime`.
+
 ## Контексты запросов
 
 Планируются два явных контекста:

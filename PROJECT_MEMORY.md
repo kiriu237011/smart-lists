@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-13 (завершение release cutover PostgreSQL)
+**Последнее обновление:** 2026-08-13 (подготовка PostgreSQL runtime least privilege)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -440,6 +440,9 @@ AI-сервис вызывается с сервера и в политику н
 - `npm run test:integration:db` — поднять тестовый PostgreSQL в Docker
   (порт 5433 доступен только через `127.0.0.1`);
 - `npm run test:integration` — интеграционные тесты Server Actions против этой БД;
+- `npm run test:integration:runtime` — создаёт/сверяет в test-БД роль
+  `smartlists_runtime`, оставляет миграции и очистку fixtures владельцу и
+  запускает тот же integration suite уже под ограниченной ролью;
 - `npm run test:integration:db:down` — погасить тестовый контейнер;
 - `npm run test:e2e:db` — поднять базу E2E в Docker (порт 5434 доступен
   только через `127.0.0.1`, профиль `e2e`);
@@ -724,6 +727,16 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   realtime `after()`, stale `PENDING` attachments и Auth.js до появления
   пользовательского контекста. Детали и откат — в
   `DATABASE_SECURITY_PLAN.md`.
+- 2026-08-13: подготовлен этап runtime least privilege без RLS. По фактическим
+  Prisma/Auth.js/raw SQL обращениям зафиксирована точная DML-матрица; runtime
+  не получает DDL, ownership, role attributes, membership, доступ к
+  `_prisma_migrations` и автоматические права на будущие объекты. Добавлены
+  read-only catalog audit и fail-closed role configurator с exact-host guard,
+  транзакционными `REVOKE/GRANT`, post-apply переподключением и rollback-планом.
+  На Docker PostgreSQL весь integration suite прошёл под restricted role:
+  16 файлов, 213 тестов, включая Google OAuth/session adapter и отрицательные
+  privilege-проверки. Preview/Production роли и Vercel `DATABASE_URL` ещё не
+  менялись; облачный read-only audit остаётся обязательным перед Preview.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как

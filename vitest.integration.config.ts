@@ -23,10 +23,16 @@ const serverOnlyStub = fileURLToPath(
 const TEST_DATABASE_URL =
   process.env.DATABASE_URL ??
   "postgresql://postgres:postgres@localhost:5433/smartlists_test";
+const TEST_ADMIN_DATABASE_URL =
+  process.env.TEST_ADMIN_DATABASE_URL ??
+  process.env.DIRECT_URL ??
+  TEST_DATABASE_URL;
 
-// Prisma Client и миграции читают DATABASE_URL/DIRECT_URL из окружения.
+// Actions используют runtime URL. Миграции и очистка fixtures могут получить
+// отдельный admin URL, чтобы restricted runtime не требовал DDL/TRUNCATE.
 process.env.DATABASE_URL = TEST_DATABASE_URL;
-process.env.DIRECT_URL = TEST_DATABASE_URL;
+process.env.DIRECT_URL = TEST_ADMIN_DATABASE_URL;
+process.env.TEST_ADMIN_DATABASE_URL = TEST_ADMIN_DATABASE_URL;
 
 // Actions логируют ошибки через pino; в тестах ожидаемые ошибки (отказ доступа,
 // конфликт версий) — это норма, а не повод засорять вывод. Глушим логгер.
