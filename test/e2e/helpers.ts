@@ -228,6 +228,89 @@ async function dragRowOnto(
   await page.mouse.up();
 }
 
+/**
+ * Перетаскивает запись за ручку на карточку другого списка.
+ *
+ * Целится в центр карточки-получателя: цель ищется по геометрии карточек
+ * (`src/lib/item-drop.ts`), и попадание в её середину не зависит от того,
+ * сколько в ней записей и свёрнута ли она.
+ *
+ * `beforeDrop` вызывается, когда указатель уже над целью, но кнопка ещё не
+ * отпущена — единственный момент, в который видна подсветка карточки.
+ */
+export async function dragItemToList(
+  page: Page,
+  sourceCard: Locator,
+  itemId: string,
+  targetListId: string,
+  beforeDrop?: () => Promise<void>,
+): Promise<void> {
+  const handle = itemRow(sourceCard, itemId)
+    .getByTestId("item-drag-handle")
+    .first();
+  const handleBox = await handle.boundingBox();
+  const targetBox = await listCard(page, targetListId).boundingBox();
+  if (!handleBox || !targetBox) {
+    throw new Error("Не удалось получить геометрию записи и целевой карточки");
+  }
+
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  // Короткое движение распознаёт жест как перетаскивание, а не как клик.
+  await page.mouse.move(startX, startY + 8, { steps: 3 });
+  await page.mouse.move(
+    targetBox.x + targetBox.width / 2,
+    targetBox.y + targetBox.height / 2,
+    { steps: 24 },
+  );
+  await beforeDrop?.();
+  await page.mouse.up();
+}
+
+/**
+ * Перетаскивает запись за ручку в произвольную точку окна.
+ *
+ * Нужен для броска мимо карточек: там нет цели, по которой можно построить
+ * координаты, а именно отсутствие цели и проверяется.
+ */
+export async function dragItemToPoint(
+  page: Page,
+  sourceCard: Locator,
+  itemId: string,
+  point: { x: number; y: number },
+  beforeDrop?: () => Promise<void>,
+): Promise<void> {
+  const handle = itemRow(sourceCard, itemId)
+    .getByTestId("item-drag-handle")
+    .first();
+  const handleBox = await handle.boundingBox();
+  if (!handleBox) throw new Error("Не удалось получить геометрию ручки записи");
+
+  const startX = handleBox.x + handleBox.width / 2;
+  const startY = handleBox.y + handleBox.height / 2;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX, startY + 8, { steps: 3 });
+  await page.mouse.move(point.x, point.y, { steps: 24 });
+  await beforeDrop?.();
+  await page.mouse.up();
+}
+
+/**
+ * Вычисленное `pointer-events` элемента.
+ *
+ * На время жеста страница перестаёт отвечать на наведение, и проверить это
+ * можно только вычисленным стилем: подсветка задана десятками разных утилит
+ * Tailwind, а общий у них — сам факт попадания курсора в элемент.
+ */
+export async function pointerEvents(target: Locator): Promise<string> {
+  return target.evaluate((node) => getComputedStyle(node).pointerEvents);
+}
+
 /** Названия пользовательских групп в текущем визуальном порядке. */
 export async function groupNames(page: Page): Promise<string[]> {
   return page.locator('[data-testid="group-chip"]:visible').allTextContents();
