@@ -35,6 +35,14 @@ import {
 } from "react";
 import { Reorder, useDragControls, type DragControls } from "framer-motion";
 import { beginDrag, endDrag } from "@/lib/drag-gate";
+import {
+  captureDropTargets,
+  listIdAtPoint,
+  pointerPoint,
+  setDropHighlight,
+  windowScroll,
+  type DropTargets,
+} from "@/lib/item-drop";
 import { useListsApi } from "@/components/providers/ListsApiProvider";
 import { useListsDirectory } from "@/components/providers/ListsDirectoryProvider";
 import toast from "react-hot-toast";
@@ -267,6 +275,7 @@ function DraggableItemRow({
   testId = "item",
   isDragActive,
   onDragStart,
+  onDragMove,
   onDragEnd,
   children,
 }: {
@@ -277,15 +286,38 @@ function DraggableItemRow({
   /** Идёт ли перетаскивание хоть какой-нибудь записи в этом списке. */
   isDragActive: boolean;
   onDragStart: () => void;
+  /**
+   * Кадр жеста. Нужен только верхнему уровню — по координатам указателя
+   * ищется карточка-получатель; сам порядок внутри списка ведёт `Reorder`.
+   */
+  onDragMove?: (event: MouseEvent | TouchEvent | PointerEvent) => void;
   onDragEnd: () => void;
   children: (dragControls: DragControls) => ReactNode;
 }) {
   const dragControls = useDragControls();
 
+  /**
+   * Границы жеста — контейнер, в котором строка живёт: `ul` своего уровня.
+   *
+   * Берётся из DOM, а не пропом, потому что верен для обоих уровней разом:
+   * у пункта родитель — группа списка, у подпункта — группа его блока. Проп
+   * пришлось бы протаскивать через `SubItemsList`, а ref на группу подпунктов
+   * создавать по одному на пункт — в цикле по записям хук не вызвать.
+   *
+   * Без этих границ строку можно было утащить куда угодно по вертикали: при
+   * переносе в другой список она ехала за курсором через всю страницу, и
+   * читать по ней, куда именно ляжет запись, становилось невозможно. Теперь
+   * за пределами списка за курсором едет только плашка.
+   */
+  const constraintsRef = useRef<HTMLElement | null>(null);
+
   return (
     <Reorder.Item
       as="li"
       value={item}
+      ref={(node: HTMLLIElement | null) => {
+        constraintsRef.current = node?.parentElement ?? null;
+      }}
       // Только позиция, без размеров. По умолчанию Reorder.Item ставит
       // layout={true} и анимирует в том числе высоту — а высота строки меняется
       // при раскрытии заметки. Framer анимирует размер через scale, поэтому
@@ -314,13 +346,19 @@ function DraggableItemRow({
       dragListener={false}
       dragControls={dragControls}
       onDragStart={onDragStart}
+      onDrag={onDragMove}
       onDragEnd={onDragEnd}
       // Инерция после отпускания в списке читается как «строка отскочила»:
       // запись должна замереть там, где её отпустили.
       dragMomentum={false}
-      // Небольшое сопротивление на краях группы: строка не улетает за пределы
-      // списка, но и не выглядит намертво прибитой.
-      dragElastic={0.12}
+      // Строка не покидает свой список: дальше её место всё равно не задаётся
+      // порядком, а при переносе в другую карточку уехавшая через полстраницы
+      // строка только мешает понять, куда ляжет запись.
+      dragConstraints={constraintsRef}
+      // Мягкий край вместо жёсткого упора. Доля мала намеренно: она берётся от
+      // всего перелёта, а он при переносе в другой список измеряется сотнями
+      // пикселей — на прежних 0.12 строка заметно выползала бы из карточки.
+      dragElastic={0.05}
       // Подъём строки под курсором. Тень и масштаб дают физическое ощущение
       // «взяли в руку»; без этого строка визуально неотличима от остальных.
       whileDrag={{ scale: 1.02 }}
@@ -812,6 +850,20 @@ export default function SmartList({
   const canReorderItems = visibleItemIds === null && activeItemsCount > 1;
 
   /**
+   * Доступен ли жест на верхнем уровне.
+   *
+   * Условие шире, чем у перестановки, и разошлись они не случайно: переставлять
+   * нечего, пока запись одна, а вот унести её в другой список хочется как раз
+   * чаще всего — «одна запись» и «некуда двигать» перестали быть одним и тем
+   * же с появлением броска на чужую карточку. Поиск запрещает и то и другое:
+   * видно подмножество, и соседи по экрану не соседи по списку.
+   */
+  const canDragItems =
+    visibleItemIds === null &&
+    activeItemsCount > 0 &&
+    (canReorderItems || hasMoveTargets);
+
+  /**
    * Перемещает запись на одну позицию вверх или вниз среди невыполненных
    * записей её уровня — доступная с клавиатуры альтернатива жесту.
    *
@@ -1029,6 +1081,29 @@ export default function SmartList({
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
 
   /**
+   * Снимок карточек-целей на время жеста. null — цели не нужны: жест идёт на
+   * уровне подпунктов либо в пространстве нет других списков.
+   */
+  const dropTargetsRef = useRef<DropTargets | null>(null);
+
+  /**
+   * Карточка-получатель под указателем. Ref, а не состояние: значение
+   * обновляется на каждом кадре жеста, а перерисовывать по нему нечего —
+   * подсветка целевой карточки и положение превью живут прямо в DOM.
+   */
+  const dropTargetIdRef = useRef<string | null>(null);
+
+  /** Плашка, следующая за указателем за пределами своей карточки. */
+  const dragPreviewRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Идёт ли жест, начатый в этом списке. Нужен только уборке при
+   * размонтировании: следы жеста лежат вне поддерева компонента — на `body` и
+   * на чужой карточке, — и сами бы не убрались.
+   */
+  const dragActiveRef = useRef(false);
+
+  /**
    * Классы строки.
    *
    * `transition-colors`, а НЕ `transition-all`: перетаскиваемую строку двигает
@@ -1064,6 +1139,53 @@ export default function SmartList({
     setDraggingItemId(item.id);
     // Фиксируем текущий порядок как стартовый — дальше им управляет onReorder.
     setDragOrder({ level, items: siblings });
+
+    // Гасим отклик страницы на наведение: по дороге курсор проходит над
+    // вкладками, кнопками и чужими записями, а бросок туда ничего не делает
+    // (правило — в `globals.css`). Касается любого жеста записи, не только
+    // переноса в другой список.
+    dragActiveRef.current = true;
+    document.body.dataset.itemDragging = "true";
+
+    // Цели переноса снимаются один раз на жест и только для пунктов верхнего
+    // уровня: подпункт принадлежит родителю и отдельно в другой список не
+    // едет — то же самое проверяет и сервер.
+    dropTargetIdRef.current = null;
+    dropTargetsRef.current =
+      level === null && hasMoveTargets ? captureDropTargets() : null;
+  };
+
+  /**
+   * Ищет карточку-получателя на кадре жеста.
+   *
+   * Состояние React здесь не участвует вовсе: кадров десятки в секунду, а
+   * перерисовывать нужно ноль компонентов. Подсветку целевой карточки ставит
+   * `setDropHighlight` (карточка чужая и мемоизированная), положение превью
+   * пишется в его собственный узел.
+   */
+  const handleDragMove = (event: MouseEvent | TouchEvent | PointerEvent) => {
+    const targets = dropTargetsRef.current;
+    if (!targets) return;
+
+    const point = pointerPoint(event);
+    if (!point) return;
+
+    const overListId = listIdAtPoint(targets, point, windowScroll());
+    const targetId = overListId && overListId !== listId ? overListId : null;
+
+    if (targetId !== dropTargetIdRef.current) {
+      dropTargetIdRef.current = targetId;
+      setDropHighlight(targetId);
+    }
+
+    // Превью появляется, как только указатель ушёл со своей карточки: строку
+    // `Reorder` двигает только по вертикали, а колонки стоят горизонтально —
+    // за курсором в соседнюю она не пойдёт, и следовать за ним нечему.
+    const preview = dragPreviewRef.current;
+    if (preview) {
+      preview.style.display = overListId === listId ? "none" : "flex";
+      preview.style.transform = `translate3d(${point.x + 14}px, ${point.y + 14}px, 0)`;
+    }
   };
 
   /**
@@ -1077,8 +1199,25 @@ export default function SmartList({
     endDrag();
     setDraggingItemId(null);
 
+    const dropTargetId = dropTargetIdRef.current;
+    dropTargetsRef.current = null;
+    dropTargetIdRef.current = null;
+    dragActiveRef.current = false;
+    setDropHighlight(null);
+    delete document.body.dataset.itemDragging;
+
     const finalOrder = dragOrder?.level === level ? dragOrder.items : null;
     setDragOrder(null);
+
+    // Бросок на чужую карточку — перенос, а не перестановка. Набранный по
+    // дороге порядок не сохраняется: запись уезжает из этого списка целиком,
+    // и `moveItem` рядом с `moveItemToList` означал бы две записи в БД ради
+    // соседства, которого через мгновение не станет.
+    if (dropTargetId) {
+      handleMoveItemToList(item, dropTargetId, "move");
+      return;
+    }
+
     if (!finalOrder) return;
 
     const index = finalOrder.findIndex((entry) => entry.id === item.id);
@@ -1113,6 +1252,27 @@ export default function SmartList({
       }
     });
   };
+
+  /**
+   * Запись, которую жест способен увести в другой список: перетаскивают пункт
+   * верхнего уровня и цели существуют. null — превью показывать не для чего.
+   */
+  const draggedAwayItem =
+    hasMoveTargets && draggingItemId !== null && dragOrder?.level === null
+      ? (nodeById.get(draggingItemId)?.item ?? null)
+      : null;
+
+  // Жест мог оборваться размонтированием карточки — сменой группы или
+  // пространства прямо во время перетаскивания. Оба следа жеста лежат вне
+  // поддерева этого компонента: подсветка на чужой карточке, запрет наведения
+  // на `body`. Страница без второго осталась бы вовсе некликабельной.
+  useEffect(() => {
+    return () => {
+      if (!dragActiveRef.current) return;
+      setDropHighlight(null);
+      delete document.body.dataset.itemDragging;
+    };
+  }, []);
 
   /**
    * Рендерит содержимое строки записи.
@@ -1879,17 +2039,19 @@ export default function SmartList({
         {/* -----------------------------------------------------------------------
           Список записей.
 
-          Когда порядок менять можно, невыполненные блоки живут внутри
-          Reorder.Group, а выполненные идут следом обычными li: перетаскивать
-          их некуда, нумерации у них нет. Плоский ul остаётся для случаев,
-          когда перетаскивание неуместно — активный поиск или одна запись.
+          Когда жест доступен, невыполненные блоки живут внутри Reorder.Group,
+          а выполненные идут следом обычными li: переставлять их некуда,
+          нумерации у них нет, и в другой список они уходят только через меню.
+          Плоский ul остаётся для случаев, когда жеста нет вовсе, — активный
+          поиск, пустой список и единственная запись в единственном списке.
       ----------------------------------------------------------------------- */}
-        {canReorderItems ? (
+        {canDragItems ? (
           <Reorder.Group
             as="ul"
             axis="y"
             values={draggableItems}
             onReorder={(items) => setDragOrder({ level: null, items })}
+            data-testid="items-list"
             className="mb-4 divide-y divide-gray-100 dark:divide-zinc-800"
           >
             {draggableItems.map((item) => {
@@ -1904,6 +2066,7 @@ export default function SmartList({
                   onDragStart={() =>
                     handleDragStart(null, item, activeVisibleItems)
                   }
+                  onDragMove={hasMoveTargets ? handleDragMove : undefined}
                   onDragEnd={() => handleDragEnd(null, item, activeVisibleItems)}
                 >
                   {(dragControls) => renderNode(node, dragControls)}
@@ -1923,7 +2086,10 @@ export default function SmartList({
             ))}
           </Reorder.Group>
         ) : (
-          <ul className="mb-4 divide-y divide-gray-100 dark:divide-zinc-800">
+          <ul
+            data-testid="items-list"
+            className="mb-4 divide-y divide-gray-100 dark:divide-zinc-800"
+          >
             {visibleNodes.map((node) => (
               <li
                 key={node.item.id}
@@ -2090,6 +2256,34 @@ export default function SmartList({
           }
           onClose={() => setItemToMove(null)}
         />
+      )}
+
+      {/* Плашка, следующая за указателем за пределами своей карточки.
+          Сама строка туда не доедет: `Reorder.Group axis="y"` двигает её
+          только по вертикали, а карточки стоят в колонках — уже соседняя
+          колонка для неё недостижима. Поэтому за курсор цепляется отдельное
+          превью, как overlay у перетаскиваемых карточек списков.
+
+          Положение и видимость пишутся прямо в DOM из `handleDragMove`:
+          через состояние каждый кадр жеста перерисовывал бы весь список.
+          Начальный `display: none` — на старте указатель всегда внутри своей
+          карточки, и показывать превью там нечего и незачем. */}
+      {draggedAwayItem && (
+        <div
+          ref={dragPreviewRef}
+          aria-hidden
+          data-testid="item-drag-preview"
+          style={{
+            display: "none",
+            transform: "translate3d(-9999px, -9999px, 0)",
+          }}
+          className="pointer-events-none fixed left-0 top-0 z-50 max-w-64 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/70"
+        >
+          <span className="shrink-0 text-gray-400 dark:text-zinc-500">
+            <MoveToListIcon size={15} />
+          </span>
+          <span className="truncate">{draggedAwayItem.name}</span>
+        </div>
       )}
     </>
   );

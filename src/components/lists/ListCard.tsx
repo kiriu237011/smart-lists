@@ -45,6 +45,7 @@ import {
   TrashIcon,
 } from "@/components/lists/Notes";
 import { buildItemTree } from "@/lib/item-tree";
+import { DROP_TARGET_ATTR } from "@/lib/item-drop";
 import { ArrowDown, ArrowUp, Sparkles } from "lucide-react";
 import toast from "react-hot-toast";
 import { setListAiEnabled } from "@/app/actions";
@@ -569,7 +570,14 @@ const ListCard = memo(function ListCard({
       data-list-id={list.id}
       data-list-role={isOwner ? "owner" : "editor"}
       data-collapsed={isBodyHidden}
-      className="border border-gray-100 dark:border-transparent p-6 rounded-xl shadow-sm dark:shadow-lg dark:shadow-black/50 bg-white dark:bg-zinc-900"
+      /* Карточка объявляет себя целью для записи, которую тащат из другого
+         списка. Атрибут отдельный от `data-list-id`: тот адресует карточку
+         вообще, а этот — только для геометрии броска, и по нему же идёт
+         поиск целей (`src/lib/item-drop.ts`). Подсветку ставит и снимает тот
+         же модуль прямой записью в DOM — карточка мемоизирована, и
+         перерисовывать её на каждое пересечение границы незачем. */
+      {...{ [DROP_TARGET_ATTR]: list.id }}
+      className="border border-gray-100 dark:border-transparent p-6 rounded-xl shadow-sm dark:shadow-lg dark:shadow-black/50 bg-white dark:bg-zinc-900 data-[item-drop-active=true]:ring-2 data-[item-drop-active=true]:ring-gray-800 dark:data-[item-drop-active=true]:ring-zinc-200"
     >
       {/* Заголовок и кнопки управления. Разделительная черта и отступ под ней
           нужны, только если ниже что-то есть: у свёрнутой карточки без открытой
