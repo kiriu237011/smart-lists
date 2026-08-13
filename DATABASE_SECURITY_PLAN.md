@@ -115,6 +115,15 @@ RLS-состояние. Connection string и строки данных не вы
 контракт. Существующий пароль не меняется без отдельного
 `--rotate-password`; пароль и runtime URL никогда не печатаются.
 
+`npm run db:configure-operational-roles` также работает plan-only по умолчанию.
+Apply требует `-- --apply --scope=migration` либо `--scope=backup`, direct
+`DIRECT_URL`, exact `EXPECTED_DATABASE_HOST` и пароль только выбранной роли.
+`migration` создаёт/проверяет `NOLOGIN` owner и migrator, передаёт ownership и
+проверяет автоматический `SET ROLE`; `backup` отдельно создаёт read-only роль
+и её default privileges. Любой неожиданный table/type/sequence/view/routine/
+domain, owner, role attribute, setting, membership или default ACL прекращает
+транзакцию. Скрипт повторно подключается новыми credentials и не выводит их.
+
 До применения в любой облачной среде read-only audit обязан подтвердить её
 фактическую роль и endpoint. Метаданных Vercel недостаточно: `DATABASE_URL`
 имеет тип `sensitive`, его значение нельзя считать обратно через CLI. Для
@@ -302,10 +311,15 @@ Runtime не переключается и не redeploy-ится.
 workflow повторяется. Ограниченные роли не удаляются: их переводят в `NOLOGIN`
 при подозрении на credential compromise и ротируют пароль после разбора.
 
-**Статус 2026-08-13:** design, live read-only audit и локальная проверка
-семантики PostgreSQL 17 завершены. Роли Neon, ownership и GitHub secrets на
-этом подэтапе не менялись. Следующий шаг — реализация и тест configurator в
-репозитории; Preview apply требует отдельного подтверждения.
+**Статус 2026-08-13:** design, live read-only audit и implementation
+configurator завершены. На чистой PostgreSQL 17 применены 18 миграций,
+раздельно и повторно выполнены `migration`/`backup` scopes, no-op Prisma прошёл
+под migrator, 213 integration-тестов — под runtime. Лишний owner-member дал
+ожидаемый fail-closed отказ; `pg_dump` восстановлен в отдельную БД с совпавшей
+схемой и контрольной строкой. Полная проверка включена в CI командой
+`test:integration:roles`. Роли Neon, ownership и GitHub secrets не менялись.
+Следующий шаг — отдельный go/no-go на Preview `scope=migration`; backup scope в
+Preview не применяется.
 
 ## Контексты запросов
 

@@ -447,10 +447,16 @@ AI-сервис вызывается с сервера и в политику н
 - `npm run test:integration:db` — поднять тестовый PostgreSQL в Docker
   (порт 5433 доступен только через `127.0.0.1`);
 - `npm run test:integration` — интеграционные тесты Server Actions против этой БД;
-- `npm run test:integration:runtime` — создаёт/сверяет в test-БД роль
-  `smartlists_runtime`, оставляет миграции и очистку fixtures владельцу и
-  проверяет повторную ротацию пароля, затем запускает тот же integration suite
-  уже под ограниченной ролью;
+- `npm run db:configure-operational-roles` — plan-only configurator ролей
+  `smartlists_owner`, `smartlists_migrator`, `smartlists_backup`; apply требует
+  явного scope, exact host и отдельные пароли, не печатает credentials;
+- `npm run test:integration:roles` — на чистой test-БД применяет миграции,
+  создаёт и повторно ротирует runtime/migrator/backup, запускает no-op Prisma
+  migration под migrator и 213 integration-тестов под runtime, доказывает
+  fail-closed отказ при лишнем owner-member и выполняет полный
+  `pg_dump -> pg_restore` с проверкой контрольной строки;
+- `npm run test:integration:runtime` — совместимый alias той же полной
+  role-integration проверки;
 - `npm run test:integration:db:down` — погасить тестовый контейнер;
 - `npm run test:e2e:db` — поднять базу E2E в Docker (порт 5434 доступен
   только через `127.0.0.1`, профиль `e2e`);
@@ -793,6 +799,19 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   подтвердил ownership новых объектов, сохранение runtime ACL и полный dump
   при forced RLS. Инфраструктура на design-подэтапе не менялась; точный порядок
   и rollback записаны в `DATABASE_SECURITY_PLAN.md`.
+- 2026-08-13: implementation-подэтап owner/migrator/backup подготовлен без
+  изменения Neon. Единый fail-closed contract перечисляет 15 таблиц, три enum
+  и пустые разрешённые наборы sequences/views/routines/domains; новая сущность
+  требует явного review сразу для runtime и operational ролей. Configurator
+  имеет раздельные `migration` и `backup` scopes, exact-host/direct-endpoint
+  guard, транзакционный apply, idempotent rotation и post-connect проверку
+  ownership, role settings, membership, default privileges и неизменности
+  runtime ACL. Чистый PostgreSQL 17 прогон применил 18 миграций, повторил оба
+  scope, получил no-op Prisma под migrator, прошёл 16 integration-файлов/213
+  тестов под runtime, отверг лишнего owner-member и восстановил backup вместе
+  с контрольной строкой. CI теперь запускает эту полную проверку. Live-роли,
+  ownership и GitHub secrets по-прежнему не менялись; следующий отдельный шаг
+  требует go/no-go на Preview migration scope.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как

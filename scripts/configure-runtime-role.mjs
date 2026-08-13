@@ -1,44 +1,16 @@
 import pg from "pg";
 import { createHash } from "node:crypto";
 
+import {
+  ALL_TABLE_PRIVILEGES,
+  DATABASE_ROLES,
+  EXPECTED_TABLES,
+  RUNTIME_TABLE_PRIVILEGES,
+} from "./database-role-contract.mjs";
+
 const { Client } = pg;
 
-const RUNTIME_ROLE = "smartlists_runtime";
-const EXPECTED_TABLES = [
-  "Account",
-  "AllowedEmail",
-  "AppSetting",
-  "Attachment",
-  "Item",
-  "List",
-  "ListGroup",
-  "ListShare",
-  "Session",
-  "Space",
-  "User",
-  "UserDailyUsage",
-  "VerificationToken",
-  "_ListGroupMembers",
-  "_prisma_migrations",
-];
-
-const TABLE_PRIVILEGES = {
-  Account: ["SELECT", "INSERT"],
-  AllowedEmail: ["SELECT"],
-  AppSetting: ["SELECT"],
-  Attachment: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  Item: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  List: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  ListGroup: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  ListShare: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  Session: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  Space: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  User: ["SELECT", "INSERT", "UPDATE"],
-  UserDailyUsage: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  VerificationToken: [],
-  _ListGroupMembers: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  _prisma_migrations: [],
-};
+const RUNTIME_ROLE = DATABASE_ROLES.runtime;
 
 const apply = process.argv.includes("--apply");
 const rotatePassword = process.argv.includes("--rotate-password");
@@ -200,16 +172,15 @@ async function verifyRuntimeRole(connectionString) {
         `SELECT privilege
          FROM pg_class relation
          JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
-         CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE',
-                                 'TRUNCATE', 'REFERENCES', 'TRIGGER']) AS privilege
+         CROSS JOIN unnest($2::text[]) AS privilege
          WHERE namespace.nspname = 'public'
            AND relation.relname = $1
            AND has_table_privilege(current_user, relation.oid, privilege)`,
-        [table],
+        [table, ALL_TABLE_PRIVILEGES],
       );
       assertSameValues(
         privilegeResult.rows.map((row) => row.privilege),
-        TABLE_PRIVILEGES[table],
+        RUNTIME_TABLE_PRIVILEGES[table],
         `Права runtime на ${table}`,
       );
     }
@@ -232,7 +203,7 @@ async function main() {
       role: RUNTIME_ROLE,
       endpointFingerprint: fingerprint(adminUrl.hostname),
       rotatePassword,
-      tablePrivileges: TABLE_PRIVILEGES,
+      tablePrivileges: RUNTIME_TABLE_PRIVILEGES,
       denied: [
         "database CREATE",
         "schema CREATE",
@@ -316,7 +287,7 @@ async function main() {
       `REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM ${roleIdentifier}`,
     );
 
-    for (const [table, privileges] of Object.entries(TABLE_PRIVILEGES)) {
+    for (const [table, privileges] of Object.entries(RUNTIME_TABLE_PRIVILEGES)) {
       if (privileges.length === 0) continue;
       await client.query(
         `GRANT ${privileges.join(", ")} ON TABLE ${client.escapeIdentifier(table)} ` +
