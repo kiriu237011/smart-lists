@@ -15,8 +15,7 @@
 **Общий статус: контролируемый. Известных критических незакрытых угроз нет.**
 
 - приоритет 1 закрыт полностью;
-- приоритет 2 закрыт; Postgres runtime без DDL включён в Preview, а Production
-  пока сохраняет владельческую роль до отдельного go/no-go;
+- приоритет 2 закрыт; Postgres runtime без DDL включён в Preview и Production;
 - неизвестных (`unknown`) после проверки инфраструктуры не осталось;
 - основные остаточные риски — отсутствие audit trail, конфигурационный drift
   внешней инфраструктуры, отсутствие tenant-RLS и приватность
@@ -40,7 +39,7 @@ AI; удаление и повторяемая уборка объектов з�
 | Вложения и бэкапы | **partial / accepted** | приватные бакеты, SSE-S3, versioning и проверенный restore; остаются TOCTOU и отсутствие data events |
 | Realtime | **closed / partial** | персональные private-каналы с пустым payload; при исчерпании квоты теряется только realtime |
 | AI-сервис | **partial / accepted** | анонимный вызов закрыт и статических секретов нет; приватность свободного текста и передача провайдеру остаются остаточными рисками |
-| База данных | **partial / accepted** | Preview runtime отделён от DDL/ownership; Production пока использует owner, tenant-RLS ещё не включён |
+| База данных | **partial / accepted** | runtime обеих сред отделён от DDL/ownership; tenant-RLS ещё не включён, разрешённые таблицы доступны role-wide |
 | Атрибуция изменений | **gap / accepted** | полноценного audit trail нет; риск принят для малого доверенного круга |
 | Конфигурация инфраструктуры | **partial** | критичные симптомы исправлены; `AGENTS.md` требует impact-check до и после значимых правок, но часть гарантий всё ещё живёт вне репозитория и CI |
 
@@ -52,9 +51,9 @@ AI; удаление и повторяемая уборка объектов з�
   2026-08-12. Release-контур этапа 2a проверен no-op миграциями Production и
    Preview 2026-08-13, обязательный Deployment Check доказан контрольным
    release. Cutover PR №64 прошёл в обеих средах, после чего `DIRECT_URL` удалён
-   из Vercel Production и Preview. Runtime без DDL включён и проверен в Preview
-   2026-08-13; следующий шаг — отдельный Production go/no-go. Scoped-контекст и
-   RLS также ещё не внедрены.
+   из Vercel Production и Preview. Runtime без DDL включён и автоматически
+   проверен в обеих средах 2026-08-13; Preview также прошёл ручной gate, для
+   Production он ожидается. Scoped-контекст и RLS ещё не внедрены.
    Матрица и gate:
    `DATABASE_SECURITY_PLAN.md`.
 3. **Infrastructure drift:** IAM, versioning, CORS, Force TLS и настройки Neon
@@ -182,7 +181,7 @@ FastAPI к базе не обращается: весь контекст соб�
 |---|---|---|
 | **OAuth-токены Google** (`Account.access_token`, `refresh_token`, `id_token`) | Neon, а также в каждом дампе `backups/*` | Единственный актив, чей ущерб **выходит за пределы Smart Lists** — даёт доступ к Google-аккаунту пользователя |
 | ~~`ANTHROPIC_API_KEY`~~ | **упразднён 2026-08-10** | Актива больше нет. Сервис предъявляет Anthropic ID-токен своей личности в Cloud Run и получает доступ на 10 минут; ключ отозван, старые ревизии удалены |
-| **`DATABASE_URL` / `DIRECT_URL`** | runtime `DATABASE_URL` в Vercel; migration `DIRECT_URL` только в GitHub Environments и локальном `.env`, отдельное значение у backup workflow | Полный доступ к БД; текущая runtime-роль пока имеет права DDL, но владельческий migration credential приложению недоступен |
+| **`DATABASE_URL` / `DIRECT_URL`** | restricted runtime `DATABASE_URL` в Vercel; migration `DIRECT_URL` только в GitHub Environments и локальном `.env`, отдельное значение у backup workflow | Runtime не имеет DDL/ownership, но до RLS может обращаться ко всем строкам разрешённых таблиц; владельческий migration credential приложению недоступен |
 | ~~`INSIGHTS_SERVICE_SECRET`~~ | **удалён 2026-08-09** | Актива больше нет: аутентификация перешла на короткоживущий ID-токен, ротировать нечего |
 | **Статические ключи IAM (Vercel)** | env Vercel | `PutObject`/`GetObject`/`DeleteObject` на `lists/*` |
 | Содержимое списков и заметок | Neon, дампы, транзитом в Anthropic | Персональные данные пользователей |
@@ -226,22 +225,24 @@ FastAPI к базе не обращается: весь контекст соб�
 
 | Буква | Статус | Суть |
 |---|---|---|
-| T | partial | Preview использует restricted runtime; Production пока остаётся на owner с DDL; ручной канал `AllowedEmail`/`AppSetting` |
+| T | partial | обе среды используют restricted runtime без DDL; до RLS остаётся role-wide DML и ручной канал `AllowedEmail`/`AppSetting` |
 | R | **gap / accepted** | атрибуция пользователей на уровне БД архитектурно недостижима |
 | I | partial | write-путь бэкапов изолирован и зашифрован; read-путь восстановления использует личные админские права |
 | D | partial / accepted | restore проверен; реплики и деградированного режима нет, удаление ветки не блокируется тарифом |
 
-**T.** В Preview `DATABASE_URL` уже ограничен точной DML-матрицей без DDL и
-ownership. В Production компрометация env Vercel пока всё ещё означает не
-только «прочитать данные», но и возможность DDL через owner credential.
+**T.** В обеих средах `DATABASE_URL` ограничен точной DML-матрицей без DDL и
+ownership. Компрометация runtime credential больше не позволяет менять схему,
+роли или migration metadata, но до RLS даёт доступ ко всем строкам разрешённых
+таблиц.
 
 **Разобрано 2026-08-10, предпосылка закрыта 2026-08-13.** На тот момент
 очевидная мера — завести runtime-роль без прав DDL — не закрывала сценарий:
 `build:deploy` применял миграции внутри Vercel под соседним `DIRECT_URL`. После
 проверенного Production и Preview release-cutover владельческий migration
 credential удалён из обоих Vercel environments. Сужение `DATABASE_URL` теперь
-действительно ограничивает процесс: в Preview оно внедрено и вручную проверено;
-для Production остаётся отдельный go/no-go.
+действительно ограничивает процесс: в Preview оно внедрено и вручную проверено,
+в Production внедрено и прошло автоматический post-cutover audit; ручной gate
+Production ожидается.
 
 **Направление усиления зафиксировано 2026-08-12.** Принят staged-переход:
 release-миграции вне Vercel → runtime least privilege → транзакционный контекст
@@ -287,7 +288,11 @@ runs `31652132055` и `31652333174` подтвердили, что secrets за�
 миграций в отдельный release workflow, где владельческий секрет недоступен
 runtime. Только затем разделение ролей становится фактическим контролем.
 
-**R.** Все пользователи ходят под одним коннектом — даже полное логирование DML дало бы строки вида «роль `owner` выполнила `DELETE`». Атрибуция обязана жить в слое приложения; провал R на Server Actions логами базы не чинится. Ручной канал `AllowedEmail` / `AppSetting` — единственное место, где база могла бы быть источником атрибуции, и там её нет.
+**R.** Все пользователи ходят под одним коннектом — даже полное логирование DML
+дало бы строки вида «роль `smartlists_runtime` выполнила `DELETE`». Атрибуция
+обязана жить в слое приложения; провал R на Server Actions логами базы не
+чинится. Ручной канал `AllowedEmail` / `AppSetting` — единственное место, где
+база могла бы быть источником атрибуции, и там её нет.
 
 **I.** Дамп содержит email, OAuth-токены и всё содержимое списков. Каналы чтения: прямой коннект, консоль Neon, дампы в S3, ветки Neon. Веток проверено 2026-08-09: две — `production` и `dev`, то есть ровно те, что описаны в `PROJECT_MEMORY.md`. Неучтённой копии продовых данных нет; допущение A11 держится.
 
@@ -677,7 +682,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | ~~2.2~~ | ~~Versioning на бакете вложений~~ | Mitigate | ✅ **Сделано 2026-08-10** на обоих бакетах вложений. Lifecycle отличается от бэкапного одной строкой, и это существенно: у бэкапов `Expiration` текущих версий нужен, у пользовательских файлов он означал бы пропажу по расписанию — поэтому здесь ограничены только noncurrent-версии, 30 дней. Проверено учением на dev: удаление ключом приложения, delete marker, восстановление |
 | ~~2.3~~ | ~~Проверка `AllowedEmail` в `session` callback~~ | Mitigate | ✅ **Сделано 2026-08-10.** Проверка **и** очистка `Session`: одного отказа мало, cookie осталась бы валидной. Покрыто интеграционно (обе функции против живой БД) и E2E (отозванный пользователь оказывается на экране входа) |
 | ~~2.4~~ | ~~Строка в UI о передаче данных; флаг `aiEnabled` на списке~~ | Mitigate | ✅ **Сделано 2026-08-10, оба средства.** Строка закрывает осведомлённость, флаг — субъектность; одно другого не заменяет. Выключить может любой участник: владельческая проверка оставила бы человека, чьи данные уходят, без средств. Запрет проверяется в Action, а не только скрытием кнопки |
-| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Этап 2a завершён; этап 2b включён и прошёл полный Preview gate 2026-08-13.** Target guards и no-op миграции прошли для Production и Preview, production promotion дождался migration job того же SHA, Vercel build больше не применяет миграции, а `DIRECT_URL` удалён из обеих сред Vercel. Точная runtime DML-матрица и идемпотентная ротация проверены на Docker PostgreSQL: 213 integration-тестов прошли под ролью без DDL/BYPASS/ownership. В Neon `dev` роль создана SQL, Vercel Preview переведён на её pooled credential, deployment получил `Ready`, authenticated smoke-check вернул `200`, а post-cutover audit подтвердил контракт. Временный Vercel automation bypass отозван. Ручная проверка подтвердила OAuth/session, CRUD, sharing/права, realtime и вложения; runtime logs чисты. Production не менялся и требует отдельного go/no-go |
+| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Этапы 2a и 2b включены в обеих средах 2026-08-13.** Target guards и no-op миграции прошли для Production и Preview, production promotion дождался migration job того же SHA, Vercel build больше не применяет миграции, а `DIRECT_URL` удалён из обеих сред Vercel. Точная runtime DML-матрица и идемпотентная ротация проверены на Docker PostgreSQL: 213 integration-тестов прошли под ролью без DDL/BYPASS/ownership. Preview прошёл автоматический и ручной gate. В Production SQL-роль создана и проверена, Vercel `DATABASE_URL` переключён, новый deployment получил production alias и `Ready`, публичный smoke-check вернул `200`, post-cutover audit подтвердил контракт. Rollback не потребовался; ручной Production gate ожидается. Следующие архитектурные шаги — owner/migrator/backup separation, scoped context и tenant-RLS |
 | ~~2.6~~ | ~~`USER` в `Dockerfile` сервиса~~ | Mitigate | ✅ **Сделано 2026-08-09.** `USER appuser`, uid 10001. Документ снова вправе считать это контролем — но не более чем сужением ущерба внутри контейнера (A25) |
 | ~~2.7~~ | ~~`openapi_url=None` при `debug=false`~~ | Mitigate | ✅ **Сделано 2026-08-09.** Схема больше не зависит от того, открыт сервис или нет |
 | ~~2.8~~ | ~~Включить Force TLS в приложении Pusher~~ | Mitigate | ✅ **Сделано 2026-08-09** в обоих приложениях, prod и dev. Гарантия перенесена с дефолта `pusher-js` на сервис |
@@ -689,7 +694,7 @@ design и release cutover; каждый следующий этап меняет
 
 | Порядок | Действие | Что меняет |
 |---|---|---|
-| 1 | Повторить проверенный runtime cutover для Production отдельным go/no-go, затем отделить owner/migrator и backup-роли | Ограничивает ущерб от runtime-компрометации во всех средах и завершает разделение обязанностей |
+| 1 | Завершить ручной Production gate, затем отделить owner/migrator и backup-роли и внедрить scoped context | Завершает операционную проверку least privilege и готовит безопасное включение tenant-RLS |
 | 2 | Добавить audit trail для чувствительных мутаций и ручных административных изменений | Закрывает корень C; требует отдельного решения по сроку хранения и приватности |
 | 3 | Добавить `request_id` между Vercel и Cloud Run | Даёт корреляцию инцидента без логирования пользователя и содержимого |
 | 4 | Включить CloudTrail data events хотя бы на бэкап-бакете | Делает чтение, перезапись и удаление объектов наблюдаемыми |
@@ -717,7 +722,7 @@ design и release cutover; каждый следующий этап меняет
 | Квота на юзера (20 файлов) без row-lock | Косметический перебор на 1–2 файла, не cost abuse | Переход на квоту по сумме байт |
 | Ветку `production` можно удалить | Защита веток недоступна на `free_v3`. Компенсация не теоретическая: дампы защищены versioning и проверены на восстановимость 08-09 | Переход на платный тариф Neon — включить защиту сразу |
 | Токен `neonctl` на рабочей машине | Даёт ровно то же, что уже даёт браузерная сессия на том же ПК; удобство перевешивает при одном владельце | Появление второго человека за этой машиной; см. A12 |
-| Production-приложение пока ходит в БД под ролью-владельцем с правами DDL | Preview уже переведён на restricted runtime и доказал путь отката; Production сохраняет прежний credential до отдельного go/no-go. Дампы защищены versioning и проверены на восстановимость, PITR Neon покрывает шесть часов | **Mitigation in progress с 2026-08-12:** release migration/cutover, матрица, rollback, restricted-role tests, cloud audit и Preview credential cutover завершены. Следующие отдельные шаги — Production go/no-go, scoped context и tenant-RLS. Немедленный пересмотр также при втором человеке с доступом к Vercel или снятии whitelist |
+| Runtime credential до RLS имеет table-wide DML в разрешённых таблицах | DDL/ownership уже отозваны в обеих средах, но единая runtime-роль технически может читать и менять чужие строки там, где DML разрешён. Основным контролем остаются `listInSpaceWhere` и ownership-проверки приложения | **Mitigation in progress:** scoped transaction context, policies без enforcement, отрицательные Alice/Bob тесты и поэтапное tenant-RLS. Немедленный пересмотр при втором человеке с доступом к Vercel, снятии whitelist или появлении прямого SQL-пути из недоверенного ввода |
 | Исполнение кода в контейнере сервиса даёт доступ к Anthropic | A25. Токен живёт 10 минут, наружу не выносится и ограничен одним workspace. Альтернатива — вернуть статический ключ, то есть заменить трудную и короткую угрозу на лёгкую и бессрочную | Появление в сервисе пути, исполняющего пользовательский ввод; расширение прав федеративного токена за пределы одного workspace |
 | Федеративный токен Anthropic имеет scope `workspace:developer` | Более узкий `workspace:inference` недоступен правилу федерации; риск ограничен одним workspace и десятью минутами жизни токена | Появление более узкого поддерживаемого scope; добавление второго workspace в правило |
 

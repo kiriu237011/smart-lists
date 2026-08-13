@@ -1,6 +1,6 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этап 2a завершён; этап 2b включён и проверен в Preview, Production ожидает отдельного go/no-go
+**Статус:** этапы 2a и 2b включены в Preview и Production; автоматический Production gate пройден, ручной ожидает подтверждения
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -156,6 +156,17 @@ gate закрыт; следующий инфраструктурный шаг �
 go/no-go. AI намеренно не входит в Preview gate: эта среда не получает
 `INSIGHTS_SERVICE_*` и не допущена GCP federation.
 
+**Production cutover 2026-08-13:** после явного go/no-go в Neon `production`
+SQL-командой создана и post-connect проверена `smartlists_runtime`. Пароль и
+owner rollback URL существовали только в памяти процесса. Vercel Production
+`DATABASE_URL` заменён на pooled runtime credential; deployment
+`dpl_2T9N6y3ugsuWmn7gN4yXQWp2u6YT` для `main` SHA `3213ce7` получил `Ready` и
+production alias. Публичный post-cutover smoke-check вернул `200 /en`, а
+повторный catalog audit подтвердил exact endpoint `eec09bcdb874`, безопасные
+атрибуты роли и точную DML-матрицу. Automation bypass не создавался. Rollback
+не потребовался. До ручной проверки пользовательских потоков Production
+автоматический gate считается пройденным, а полный gate — нет.
+
 Первый пробный cutover был автоматически откачен на owner credential после
 ошибочной трактовки штатного Vercel Authentication `302` как отказа приложения.
 Rollback deployment получил `Ready`; повторная проверка через официальный
@@ -186,8 +197,9 @@ fail-closed, а не получает повторный `ALTER ROLE ... NOSUPER
 Структурный rollback не нужен: создание ограниченной роли и `GRANT` не меняют
 данные, ownership или схему. Функциональный откат — только возврат Vercel на
 прежний credential и redeploy. Автоматические privilege-, deployment- и
-HTTP-проверки, а также ручные пользовательские потоки Preview пройдены.
-Production требует отдельного явного go/no-go.
+HTTP-проверки пройдены в обеих средах; ручные пользовательские потоки Preview
+также пройдены. Для полного Production gate остаётся ручная функциональная
+проверка.
 
 ## Контексты запросов
 
