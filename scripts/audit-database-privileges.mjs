@@ -20,8 +20,8 @@ const endpointFingerprint = createHash("sha256")
   .digest("hex")
   .slice(0, 12);
 
-async function rows(sql) {
-  const result = await client.query(sql);
+async function rows(sql, params = []) {
+  const result = await client.query(sql, params);
   return result.rows;
 }
 
@@ -35,6 +35,47 @@ try {
       current_user AS current_user,
       session_user AS session_user
   `);
+  const targetRoleName = process.env.AUDIT_ROLE ?? connection.current_user;
+
+  const [targetRole] = await rows(`
+    SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
+           rolcanlogin, rolreplication, rolbypassrls
+    FROM pg_roles
+    WHERE rolname = $1
+  `, [targetRoleName]);
+  if (!targetRole) {
+    throw new Error(`Audit role does not exist: ${targetRoleName}`);
+  }
+
+  const targetRoleMemberships = await rows(`
+    SELECT parent.rolname AS granted_role,
+           member.rolname AS member,
+           membership.admin_option,
+           membership.inherit_option,
+           membership.set_option
+    FROM pg_auth_members membership
+    JOIN pg_roles parent ON parent.oid = membership.roleid
+    JOIN pg_roles member ON member.oid = membership.member
+    WHERE parent.rolname = $1 OR member.rolname = $1
+    ORDER BY granted_role, member
+  `, [targetRoleName]);
+
+  const targetRoleRelations = await rows(`
+    SELECT
+      relation.relname AS name,
+      ARRAY(
+        SELECT privilege
+        FROM unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE',
+                          'TRUNCATE', 'REFERENCES', 'TRIGGER']) AS privilege
+        WHERE has_table_privilege($1, relation.oid, privilege)
+        ORDER BY privilege
+      ) AS privileges
+    FROM pg_class relation
+    JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relkind IN ('r', 'p', 'S', 'v', 'm')
+    ORDER BY relation.relname
+  `, [targetRoleName]);
 
   const roles = await rows(`
     WITH RECURSIVE inherited_roles AS (
@@ -129,6 +170,11 @@ try {
       pooled: databaseUrl.hostname.includes("-pooler."),
     },
     connection,
+    auditedRole: {
+      attributes: targetRole,
+      memberships: targetRoleMemberships,
+      relations: targetRoleRelations,
+    },
     roles,
     databasePrivileges,
     schema,

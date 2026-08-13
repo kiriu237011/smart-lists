@@ -1,6 +1,6 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этап 2a завершён — release-контур проверен, Vercel cutover выполнен, `DIRECT_URL` удалён из Production и Preview
+**Статус:** этап 2a завершён; этап 2b включён и проверен в Preview, Production ожидает отдельного go/no-go
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -136,12 +136,25 @@ RLS и policies. Единственная пользовательская login
 `smartlists_runtime` с одноразовым случайным паролем. Скрипт после commit
 переподключился под новой ролью и подтвердил весь контракт: нет membership,
 DDL/BYPASS/role attributes и доступа к `_prisma_migrations`, а DML совпадает с
-матрицей. Пароль не печатался, не сохранялся и больше не известен; перед
-фактическим cutover он будет отдельно ротирован и в той же операции передан в
-Vercel Preview. Control-plane проверка подтвердила наличие роли только в
-`dev`; в `production` по-прежнему существует лишь `neondb_owner`. Vercel
-`DATABASE_URL` ещё не менялся, поэтому приложение пока продолжает работать под
-владельцем и этот подэтап сам по себе не считается действующим контролем.
+матрицей. Control-plane проверка подтвердила наличие роли только в `dev`; в
+`production` по-прежнему существует лишь `neondb_owner`.
+
+**Preview cutover 2026-08-13:** пароль роли ротирован в памяти процесса,
+Vercel Preview `DATABASE_URL` заменён на pooled credential
+`smartlists_runtime`, а deployment `dpl_2Q3NqEW1QfNZxTpa1tRgXaoZwBu6` получил
+`Ready` и постоянный branch alias. Защищённый Vercel Authentication deployment
+проверен через временный automation bypass: приложение ответило `200` на
+`/en`; token сразу отозван, временные OIDC-файлы удалены. Финальный read-only
+audit подтвердил запрещённые role attributes, отсутствие membership в других
+ролях и точную DML-матрицу. Production и его credential не менялись.
+
+Первый пробный cutover был автоматически откачен на owner credential после
+ошибочной трактовки штатного Vercel Authentication `302` как отказа приложения.
+Rollback deployment получил `Ready`; повторная проверка через официальный
+protection bypass отделила ответ приложения от внешнего SSO-редиректа. Также
+исправлена идемпотентная ротация: существующая роль теперь сначала проверяется
+fail-closed, а не получает повторный `ALTER ROLE ... NOSUPERUSER`, запрещённый
+для обычной `CREATEROLE`-роли PostgreSQL 17.
 
 ### Cutover и rollback
 
@@ -164,9 +177,9 @@ Vercel Preview. Control-plane проверка подтвердила налич
 
 Структурный rollback не нужен: создание ограниченной роли и `GRANT` не меняют
 данные, ownership или схему. Функциональный откат — только возврат Vercel на
-прежний credential и redeploy. Production запрещён, пока Preview не прошёл
-полный поток и post-cutover audit не доказал `current_user =
-smartlists_runtime`.
+прежний credential и redeploy. Production запрещён до отдельного go/no-go
+после ручной проверки защищённых пользовательских потоков Preview.
+Автоматические privilege-, deployment- и HTTP-проверки Preview пройдены.
 
 ## Контексты запросов
 

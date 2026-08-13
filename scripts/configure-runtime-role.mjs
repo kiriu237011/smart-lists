@@ -102,6 +102,44 @@ async function listPublicTables(client) {
   return result.rows.map((row) => row.name);
 }
 
+async function assertExistingRuntimeRoleIsRestricted(client) {
+  const roleResult = await client.query(
+    `SELECT rolcanlogin, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
+            rolreplication, rolbypassrls
+     FROM pg_roles
+     WHERE rolname = $1`,
+    [RUNTIME_ROLE],
+  );
+  const role = roleResult.rows[0];
+
+  if (
+    !role?.rolcanlogin ||
+    role.rolsuper ||
+    role.rolinherit ||
+    role.rolcreaterole ||
+    role.rolcreatedb ||
+    role.rolreplication ||
+    role.rolbypassrls
+  ) {
+    throw new Error(
+      "Existing runtime role has unsafe attributes; refusing to change it automatically.",
+    );
+  }
+
+  const membershipResult = await client.query(
+    `SELECT 1
+     FROM pg_auth_members membership
+     JOIN pg_roles member ON member.oid = membership.member
+     WHERE member.rolname = $1`,
+    [RUNTIME_ROLE],
+  );
+  if (membershipResult.rowCount !== 0) {
+    throw new Error(
+      "Existing runtime role has memberships; refusing to change it automatically.",
+    );
+  }
+}
+
 async function verifyRuntimeRole(connectionString) {
   const runtimeClient = new Client({ connectionString });
   await runtimeClient.connect();
@@ -240,10 +278,7 @@ async function main() {
       );
       roleCreated = true;
     } else {
-      await client.query(
-        `ALTER ROLE ${roleIdentifier} NOSUPERUSER NOCREATEDB NOCREATEROLE ` +
-          "NOINHERIT NOREPLICATION NOBYPASSRLS",
-      );
+      await assertExistingRuntimeRoleIsRestricted(client);
       if (rotatePassword) {
         await client.query(
           `ALTER ROLE ${roleIdentifier} PASSWORD ${passwordLiteral}`,

@@ -6,6 +6,7 @@ const adminDatabaseUrl =
   process.env.DIRECT_URL ??
   "postgresql://postgres:postgres@localhost:5433/smartlists_test";
 const adminUrl = new URL(adminDatabaseUrl);
+const initialRuntimePassword = randomBytes(32).toString("base64url");
 const runtimePassword = randomBytes(32).toString("base64url");
 const runtimeUrl = new URL(adminDatabaseUrl);
 runtimeUrl.username = "smartlists_runtime";
@@ -24,13 +25,18 @@ const baseEnv = {
   ...process.env,
   DIRECT_URL: adminDatabaseUrl,
   EXPECTED_DATABASE_HOST: adminUrl.hostname,
-  RUNTIME_ROLE_PASSWORD: runtimePassword,
 };
 
 run(
   process.execPath,
   ["scripts/configure-runtime-role.mjs", "--apply", "--rotate-password"],
-  baseEnv,
+  { ...baseEnv, RUNTIME_ROLE_PASSWORD: initialRuntimePassword },
+);
+
+run(
+  process.execPath,
+  ["scripts/configure-runtime-role.mjs", "--apply", "--rotate-password"],
+  { ...baseEnv, RUNTIME_ROLE_PASSWORD: runtimePassword },
 );
 
 run(

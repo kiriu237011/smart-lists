@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-13 (подготовка PostgreSQL runtime least privilege)
+**Последнее обновление:** 2026-08-13 (PostgreSQL runtime least privilege включён в Preview)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -125,6 +125,11 @@ Smart Lists — локализованное веб-приложение для 
   переход: release migration вне Vercel, runtime без DDL, проверенный
   транзакционный контекст и только затем tenant-RLS. Прикладные фильтры
   сохраняются как обязательный первый слой.
+- В Neon `dev` создана SQL-роль `smartlists_runtime` без ownership, DDL,
+  `BYPASSRLS`, `CREATEROLE`, membership и доступа к migration metadata. С
+  2026-08-13 Vercel Preview использует её pooled credential; Production пока
+  остаётся на `neondb_owner` до отдельного go/no-go. Это ограничивает класс
+  операций и таблиц, но ещё не изолирует строки одного tenant от другого.
 
 ### Записи и заметки
 
@@ -303,7 +308,8 @@ Smart Lists — локализованное веб-приложение для 
 
 Секретные значения никогда не записываются в репозиторий.
 
-- БД: `DATABASE_URL` для runtime через PrismaPg остаётся в Vercel;
+- БД: `DATABASE_URL` для runtime через PrismaPg остаётся в Vercel; Preview
+  использует `smartlists_runtime`, Production пока использует `neondb_owner`;
   `DIRECT_URL` нужен только Prisma CLI — локально его загружает корневой `.env`,
   а Production и Preview migration jobs получают отдельные значения из
   GitHub Environments. `prisma generate` и Vercel build работают без него;
@@ -442,7 +448,8 @@ AI-сервис вызывается с сервера и в политику н
 - `npm run test:integration` — интеграционные тесты Server Actions против этой БД;
 - `npm run test:integration:runtime` — создаёт/сверяет в test-БД роль
   `smartlists_runtime`, оставляет миграции и очистку fixtures владельцу и
-  запускает тот же integration suite уже под ограниченной ролью;
+  проверяет повторную ротацию пароля, затем запускает тот же integration suite
+  уже под ограниченной ролью;
 - `npm run test:integration:db:down` — погасить тестовый контейнер;
 - `npm run test:e2e:db` — поднять базу E2E в Docker (порт 5434 доступен
   только через `127.0.0.1`, профиль `e2e`);
@@ -643,8 +650,19 @@ no-op миграцию; migration job завершилась в `01:20:16Z`, а 
 получил `success` в `01:20:22Z`. Preview run `31657384104` сначала проверил
 target и применил no-op миграцию, затем обновил ветку до `3a946b0`; Vercel
 Preview завершился в `01:21:29Z`. После обеих проверок `DIRECT_URL` удалён из
-Vercel Production и Preview; повторный `vercel env ls` подтвердил отсутствие
-переменной при сохранённых `DATABASE_URL`.
+  Vercel Production и Preview; повторный `vercel env ls` подтвердил отсутствие
+  переменной при сохранённых `DATABASE_URL`.
+
+PostgreSQL least-privilege cutover Preview выполнен 2026-08-13 отдельно от
+Production. Роль `smartlists_runtime` создана SQL в Neon `dev`, получила точную
+DML-матрицу и не получила DDL, ownership, role attributes, membership либо
+доступ к `_prisma_migrations`. Vercel Preview `DATABASE_URL` переключён на её
+pooled credential; deployment `dpl_2Q3NqEW1QfNZxTpa1tRgXaoZwBu6` имеет статус
+`Ready` и branch alias. Protected deployment ответил `200 /en` через временный
+automation bypass; bypass сразу отозван, временные OIDC-файлы удалены. Первый
+пробный cutover штатно откатился на owner из-за слишком строгой трактовки SSO
+`302`; после исправления критерия финальный cutover прошёл. Production не
+менялся.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается
