@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-13 (PostgreSQL runtime least privilege включён в Preview и Production)
+**Последнее обновление:** 2026-08-13 (PostgreSQL operational-роли и Production backup cutover завершены)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -130,6 +130,11 @@ Smart Lists — локализованное веб-приложение для 
   2026-08-13 Vercel Preview и Production используют её отдельные pooled
   credentials. Это ограничивает класс операций и таблиц, но ещё не изолирует
   строки одного tenant от другого.
+- Прикладными объектами обеих веток владеет `smartlists_owner` без login;
+  release workflow входят через `smartlists_migrator`. Production backup
+  использует отдельную `smartlists_backup` с точечным `SELECT` и `BYPASSRLS`,
+  без write, DDL и membership. `neondb_owner` остаётся только операторской
+  break-glass/control-plane ролью и отсутствует в runtime и GitHub Actions.
 
 ### Записи и заметки
 
@@ -313,7 +318,9 @@ Smart Lists — локализованное веб-приложение для 
   ветках Neon;
   `DIRECT_URL` нужен только Prisma CLI — локально его загружает корневой `.env`,
   а Production и Preview migration jobs получают отдельные значения из
-  GitHub Environments. `prisma generate` и Vercel build работают без него;
+  GitHub Environments. Repository-level `DIRECT_URL` доступен только backup
+  workflow и содержит credential `smartlists_backup`. `prisma generate` и
+  Vercel build работают без него;
 - Auth.js: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, при
   необходимости `AUTH_URL`; только в Vercel Preview дополнительно задан
   `AUTH_REDIRECT_PROXY_URL`;
@@ -332,10 +339,10 @@ Smart Lists — локализованное веб-приложение для 
 
 - БД — отдельная ветка Neon. Локальные команды Prisma получают `DIRECT_URL` из
   корневого `.env`, поэтому боевой URL в нём означал бы работу с production.
-  Runtime production URL хранится в Vercel, а прямые migration URL — в
-  GitHub Environments и отдельном backup workflow. После проверенного cutover-
-  релиза `DIRECT_URL` удалён из Vercel Production и Preview; приложение и
-  Vercel build владельческий migration credential больше не получают.
+  Runtime production URL хранится в Vercel, прямые migration URL — в GitHub
+  Environments, а отдельный backup URL — в repository secret. После
+  проверенных cutover приложение и Vercel build не получают прямых credentials;
+  GitHub workflows используют только ограниченные migrator/backup роли.
 - Auth.js — разные `AUTH_SECRET` и Google OAuth clients для Production и
   Preview. Все Preview deployments делят только Preview-секрет и Preview OAuth
   client. Постоянная ветка `preview` служит redirect proxy Auth.js и не
@@ -722,6 +729,12 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
 `backups/smart-lists-<дата JST>.dump`. Расписание — `0 15 * * *`, то есть
 полночь по Токио; GitHub запускает cron с задержкой до полутора часов.
 
+Workflow подключается к Production как `smartlists_backup`: роль имеет только
+`CONNECT`, `USAGE public`, `SELECT` и `BYPASSRLS`, необходимый для полного дампа
+после включения RLS; write, DDL и membership отсутствуют. Cutover 2026-08-13
+подтверждён восстановлением свежего Production dump в изолированную PostgreSQL
+17 БД и успешным GitHub run `31681055043` на main SHA `53bcba40`.
+
 Дамп содержит email пользователей, OAuth-токены `Account` и всё содержимое
 списков, поэтому артефакты Actions для него не годятся: их может скачать любой,
 у кого есть доступ на чтение репозитория, а репозиторий планируется публиковать.
@@ -741,8 +754,8 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 переименование репозитория или владельца ничего не ломает: ID неизменны. Условие
 нужно править только при смене ветки, с которой идёт запуск.
 
-Секреты репозитория: `BACKUP_S3_BUCKET`, `BACKUP_AWS_ROLE_ARN` (плюс уже
-существовавший `DIRECT_URL`). Срок хранения задаётся lifecycle-правилом бакета
+Секреты репозитория: `BACKUP_S3_BUCKET`, `BACKUP_AWS_ROLE_ARN` и `DIRECT_URL`
+роли `smartlists_backup`. Срок хранения задаётся lifecycle-правилом бакета
 `expire-backups-30d`, а не workflow.
 
 ## Важные решения
@@ -847,6 +860,15 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   Production — в `07:31:17Z`; `Sync Preview Proxy` `31678100642` также зелёный.
   Production owner/migrator gate закрыт. Backup credential и
   `smartlists_backup` ещё не менялись.
+- 2026-08-13: Production backup scope завершил разделение operational-ролей.
+  `smartlists_backup` создана с `LOGIN NOINHERIT BYPASSRLS`, точечным `SELECT`
+  на текущие и будущие tables/sequences и без membership, write, DDL или role-
+  прав; repository `DIRECT_URL` больше не содержит `neondb_owner`. Свежий dump
+  размером 57 570 байт восстановлен в изолированную PostgreSQL 17 БД: 15
+  таблиц, 3 enum, 18 завершённых миграций, 0 незавершённых и 0 невалидированных
+  FK. GitHub run `31681055043` на main SHA `53bcba40` успешно выполнил dump,
+  verify, AWS OIDC и S3 upload. Runtime contract не изменился, локальный
+  Production operator-файл удалён. Следующий этап — scoped transaction context.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как
