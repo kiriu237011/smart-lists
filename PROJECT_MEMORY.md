@@ -676,7 +676,10 @@ Production `DATABASE_URL` переключён на её pooled credential, depl
 production alias. Публичный `/en` вернул `200`, а независимый post-cutover
 catalog audit подтвердил exact endpoint и полную privilege-матрицу. Пароль и
 owner rollback URL не печатались и не сохранялись; rollback не потребовался.
-Ручной Production gate ещё не зафиксирован.
+Ручной Production gate затем подтвердил OAuth/session, CRUD
+списков/записей/групп/заметок, sharing с разделением владельца/редактора,
+realtime и вложения. Ошибок доступа к БД в логах нет; предупреждение Node.js
+`DEP0169` уже отслеживается issue №26 и не относится к privilege-cutover.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается
@@ -774,7 +777,22 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   матрицей. После аудита `smartlists_runtime` последовательно создана и
   проверена в `dev`, затем после полного Preview gate — в `production`.
   Vercel обеих сред переведён на раздельные pooled runtime credentials;
-  автоматические deployment, HTTP и post-cutover privilege gates пройдены.
+  автоматические deployment, HTTP и post-cutover privilege gates пройдены;
+  ручные gates Preview и Production также закрыты.
+- 2026-08-13: для следующего этапа owner/migrator/backup выполнены design,
+  read-only audit обеих Neon-веток и локальная проверка на PostgreSQL 17.
+  Фактически `neondb_owner` пока остаётся owner БД, `public`, 15 таблиц и трёх
+  enum, а GitHub release и backup secrets всё ещё используют владельческие
+  credentials. Целевая схема: `smartlists_owner` — `NOLOGIN` owner прикладных
+  объектов; `smartlists_migrator` — безопасный login с `SET TRUE, INHERIT
+  FALSE` и database-specific `role=smartlists_owner`; `smartlists_backup` —
+  отдельный read-only login с точечным `SELECT` и `BYPASSRLS`, необходимым для
+  полного `pg_dump`. `neondb_owner` остаётся Neon database owner и
+  операторской break-glass ролью, но должен исчезнуть из GitHub secrets после
+  последовательных Preview, Production и backup cutovers. Локальный тест
+  подтвердил ownership новых объектов, сохранение runtime ACL и полный dump
+  при forced RLS. Инфраструктура на design-подэтапе не менялась; точный порядок
+  и rollback записаны в `DATABASE_SECURITY_PLAN.md`.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как

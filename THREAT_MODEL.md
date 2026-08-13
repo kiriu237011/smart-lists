@@ -52,8 +52,10 @@ AI; удаление и повторяемая уборка объектов з�
    Preview 2026-08-13, обязательный Deployment Check доказан контрольным
    release. Cutover PR №64 прошёл в обеих средах, после чего `DIRECT_URL` удалён
    из Vercel Production и Preview. Runtime без DDL включён и автоматически
-   проверен в обеих средах 2026-08-13; Preview также прошёл ручной gate, для
-   Production он ожидается. Scoped-контекст и RLS ещё не внедрены.
+   проверен в обеих средах 2026-08-13; Preview и Production прошли ручные
+   gates. Для owner/migrator/backup завершены design, live read-only audit и
+   локальная проверка PostgreSQL 17, но Neon roles/ownership/secrets ещё не
+   менялись. Scoped-контекст и RLS также не внедрены.
    Матрица и gate:
    `DATABASE_SECURITY_PLAN.md`.
 3. **Infrastructure drift:** IAM, versioning, CORS, Force TLS и настройки Neon
@@ -240,9 +242,8 @@ ownership. Компрометация runtime credential больше не по�
 `build:deploy` применял миграции внутри Vercel под соседним `DIRECT_URL`. После
 проверенного Production и Preview release-cutover владельческий migration
 credential удалён из обоих Vercel environments. Сужение `DATABASE_URL` теперь
-действительно ограничивает процесс: в Preview оно внедрено и вручную проверено,
-в Production внедрено и прошло автоматический post-cutover audit; ручной gate
-Production ожидается.
+действительно ограничивает процесс: в Preview и Production оно внедрено,
+прошло автоматический post-cutover audit и ручные функциональные gates.
 
 **Направление усиления зафиксировано 2026-08-12.** Принят staged-переход:
 release-миграции вне Vercel → runtime least privilege → транзакционный контекст
@@ -610,6 +611,8 @@ STRIDE спрашивает «может ли злоумышленник что-
 | A33 | Ответ AI не создаёт навигацию по URL модели | Prompt injection превращается в фишинг от имени приложения без необходимости XSS | ✅ `SafeMarkdown.test.ts` требует текст ссылки без `<a>`, `href` и URL |
 | A34 | Лимит FastAPI считается по фактически прочитанным байтам, а auth идёт до body parsing | Chunked body обходит 100 KB; анонимный malformed запрос тратит parser/Pydantic и раскрывает схему через 422 | ✅ ASGI-тест подаёт два чанка сверх лимита; API-тест требует 403 до валидации |
 | A35 | Уборка stale `PENDING` не теряет единственную ссылку на объект S3 | Загруженные без confirm объекты копятся вне файловой квоты и lifecycle текущих версий | ✅ DB-интеграция проверяет `DeleteObjects`, а при его сбое — восстановление `PENDING` для повторной попытки |
+| A36 | Release workflow входит как `smartlists_migrator`, но создаёт объекты от имени `smartlists_owner` | Иначе login-role снова совмещает credential и ownership либо новые объекты получают неправильного owner | ❌ **design завершён 08-13, apply не выполнен**: PostgreSQL 17 тест подтвердил `session_user=smartlists_migrator`, `current_user=smartlists_owner` через membership `SET TRUE, INHERIT FALSE` и database-specific `role`; в Neon Environment secrets пока остаётся `neondb_owner` |
+| A37 | Backup credential умеет читать все строки, но не умеет write/DDL/role operations | Текущий owner URL в backup workflow даёт несоразмерный blast radius; после RLS обычный read-only dump может стать неполным или завершиться ошибкой | ❌ **design завершён 08-13, apply не выполнен**: локально `smartlists_backup` с точечным `SELECT` и `BYPASSRLS` прошёл forced-RLS чтение и полный `pg_dump`; repository secret пока остаётся owner credential |
 
 **Техника, которая работает лучше регулярных ревью:** привязывать допущение к автоматической проверке. Допущение в документе живёт до первого человека, который документ не прочитал. Допущение в тесте живёт, пока кто-то осознанно не удалит тест. A1 и A3 — уже сделанные примеры; они не были задуманы как контроли threat model, но являются ими.
 
@@ -682,7 +685,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | ~~2.2~~ | ~~Versioning на бакете вложений~~ | Mitigate | ✅ **Сделано 2026-08-10** на обоих бакетах вложений. Lifecycle отличается от бэкапного одной строкой, и это существенно: у бэкапов `Expiration` текущих версий нужен, у пользовательских файлов он означал бы пропажу по расписанию — поэтому здесь ограничены только noncurrent-версии, 30 дней. Проверено учением на dev: удаление ключом приложения, delete marker, восстановление |
 | ~~2.3~~ | ~~Проверка `AllowedEmail` в `session` callback~~ | Mitigate | ✅ **Сделано 2026-08-10.** Проверка **и** очистка `Session`: одного отказа мало, cookie осталась бы валидной. Покрыто интеграционно (обе функции против живой БД) и E2E (отозванный пользователь оказывается на экране входа) |
 | ~~2.4~~ | ~~Строка в UI о передаче данных; флаг `aiEnabled` на списке~~ | Mitigate | ✅ **Сделано 2026-08-10, оба средства.** Строка закрывает осведомлённость, флаг — субъектность; одно другого не заменяет. Выключить может любой участник: владельческая проверка оставила бы человека, чьи данные уходят, без средств. Запрет проверяется в Action, а не только скрытием кнопки |
-| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Этапы 2a и 2b включены в обеих средах 2026-08-13.** Target guards и no-op миграции прошли для Production и Preview, production promotion дождался migration job того же SHA, Vercel build больше не применяет миграции, а `DIRECT_URL` удалён из обеих сред Vercel. Точная runtime DML-матрица и идемпотентная ротация проверены на Docker PostgreSQL: 213 integration-тестов прошли под ролью без DDL/BYPASS/ownership. Preview прошёл автоматический и ручной gate. В Production SQL-роль создана и проверена, Vercel `DATABASE_URL` переключён, новый deployment получил production alias и `Ready`, публичный smoke-check вернул `200`, post-cutover audit подтвердил контракт. Rollback не потребовался; ручной Production gate ожидается. Следующие архитектурные шаги — owner/migrator/backup separation, scoped context и tenant-RLS |
+| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Этапы 2a и 2b включены и полностью проверены в обеих средах 2026-08-13.** Target guards и no-op миграции прошли для Production и Preview, production promotion дождался migration job того же SHA, Vercel build больше не применяет миграции, а `DIRECT_URL` удалён из обеих сред Vercel. Точная runtime DML-матрица проверена на Docker PostgreSQL: 213 integration-тестов прошли под ролью без DDL/BYPASS/ownership. Preview и Production прошли автоматические и ручные gates. Для owner/migrator/backup выполнены read-only audit и локальная проверка точной модели, но инфраструктурный cutover ещё не начинался. Следующие шаги — configurator, поэтапные Preview/Production role cutovers, отдельный backup cutover, scoped context и tenant-RLS |
 | ~~2.6~~ | ~~`USER` в `Dockerfile` сервиса~~ | Mitigate | ✅ **Сделано 2026-08-09.** `USER appuser`, uid 10001. Документ снова вправе считать это контролем — но не более чем сужением ущерба внутри контейнера (A25) |
 | ~~2.7~~ | ~~`openapi_url=None` при `debug=false`~~ | Mitigate | ✅ **Сделано 2026-08-09.** Схема больше не зависит от того, открыт сервис или нет |
 | ~~2.8~~ | ~~Включить Force TLS в приложении Pusher~~ | Mitigate | ✅ **Сделано 2026-08-09** в обоих приложениях, prod и dev. Гарантия перенесена с дефолта `pusher-js` на сервис |
@@ -694,7 +697,7 @@ design и release cutover; каждый следующий этап меняет
 
 | Порядок | Действие | Что меняет |
 |---|---|---|
-| 1 | Завершить ручной Production gate, затем отделить owner/migrator и backup-роли и внедрить scoped context | Завершает операционную проверку least privilege и готовит безопасное включение tenant-RLS |
+| 1 | Реализовать configurator, затем отдельно провести Preview и Production owner/migrator cutover и Production backup cutover; после этого внедрить scoped context | Убирает owner credential из GitHub workflows и готовит безопасное включение tenant-RLS |
 | 2 | Добавить audit trail для чувствительных мутаций и ручных административных изменений | Закрывает корень C; требует отдельного решения по сроку хранения и приватности |
 | 3 | Добавить `request_id` между Vercel и Cloud Run | Даёт корреляцию инцидента без логирования пользователя и содержимого |
 | 4 | Включить CloudTrail data events хотя бы на бэкап-бакете | Делает чтение, перезапись и удаление объектов наблюдаемыми |

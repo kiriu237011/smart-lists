@@ -39,7 +39,7 @@ try {
 
   const [targetRole] = await rows(`
     SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
-           rolcanlogin, rolreplication, rolbypassrls
+           rolcanlogin, rolreplication, rolbypassrls, rolconfig
     FROM pg_roles
     WHERE rolname = $1
   `, [targetRoleName]);
@@ -50,12 +50,14 @@ try {
   const targetRoleMemberships = await rows(`
     SELECT parent.rolname AS granted_role,
            member.rolname AS member,
+           grantor.rolname AS grantor,
            membership.admin_option,
            membership.inherit_option,
            membership.set_option
     FROM pg_auth_members membership
     JOIN pg_roles parent ON parent.oid = membership.roleid
     JOIN pg_roles member ON member.oid = membership.member
+    JOIN pg_roles grantor ON grantor.oid = membership.grantor
     WHERE parent.rolname = $1 OR member.rolname = $1
     ORDER BY granted_role, member
   `, [targetRoleName]);
@@ -106,6 +108,25 @@ try {
       has_database_privilege(current_user, current_database(), 'TEMP') AS temporary
   `);
 
+  const [database] = await rows(`
+    SELECT current_database() AS database,
+           pg_get_userbyid(database.datdba) AS owner,
+           database.datacl::text AS acl
+    FROM pg_database database
+    WHERE database.datname = current_database()
+  `);
+
+  const databaseRoleSettings = await rows(`
+    SELECT role.rolname AS role,
+           database.datname AS database,
+           setting.setconfig AS settings
+    FROM pg_db_role_setting setting
+    LEFT JOIN pg_roles role ON role.oid = setting.setrole
+    LEFT JOIN pg_database database ON database.oid = setting.setdatabase
+    WHERE role.rolname = $1
+    ORDER BY role, database
+  `, [targetRoleName]);
+
   const [schema] = await rows(`
     SELECT
       namespace.nspname AS schema,
@@ -145,6 +166,37 @@ try {
     ORDER BY kind, name
   `);
 
+  const types = await rows(`
+    SELECT type.typname AS name,
+           CASE type.typtype
+             WHEN 'e' THEN 'enum'
+             WHEN 'd' THEN 'domain'
+             ELSE type.typtype::text
+           END AS kind,
+           pg_get_userbyid(type.typowner) AS owner
+    FROM pg_type type
+    JOIN pg_namespace namespace ON namespace.oid = type.typnamespace
+    WHERE namespace.nspname = 'public'
+      AND type.typtype IN ('e', 'd')
+    ORDER BY kind, name
+  `);
+
+  const routines = await rows(`
+    SELECT routine.proname AS name,
+           pg_get_function_identity_arguments(routine.oid) AS arguments,
+           CASE routine.prokind
+             WHEN 'p' THEN 'procedure'
+             ELSE 'function'
+           END AS kind,
+           pg_get_userbyid(routine.proowner) AS owner,
+           routine.prosecdef AS security_definer,
+           routine.proacl::text AS acl
+    FROM pg_proc routine
+    JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+    WHERE namespace.nspname = 'public'
+    ORDER BY kind, name, arguments
+  `);
+
   const policies = await rows(`
     SELECT schemaname, tablename, policyname, permissive, roles, cmd
     FROM pg_policies
@@ -176,9 +228,13 @@ try {
       relations: targetRoleRelations,
     },
     roles,
+    database,
     databasePrivileges,
+    databaseRoleSettings,
     schema,
     relations,
+    types,
+    routines,
     policies,
     defaultPrivileges,
   }, null, 2));

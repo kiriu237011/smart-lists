@@ -1,6 +1,7 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этапы 2a и 2b включены в Preview и Production; автоматический Production gate пройден, ручной ожидает подтверждения
+**Статус:** этапы 2a и 2b завершены в Preview и Production; этап 2c
+owner/migrator/backup прошёл design и read-only audit, инфраструктура ещё не менялась
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -35,7 +36,7 @@ JWT или отдельные DB-роли на каждого пользоват
 | `smartlists_owner` | без login; используется владельческой ролью миграций | владеет схемой, таблицами, функциями и политиками |
 | `smartlists_migrator` | только release workflow | применяет миграции через прямое подключение и может действовать от имени owner |
 | `smartlists_runtime` | только Next.js runtime | `CONNECT`, `USAGE` схемы и минимальные DML-права; без DDL, ownership, `CREATEROLE`, `BYPASSRLS` |
-| backup-role | только backup workflow | read-only доступ ко всем строкам; точный способ обхода RLS выбирается после проверки возможностей Neon |
+| `smartlists_backup` | только backup workflow | read-only доступ ко всем строкам с `BYPASSRLS`; без DDL, write и membership |
 
 Названия предварительные. Пароли, connection strings и создание login-ролей не
 попадают в миграции или репозиторий. Миграции содержат владение объектами,
@@ -44,7 +45,7 @@ JWT или отдельные DB-роли на каждого пользоват
 `DIRECT_URL` удалён из окружения Vercel Production и Preview после успешного
 cutover-релиза. Репозиторий не использует его в build/generate; прямой
 credential остаётся только в защищённых release/backup workflow и локальной
-среде. Поэтому следующий этап — runtime-роль без DDL — больше не обесценивается
+среде. Поэтому уже завершённый этап runtime-роли без DDL не обесценивается
 соседней владельческой строкой подключения.
 
 ## Gate этапа 2b: runtime least privilege без RLS
@@ -100,10 +101,10 @@ control plane Neon, получают membership в `neon_superuser`, что ун
 ### Инструменты и защита от ошибочного target
 
 `npm run db:audit-privileges` выполняет только `BEGIN READ ONLY`, читает
-Postgres catalogs и выводит fingerprint endpoint, атрибуты роли, ownership,
-эффективные права и RLS-состояние. Connection string и строки данных не
-выводятся. Источник выбирается в порядке `AUDIT_DATABASE_URL`, `DIRECT_URL`,
-`DATABASE_URL`.
+Postgres catalogs и выводит fingerprint endpoint, атрибуты и settings роли,
+database/schema/relation/type/routine ownership, эффективные права и
+RLS-состояние. Connection string и строки данных не выводятся. Источник
+выбирается в порядке `AUDIT_DATABASE_URL`, `DIRECT_URL`, `DATABASE_URL`.
 
 `npm run db:configure-runtime-role` по умолчанию показывает план. Реальное
 изменение требует аргумента `-- --apply` и трёх env-переменных:
@@ -164,8 +165,14 @@ owner rollback URL существовали только в памяти про�
 production alias. Публичный post-cutover smoke-check вернул `200 /en`, а
 повторный catalog audit подтвердил exact endpoint `eec09bcdb874`, безопасные
 атрибуты роли и точную DML-матрицу. Automation bypass не создавался. Rollback
-не потребовался. До ручной проверки пользовательских потоков Production
-автоматический gate считается пройденным, а полный gate — нет.
+не потребовался.
+
+**Ручной Production gate 2026-08-13:** пользователь подтвердил Google OAuth и
+сессию, CRUD списков, записей, групп и заметок, sharing с разделением владельца
+и редактора, realtime и вложения. Ошибок доступа к БД в runtime logs нет.
+Единственное сообщение — Node.js `DEP0169` для транзитивного `url.parse()` —
+уже отслеживается issue №26 и не связано с PostgreSQL privileges. Полный gate
+этапа 2b закрыт.
 
 Первый пробный cutover был автоматически откачен на owner credential после
 ошибочной трактовки штатного Vercel Authentication `302` как отказа приложения.
@@ -198,8 +205,107 @@ fail-closed, а не получает повторный `ALTER ROLE ... NOSUPER
 данные, ownership или схему. Функциональный откат — только возврат Vercel на
 прежний credential и redeploy. Автоматические privilege-, deployment- и
 HTTP-проверки пройдены в обеих средах; ручные пользовательские потоки Preview
-также пройдены. Для полного Production gate остаётся ручная функциональная
-проверка.
+и Production также пройдены.
+
+## Gate этапа 2c: owner, migrator и backup
+
+Этот этап меняет только административный и операционный доступ к БД. Runtime
+credential, DML-матрица приложения, данные и RLS-состояние не меняются.
+
+### Read-only audit и проверенная модель
+
+Аудит Neon `dev` и `production` 2026-08-13 подтвердил одинаковую исходную
+структуру: БД `neondb`, схема `public`, 15 таблиц и enum-типы `FileCategory`,
+`AttachmentStatus`, `ListShareRole` принадлежат `neondb_owner`; sequences,
+routines, policies и RLS отсутствуют. Из прикладных ролей существуют только
+`neondb_owner` и `smartlists_runtime`. Release Environment secrets и
+repository-level backup secret пока содержат разные экземпляры владельческого
+`DIRECT_URL`; значения не читались и не выводились.
+
+На одноразовом PostgreSQL 17 проверено:
+
+- login `smartlists_migrator` с membership `SET TRUE, INHERIT FALSE` и
+  database-specific `role=smartlists_owner` подключается как
+  `session_user=smartlists_migrator`, `current_user=smartlists_owner`;
+- новый объект миграции принадлежит `smartlists_owner`, а не login-роли;
+- перенос ownership таблицы сохраняет существующий runtime ACL;
+- non-superuser с `CREATEROLE` и собственным `BYPASSRLS` может создать
+  `smartlists_backup` с `BYPASSRLS`, но без DDL/write/membership;
+- backup с точечным `SELECT` читает все строки даже при `FORCE ROW LEVEL
+  SECURITY`, а обычный `pg_dump -Fc --no-owner --no-privileges` завершается
+  успешно;
+- `CONNECT` migrator/backup выдаёт `neondb_owner` как владелец БД;
+  `smartlists_owner` управляет только прикладной схемой и не получает ownership
+  самой Neon-БД.
+
+### Точный контракт ролей
+
+| Роль | Атрибуты и membership | Объекты и доступ |
+|---|---|---|
+| `smartlists_owner` | `NOLOGIN`, без `SUPERUSER`, `CREATEDB`, `CREATEROLE`, `REPLICATION`, `BYPASSRLS` | owner схемы `public`, всех прикладных таблиц, enum, будущих routines и policies |
+| `smartlists_migrator` | `LOGIN NOINHERIT`, безопасные атрибуты; membership в owner только с `SET TRUE, INHERIT FALSE` | прямой `CONNECT`; при каждом login автоматически `SET ROLE smartlists_owner`; только GitHub Environment `DIRECT_URL` |
+| `smartlists_backup` | `LOGIN NOINHERIT BYPASSRLS`, без membership и остальных специальных атрибутов | `CONNECT`, `USAGE public`, `SELECT` текущих и будущих tables/sequences; без write, DDL и function `EXECUTE`; только backup workflow |
+| `neondb_owner` | Neon admin и database owner; член `neon_superuser` | остаётся break-glass/control-plane ролью, но после cutover отсутствует в Vercel и GitHub Actions secrets |
+
+`BYPASSRLS` у backup — узкое осознанное исключение. По документации PostgreSQL
+`pg_dump` по умолчанию выключает row security и завершится ошибкой, если роль
+не может его обойти. Атрибут не даёт доступ сам по себе: backup дополнительно
+получает только `SELECT` на разрешённые объекты. Вариант
+`--enable-row-security` отвергнут, потому что мог бы создать формально успешный,
+но неполный tenant-дамп.
+
+Default privileges owner настраиваются асимметрично: runtime не получает ничего
+автоматически и остаётся fail-closed; backup автоматически получает `SELECT`
+на будущие tables/sequences, чтобы новая миграция не делала дамп неполным.
+`EXECUTE` на будущие функции отзывается у `PUBLIC` и backup; узкие вызовы будут
+выдаваться явно после review.
+
+### Порядок cutover
+
+1. В репозитории подготовить fail-closed configurator и проверки полного
+   ownership/role/default-privilege контракта. На Docker применить все текущие
+   миграции владельцем, выполнить перенос, no-op `prisma migrate deploy`
+   migrator-ролью и полный `pg_dump` backup-ролью.
+2. Только в Neon `dev` одной транзакцией создать owner/migrator, передать
+   `public`, 15 таблиц и 3 enum. Пароль migrator генерировать в памяти; роль
+   создавать SQL, а не Neon control plane, чтобы не получить
+   `neon_superuser`.
+3. Заменить только GitHub Environment `Preview` secret `DIRECT_URL`, выполнить
+   target guard, no-op migration и post-connect audit. Vercel
+   `DATABASE_URL` не трогать. После успешного workflow пройти Preview gate.
+4. После отдельного go/no-go повторить owner/migrator cutover в Production,
+   заменить только Production Environment secret и доказать migration job того
+   же SHA до Vercel promotion.
+5. Отдельно создать `smartlists_backup` только в Production, заменить
+   repository secret `DIRECT_URL`, вручную запустить backup, проверить
+   `pg_restore --list` и восстановить дамп в изолированную временную БД.
+6. После каждого шага повторить audit и threat impact-check. Пароли и URL не
+   печатать, не записывать в файлы и не передавать между средами.
+
+### Go/no-go и откат
+
+Cutover среды разрешён, только если inventory совпал точно, runtime ACL до и
+после идентичен, migrator имеет ожидаемые `session_user/current_user`, новый
+объект получает owner `smartlists_owner`, no-op Prisma migration зелёный, а
+owner credential подготовлен как операторский rollback без сохранения в
+Vercel. Неожиданный relation/type/routine или membership означает stop.
+
+При отказе migrator GitHub secret возвращается на прежний owner URL. Чтобы
+старый login мог работать с уже переданными объектами без обратного переноса,
+оператор временно задаёт ему database-specific default
+`role=smartlists_owner`; после восстановления release-контура настройка
+снимается и migrator исправляется. Полный обратный перенос ownership допустим
+только отдельной проверенной транзакцией и не является первым откатом.
+Runtime не переключается и не redeploy-ится.
+
+При отказе backup repository secret возвращается на прежний owner URL и
+workflow повторяется. Ограниченные роли не удаляются: их переводят в `NOLOGIN`
+при подозрении на credential compromise и ротируют пароль после разбора.
+
+**Статус 2026-08-13:** design, live read-only audit и локальная проверка
+семантики PostgreSQL 17 завершены. Роли Neon, ownership и GitHub secrets на
+этом подэтапе не менялись. Следующий шаг — реализация и тест configurator в
+репозитории; Preview apply требует отдельного подтверждения.
 
 ## Контексты запросов
 
