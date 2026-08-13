@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-12 (архитектурный план Postgres least privilege и RLS)
+**Последнее обновление:** 2026-08-13 (проверка release-контура PostgreSQL)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -617,11 +617,11 @@ fail-closed пропускается без repository variable
 Live-конфигурация GitHub проверена 2026-08-12: Environments `Production` и
 `Preview` содержат оба имени secrets и допускают только `main`. Значения
 нечитаемы через API. Repository variables `ENABLE_PRODUCTION_MIGRATION` и
-`ENABLE_PREVIEW_MIGRATION` включены. PR №59 слит в `main`; CI, integration,
-E2E и secret scan прошли, но production run `31579464717` остановился на
-target guard: reusable workflow получил оба Environment secrets пустыми, шаг
-миграции не запускался. Исправление переносит job непосредственно в `ci.yml`;
-до его main-проверки Vercel сохраняет `build:deploy`.
+`ENABLE_PREVIEW_MIGRATION` включены. После исправления reusable-границы PR №60
+слит в `main`: production run `31652132055` прошёл target guard и no-op
+миграцию (18 миграций, pending нет), Preview run `31652333174` сделал то же до
+push и успешного Vercel deployment. Секреты и hostname в логах не раскрыты.
+До проверки Vercel Deployment Check сохраняется `build:deploy`.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается

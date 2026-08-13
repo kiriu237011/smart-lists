@@ -1,7 +1,7 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этап 2a — release-контур подготовлен fail-closed, cutover не выполнен
-**Дата:** 2026-08-12
+**Статус:** этап 2a — release-контур проверен в Production и Preview, cutover не выполнен
+**Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
 матрицу доступа и безопасный порядок внедрения. Текущее состояние приложения
@@ -208,13 +208,13 @@ Environments `Production` и `Preview`, наличие в каждой secrets `
 не раскрывает; соответствие реальным Neon-веткам считается подтверждённым
 только после успешного target guard. Repository variables
 `ENABLE_PRODUCTION_MIGRATION` и `ENABLE_PREVIEW_MIGRATION` включены 2026-08-12.
-PR №59 слит в `main`. Все тестовые gates прошли, но первый production target
-guard безопасно остановился до подключения: внутри reusable workflow оба
-Environment secrets пришли пустыми, `Apply production migrations` получил
-`skipped`. Исправление переносит job непосредственно в `ci.yml`, сохраняя
-Environment, порядок gates, concurrency и placeholder для `npm ci`; результат
-ещё должен быть подтверждён следующим main-прогоном. Vercel пока использует
-существующий `build:deploy`.
+PR №60 слит в `main` 2026-08-13. Run `31652132055` прошёл все тестовые gates,
+production target guard подтвердил direct host, а Prisma обнаружила 18
+миграций и отсутствие pending-изменений. Следующий run `31652333174` тем же
+образом проверил Preview до push постоянной ветки; Vercel deployment нового
+preview SHA завершился успешно. Секреты и hostname в логи не попали.
+Release-контур этапа 2a доказан для обеих сред, но Vercel пока использует
+`build:deploy`: Deployment Check для production alias ещё не подтверждён.
 
 Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
 сборка Vercel и GitHub migration идут параллельно, и новый код может стать
