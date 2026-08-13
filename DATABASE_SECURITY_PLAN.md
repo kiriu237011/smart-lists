@@ -1,6 +1,6 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этап 2a — release-контур и repository cutover подготовлены; проверка релиза и удаление Vercel `DIRECT_URL` ещё не выполнены
+**Статус:** этап 2a завершён — release-контур проверен, Vercel cutover выполнен, `DIRECT_URL` удалён из Production и Preview
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -41,11 +41,11 @@ JWT или отдельные DB-роли на каждого пользоват
 попадают в миграции или репозиторий. Миграции содержат владение объектами,
 `GRANT`/`REVOKE`, default privileges и политики, но не credentials.
 
-`DIRECT_URL` должен исчезнуть из окружения Vercel Functions. Репозиторий больше
-не использует его в build/generate, но до успешного cutover-релиза прежний
-secret остаётся в Vercel ради обратимости. Пока он физически не удалён,
-отделение runtime-роли считается декоративным: работающий процесс всё ещё может
-прочитать соседний владельческий credential.
+`DIRECT_URL` удалён из окружения Vercel Production и Preview после успешного
+cutover-релиза. Репозиторий не использует его в build/generate; прямой
+credential остаётся только в защищённых release/backup workflow и локальной
+среде. Поэтому следующий этап — runtime-роль без DDL — больше не обесценивается
+соседней владельческой строкой подключения.
 
 ## Контексты запросов
 
@@ -223,12 +223,16 @@ Release-контур этапа 2a доказан для обеих сред. О
 `success` только в `00:33:23Z`. Run `31654625609` повторно прошёл target guard
 и no-op миграцию (18 миграций, pending нет). Последний scheduled backup run
 `31614719537` успешен; схема, мажор PostgreSQL и формат дампа после полной
-restore-проверки не менялись. Пункты 4 и 5 выполнены, cutover теперь разрешён
-отдельным изменением. Repository-часть пункта 6 подготовлена 2026-08-13:
-`vercel.json` использует `npm run build`, `build:deploy` удалён, а Prisma Client
-генерируется без `DIRECT_URL`. Пункт 6 остаётся незавершённым до успешного
-Production и Preview release и последующего ручного удаления прежнего секрета
-из обоих Vercel environments.
+restore-проверки не менялись. Пункты 4 и 5 выполнены. Пункт 6 завершён
+2026-08-13 через PR №64, merge SHA
+`90345676199951798bcc1597f8da410ad6f75c90`: `vercel.json` использует
+`npm run build`, `build:deploy` удалён, Prisma Client генерируется без
+`DIRECT_URL`. Production run `31657217922` прошёл target guard и no-op
+миграцию до успешного Vercel deployment; Preview run `31657384104` сделал то
+же до push ветки `preview`, её Vercel deployment также успешен. После этого
+`DIRECT_URL` удалён из Vercel Production и Preview, а повторный список
+переменных подтвердил отсутствие секрета при сохранённых runtime
+`DATABASE_URL`.
 
 Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
 сборка Vercel и GitHub migration идут параллельно, и новый код может стать
