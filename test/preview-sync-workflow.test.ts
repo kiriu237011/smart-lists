@@ -51,6 +51,12 @@ describe("sync-preview workflow", () => {
     expect(workflow.indexOf("run: npm run migrate:deploy")).toBeLessThan(
       workflow.indexOf("run: git push origin HEAD:preview"),
     );
+
+    const installStep = workflow.slice(
+      workflow.indexOf("- name: Install dependencies for Preview migration"),
+      workflow.indexOf("- name: Verify Preview database target"),
+    );
+    expect(installStep).not.toContain("DIRECT_URL");
   });
 
   it.each([
