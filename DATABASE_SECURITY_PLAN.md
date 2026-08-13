@@ -121,6 +121,17 @@ Postgres catalogs и выводит fingerprint endpoint, атрибуты ро�
 доступ к выбранной ветке Neon; локальный `.env` доказательством Preview или
 Production не считается.
 
+**Read-only audit 2026-08-13:** через Neon CLI отдельно проверены ветки `dev`
+(Preview) и `production`. Их direct endpoints различаются; обе ветки содержат
+ожидаемые 15 таблиц `public` вместе с `_prisma_migrations`, без sequences,
+RLS и policies. Единственная пользовательская login-роль — `neondb_owner`;
+она владеет БД, схемой и всеми таблицами, наследует `neon_superuser` и имеет
+`CREATEROLE`, `CREATEDB`, `REPLICATION`, `BYPASSRLS` и полный набор табличных
+прав. Отдельных runtime, migrator или backup ролей пока нет. Audit выполнялся
+в `READ ONLY`-транзакции; connection strings не печатались и не записывались.
+Набор объектов совпал с fail-closed матрицей, поэтому неожиданных препятствий
+для отдельного Preview cutover не найдено.
+
 ### Cutover и rollback
 
 Порядок не меняется местами:
