@@ -621,7 +621,9 @@ Live-конфигурация GitHub проверена 2026-08-12: Environments
 слит в `main`: production run `31652132055` прошёл target guard и no-op
 миграцию (18 миграций, pending нет), Preview run `31652333174` сделал то же до
 push и успешного Vercel deployment. Секреты и hostname в логах не раскрыты.
-До проверки Vercel Deployment Check сохраняется `build:deploy`.
+В Vercel вручную добавлен обязательный GitHub Deployment Check
+`Production database migration`, но его удержание production alias ещё нужно
+доказать контрольным release. До этой проверки сохраняется `build:deploy`.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается
