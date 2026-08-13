@@ -214,7 +214,9 @@ production target guard подтвердил direct host, а Prisma обнару
 образом проверил Preview до push постоянной ветки; Vercel deployment нового
 preview SHA завершился успешно. Секреты и hostname в логи не попали.
 Release-контур этапа 2a доказан для обеих сред, но Vercel пока использует
-`build:deploy`: Deployment Check для production alias ещё не подтверждён.
+`build:deploy`. В Vercel вручную добавлен обязательный GitHub Deployment Check
+`Production database migration`; его фактическое удержание production alias
+ещё не подтверждено контрольным release, поэтому cutover пока запрещён.
 
 Если Deployment Check не настроен или не удерживает alias, cutover запрещён:
 сборка Vercel и GitHub migration идут параллельно, и новый код может стать
