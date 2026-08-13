@@ -333,9 +333,16 @@ endpoint `d95cc95b87c7`; runtime ACL до/после совпал. GitHub Enviro
 несуперпользовательскую `CREATEROLE` admin-роль и повторно прошёл оба scopes,
 213 runtime-тестов и dump/restore. Production по control-plane audit всё ещё
 содержит только `neondb_owner` и `smartlists_runtime`; backup scope не
-применялся. Следующий gate — опубликовать изменения, дождаться реального
-`Sync Preview Proxy` с новым Environment secret и только затем отдельно
-согласовать Production.
+применялся.
+
+PR №66 merged в `main` SHA `4a497759`. Main CI `31673950201` прошёл checks,
+213 role-integration tests, 100 E2E и штатную Production no-op migration.
+Автоматический `Sync Preview Proxy` `31674172929` для того же SHA прочитал
+новый Preview Environment secret, прошёл target guard и получил
+`No pending migrations to apply` для 18 миграций. После этого workflow
+продвинул `preview` на `4a108cb`, а Vercel deployment для этого SHA получил
+`success`. Preview owner/migrator gate закрыт полностью. Следующий отдельный
+go/no-go — Production migration scope; backup остаётся последующим этапом.
 
 ## Контексты запросов
 
