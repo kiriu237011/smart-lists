@@ -202,7 +202,6 @@ async function main() {
       mode: "plan-only",
       role: RUNTIME_ROLE,
       endpointFingerprint: fingerprint(adminUrl.hostname),
-      rotatePassword,
       tablePrivileges: RUNTIME_TABLE_PRIVILEGES,
       denied: [
         "database CREATE",
@@ -319,7 +318,6 @@ async function main() {
     mode: "applied-and-verified",
     role: RUNTIME_ROLE,
     roleCreated,
-    passwordRotated: !roleCreated && rotatePassword,
     endpointFingerprint: fingerprint(adminUrl.hostname),
   }, null, 2));
 }

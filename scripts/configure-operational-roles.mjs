@@ -761,8 +761,6 @@ async function main() {
         routines: EXPECTED_ROUTINES,
         domains: EXPECTED_DOMAINS,
       },
-      rotateMigratorPassword,
-      rotateBackupPassword,
       invariants: [
         "database owner remains unchanged",
         "runtime ACL and role attributes remain unchanged",
