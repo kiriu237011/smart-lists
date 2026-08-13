@@ -1,8 +1,7 @@
 # План усиления доступа к PostgreSQL
 
 **Статус:** этапы 2a и 2b завершены в Preview и Production; migration scope
-этапа 2c применён в обеих средах, для Production ожидается доказательство
-через main workflow; backup scope ещё не менялся
+этапа 2c завершён и проверен в обеих средах; backup scope ещё не менялся
 **Дата:** 2026-08-13
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -352,9 +351,15 @@ GitHub Environment `Production` `DIRECT_URL` заменён на migrator creden
 локальные target guard, no-op всех 18 миграций и откатываемый ownership-probe
 прошли. Probe подтвердил `session_user=smartlists_migrator`,
 `current_user=smartlists_owner` и owner нового объекта `smartlists_owner`.
-Финальный gate пока не закрыт: новый Environment secret должен пройти
-Production migration job опубликованного main SHA до Vercel promotion. Backup
-остаётся следующим отдельным этапом.
+PR №68 merged в `main` SHA `9a4ebb73`. Main CI `31677854835` прошёл checks,
+213 role-integration tests и 100 E2E, после чего Production migration job
+`94376916769` прочитал новый Environment secret. Target guard вернул
+`Release DB target verified`, Prisma нашёл 18 миграций и не нашёл pending.
+Migration deployment получил `success` в `07:31:16Z`, а Vercel Production —
+в `07:31:17Z`, поэтому promotion состоялся после БД для того же SHA.
+`Sync Preview Proxy` `31678100642` также завершился успешно. Production
+owner/migrator gate закрыт полностью; backup остаётся следующим отдельным
+этапом.
 
 ## Контексты запросов
 

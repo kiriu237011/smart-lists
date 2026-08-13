@@ -840,9 +840,13 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   post-cutover audit, target guard, no-op 18 миграций и откатываемый
   ownership-probe прошли; probe подтвердил `session_user=smartlists_migrator`,
   `current_user=smartlists_owner` и owner нового объекта `smartlists_owner`.
-  Финальный Production gate ожидает main workflow proof нового Environment
-  secret до Vercel promotion. Backup credential и `smartlists_backup` ещё не
-  менялись.
+  PR №68 merged в `main` SHA `9a4ebb73`; main CI `31677854835` прошёл checks,
+  213 role-integration tests и 100 E2E. Production migration job `94376916769`
+  прочитал новый Environment secret, прошёл target guard и получил no-op для
+  18 миграций. Migration deployment стал `success` в `07:31:16Z`, Vercel
+  Production — в `07:31:17Z`; `Sync Preview Proxy` `31678100642` также зелёный.
+  Production owner/migrator gate закрыт. Backup credential и
+  `smartlists_backup` ещё не менялись.
 - 2026-08-11: независимый аудит двух репозиториев нашёл два незаметных хвоста в web-приложении. `react-markdown` не исполнял HTML, но сохранял кликабельные ссылки модели — поэтому XSS был закрыт, а фишинг через prompt injection нет; теперь URL не рендерятся как ссылки. Ленивая уборка `PENDING` удаляла только строки БД, хотя браузер мог уже положить объект в S3; теперь ключи удаляются фоново, а при сбое метаданные восстанавливаются для повторной попытки. Оба свойства закреплены тестами.
 - 2026-08-11: постоянная ветка `preview` синхронизируется автоматически, но не после каждого изменения. Отдельный workflow ждёт успешный `CI` после `push` в `main`, сравнивает накопленный diff с `preview` по auth routes, прямым runtime-зависимостям proxy и конфигурации сборки и мержит ровно `head_sha` завершившегося прогона. Это последнее существенно: если следующий push уже находится в `main`, но его CI ещё идёт, он не попадёт в OAuth proxy раньше проверки. Workflow получает только `contents: write`, не получает secrets и явно пушит в `preview`; созданный его `GITHUB_TOKEN` push не запускает новый GitHub workflow, но Vercel Git integration создаёт Preview deployment. Обычные UI-изменения ветку не двигают и лишнюю сборку не создают.
 - 2026-08-10: отдельную роль Postgres без прав DDL не стали вводить как
