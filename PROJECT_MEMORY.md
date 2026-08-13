@@ -662,7 +662,11 @@ pooled credential; deployment `dpl_2Q3NqEW1QfNZxTpa1tRgXaoZwBu6` имеет ст
 automation bypass; bypass сразу отозван, временные OIDC-файлы удалены. Первый
 пробный cutover штатно откатился на owner из-за слишком строгой трактовки SSO
 `302`; после исправления критерия финальный cutover прошёл. Production не
-менялся.
+менялся. Ручной gate затем подтвердил OAuth/session, CRUD
+списков/записей/групп/заметок, sharing и разделение владельца/редактора,
+realtime и вложения; Vercel runtime logs остались без ошибок. AI в Preview
+намеренно не проверяется, потому что среда не получает `INSIGHTS_SERVICE_*` и
+не допущена GCP federation.
 
 Все внешние Actions закреплены полными commit SHA; комментарий рядом сохраняет
 читаемую версию для Dependabot и ручного обновления. Тег в `uses:` не считается

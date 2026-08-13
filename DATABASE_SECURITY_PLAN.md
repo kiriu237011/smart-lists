@@ -148,6 +148,14 @@ Vercel Preview `DATABASE_URL` заменён на pooled credential
 audit подтвердил запрещённые role attributes, отсутствие membership в других
 ролях и точную DML-матрицу. Production и его credential не менялись.
 
+**Ручной Preview gate 2026-08-13:** пользователь подтвердил Google OAuth и
+сохранение сессии, CRUD списков/записей/групп/заметок, sharing с разделением
+прав владельца и редактора, realtime между вкладками/участниками и полный поток
+вложений. В Vercel runtime logs после проверки ошибок нет. Тем самым Preview
+gate закрыт; следующий инфраструктурный шаг — только отдельный Production
+go/no-go. AI намеренно не входит в Preview gate: эта среда не получает
+`INSIGHTS_SERVICE_*` и не допущена GCP federation.
+
 Первый пробный cutover был автоматически откачен на owner credential после
 ошибочной трактовки штатного Vercel Authentication `302` как отказа приложения.
 Rollback deployment получил `Ready`; повторная проверка через официальный
@@ -177,9 +185,9 @@ fail-closed, а не получает повторный `ALTER ROLE ... NOSUPER
 
 Структурный rollback не нужен: создание ограниченной роли и `GRANT` не меняют
 данные, ownership или схему. Функциональный откат — только возврат Vercel на
-прежний credential и redeploy. Production запрещён до отдельного go/no-go
-после ручной проверки защищённых пользовательских потоков Preview.
-Автоматические privilege-, deployment- и HTTP-проверки Preview пройдены.
+прежний credential и redeploy. Автоматические privilege-, deployment- и
+HTTP-проверки, а также ручные пользовательские потоки Preview пройдены.
+Production требует отдельного явного go/no-go.
 
 ## Контексты запросов
 

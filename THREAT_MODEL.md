@@ -226,14 +226,22 @@ FastAPI к базе не обращается: весь контекст соб�
 
 | Буква | Статус | Суть |
 |---|---|---|
-| T | partial | одна роль-владелец с правами DDL; ручной канал `AllowedEmail`/`AppSetting` |
+| T | partial | Preview использует restricted runtime; Production пока остаётся на owner с DDL; ручной канал `AllowedEmail`/`AppSetting` |
 | R | **gap / accepted** | атрибуция пользователей на уровне БД архитектурно недостижима |
 | I | partial | write-путь бэкапов изолирован и зашифрован; read-путь восстановления использует личные админские права |
 | D | partial / accepted | restore проверен; реплики и деградированного режима нет, удаление ветки не блокируется тарифом |
 
-**T.** Один `DATABASE_URL` на все операции. Компрометация env Vercel означает не «прочитать данные», а `DROP TABLE`. Least privilege, аккуратно применённый к IAM в S3, к Postgres не применён.
+**T.** В Preview `DATABASE_URL` уже ограничен точной DML-матрицей без DDL и
+ownership. В Production компрометация env Vercel пока всё ещё означает не
+только «прочитать данные», но и возможность DDL через owner credential.
 
-**Разобрано 2026-08-10, предпосылка закрыта 2026-08-13.** На тот момент очевидная мера — завести runtime-роль без прав DDL — не закрывала сценарий: `build:deploy` применял миграции внутри Vercel под соседним `DIRECT_URL`. После проверенного Production и Preview cutover владельческий credential удалён из обоих Vercel environments. Теперь сужение `DATABASE_URL` действительно ограничит работающий процесс, хотя сама runtime-роль пока ещё имеет прежние DDL-права.
+**Разобрано 2026-08-10, предпосылка закрыта 2026-08-13.** На тот момент
+очевидная мера — завести runtime-роль без прав DDL — не закрывала сценарий:
+`build:deploy` применял миграции внутри Vercel под соседним `DIRECT_URL`. После
+проверенного Production и Preview release-cutover владельческий migration
+credential удалён из обоих Vercel environments. Сужение `DATABASE_URL` теперь
+действительно ограничивает процесс: в Preview оно внедрено и вручную проверено;
+для Production остаётся отдельный go/no-go.
 
 **Направление усиления зафиксировано 2026-08-12.** Принят staged-переход:
 release-миграции вне Vercel → runtime least privilege → транзакционный контекст
@@ -669,7 +677,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | ~~2.2~~ | ~~Versioning на бакете вложений~~ | Mitigate | ✅ **Сделано 2026-08-10** на обоих бакетах вложений. Lifecycle отличается от бэкапного одной строкой, и это существенно: у бэкапов `Expiration` текущих версий нужен, у пользовательских файлов он означал бы пропажу по расписанию — поэтому здесь ограничены только noncurrent-версии, 30 дней. Проверено учением на dev: удаление ключом приложения, delete marker, восстановление |
 | ~~2.3~~ | ~~Проверка `AllowedEmail` в `session` callback~~ | Mitigate | ✅ **Сделано 2026-08-10.** Проверка **и** очистка `Session`: одного отказа мало, cookie осталась бы валидной. Покрыто интеграционно (обе функции против живой БД) и E2E (отозванный пользователь оказывается на экране входа) |
 | ~~2.4~~ | ~~Строка в UI о передаче данных; флаг `aiEnabled` на списке~~ | Mitigate | ✅ **Сделано 2026-08-10, оба средства.** Строка закрывает осведомлённость, флаг — субъектность; одно другого не заменяет. Выключить может любой участник: владельческая проверка оставила бы человека, чьи данные уходят, без средств. Запрет проверяется в Action, а не только скрытием кнопки |
-| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Этап 2a завершён; этап 2b включён в Preview 2026-08-13.** Target guards и no-op миграции прошли для Production и Preview, production promotion дождался migration job того же SHA, Vercel build больше не применяет миграции, а `DIRECT_URL` удалён из обеих сред Vercel. Точная runtime DML-матрица и идемпотентная ротация проверены на Docker PostgreSQL: 213 integration-тестов прошли под ролью без DDL/BYPASS/ownership. В Neon `dev` роль создана SQL, Vercel Preview переведён на её pooled credential, deployment получил `Ready`, authenticated smoke-check вернул `200`, а post-cutover audit подтвердил контракт. Временный Vercel automation bypass отозван. Production не менялся и требует отдельного go/no-go |
+| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Этап 2a завершён; этап 2b включён и прошёл полный Preview gate 2026-08-13.** Target guards и no-op миграции прошли для Production и Preview, production promotion дождался migration job того же SHA, Vercel build больше не применяет миграции, а `DIRECT_URL` удалён из обеих сред Vercel. Точная runtime DML-матрица и идемпотентная ротация проверены на Docker PostgreSQL: 213 integration-тестов прошли под ролью без DDL/BYPASS/ownership. В Neon `dev` роль создана SQL, Vercel Preview переведён на её pooled credential, deployment получил `Ready`, authenticated smoke-check вернул `200`, а post-cutover audit подтвердил контракт. Временный Vercel automation bypass отозван. Ручная проверка подтвердила OAuth/session, CRUD, sharing/права, realtime и вложения; runtime logs чисты. Production не менялся и требует отдельного go/no-go |
 | ~~2.6~~ | ~~`USER` в `Dockerfile` сервиса~~ | Mitigate | ✅ **Сделано 2026-08-09.** `USER appuser`, uid 10001. Документ снова вправе считать это контролем — но не более чем сужением ущерба внутри контейнера (A25) |
 | ~~2.7~~ | ~~`openapi_url=None` при `debug=false`~~ | Mitigate | ✅ **Сделано 2026-08-09.** Схема больше не зависит от того, открыт сервис или нет |
 | ~~2.8~~ | ~~Включить Force TLS в приложении Pusher~~ | Mitigate | ✅ **Сделано 2026-08-09** в обоих приложениях, prod и dev. Гарантия перенесена с дефолта `pusher-js` на сервис |
