@@ -65,6 +65,7 @@ import {
   MAX_SUB_ITEMS_PER_ITEM,
 } from "@/lib/limits";
 import { consumeMutationBudget } from "@/lib/usage";
+import { withSpaceDb } from "@/lib/scoped-db";
 
 /**
  * Шаг между позициями записей при добавлении в конец списка.
@@ -1759,10 +1760,43 @@ export async function createGroup(formData: FormData) {
       };
     }
 
-    const groupsInSpace = await prisma.listGroup.count({
-      where: { userId: session.user.id, spaceId: space.id },
-    });
-    if (groupsInSpace >= MAX_GROUPS_PER_SPACE) {
+    const creation = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        const groupsInSpace = await tx.listGroup.count({
+          where: { userId: space.userId, spaceId: space.id },
+        });
+        if (groupsInSpace >= MAX_GROUPS_PER_SPACE) {
+          return { status: "limitReached" } as const;
+        }
+
+        // Новая группа встаёт в конец текущего порядка. Тайбрейки createdAt/id
+        // сохранят детерминированность даже при двух одновременных созданиях.
+        const lastGroup = await tx.listGroup.findFirst({
+          where: { userId: space.userId, spaceId: space.id },
+          orderBy: [
+            { position: "desc" },
+            { createdAt: "desc" },
+            { id: "desc" },
+          ],
+          select: { position: true },
+        });
+
+        const group = await tx.listGroup.create({
+          data: {
+            name: result.data.name,
+            userId: space.userId,
+            spaceId: space.id,
+            position: (lastGroup?.position ?? 0) + POSITION_STEP,
+          },
+          select: { id: true, name: true },
+        });
+        return { status: "created", group } as const;
+      },
+    );
+
+    if (creation.status === "limitReached") {
       logger.warn(
         { uid: hashId(session.user.id), spaceId: space.id, action: "createGroup" },
         "Достигнут потолок групп в пространстве",
@@ -1770,31 +1804,9 @@ export async function createGroup(formData: FormData) {
       return { success: false, error: "groupLimitReached" };
     }
 
-    // Новая группа встаёт в конец текущего порядка. Тайбрейки createdAt/id в
-    // выборке сохранят детерминированность даже при двух одновременных созданиях.
-    const lastGroup = await prisma.listGroup.findFirst({
-      where: { userId: session.user.id, spaceId: space.id },
-      orderBy: [
-        { position: "desc" },
-        { createdAt: "desc" },
-        { id: "desc" },
-      ],
-      select: { position: true },
-    });
-
-    const group = await prisma.listGroup.create({
-      data: {
-        name: result.data.name,
-        userId: session.user.id,
-        spaceId: space.id,
-        position: (lastGroup?.position ?? 0) + POSITION_STEP,
-      },
-      select: { id: true, name: true },
-    });
-
     revalidatePath("/", "layout");
-    logger.info({ uid: hashId(session.user.id), groupId: group.id, action: "createGroup" }, "Группа создана");
-    return { success: true, group };
+    logger.info({ uid: hashId(session.user.id), groupId: creation.group.id, action: "createGroup" }, "Группа создана");
+    return { success: true, group: creation.group };
   } catch (error) {
     logger.error({ error: error }, "Ошибка при создании группы:");
     return { success: false, error: "Не удалось создать группу" };
@@ -1829,12 +1841,14 @@ export async function deleteGroup(formData: FormData) {
     }
 
     // deleteMany с проверкой userId гарантирует что только владелец удаляет свою группу
-    const deleted = await prisma.listGroup.deleteMany({
-      where: {
-        id: result.data.groupId,
-        userId: session.user.id,
-        spaceId: space.id,
-      },
+    const deleted = await withSpaceDb(session.user.id, space.id, (tx) => {
+      return tx.listGroup.deleteMany({
+        where: {
+          id: result.data.groupId,
+          userId: space.userId,
+          spaceId: space.id,
+        },
+      });
     });
 
     if (deleted.count === 0) {
@@ -1883,13 +1897,15 @@ export async function renameGroup(formData: FormData) {
       };
     }
 
-    const updated = await prisma.listGroup.updateMany({
-      where: {
-        id: result.data.groupId,
-        userId: session.user.id,
-        spaceId: space.id,
-      },
-      data: { name: result.data.name },
+    const updated = await withSpaceDb(session.user.id, space.id, (tx) => {
+      return tx.listGroup.updateMany({
+        where: {
+          id: result.data.groupId,
+          userId: space.userId,
+          spaceId: space.id,
+        },
+        data: { name: result.data.name },
+      });
     });
 
     if (updated.count === 0) {
@@ -1939,81 +1955,102 @@ export async function moveGroup(formData: FormData) {
     }
 
     const { groupId, previousGroupId, nextGroupId } = result.data;
-    const groups = await prisma.listGroup.findMany({
-      where: { userId: session.user.id, spaceId: space.id },
-      orderBy: [
-        { position: "asc" },
-        { createdAt: "asc" },
-        { id: "asc" },
-      ],
-      select: { id: true, position: true },
-    });
+    const movement = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        const groups = await tx.listGroup.findMany({
+          where: { userId: space.userId, spaceId: space.id },
+          orderBy: [
+            { position: "asc" },
+            { createdAt: "asc" },
+            { id: "asc" },
+          ],
+          select: { id: true, position: true },
+        });
 
-    const movingGroup = groups.find((group) => group.id === groupId);
-    if (!movingGroup) {
+        const movingGroup = groups.find((group) => group.id === groupId);
+        if (!movingGroup) return { status: "notFound" } as const;
+
+        const previous = previousGroupId
+          ? (groups.find((group) => group.id === previousGroupId) ?? null)
+          : null;
+        const next = nextGroupId
+          ? (groups.find((group) => group.id === nextGroupId) ?? null)
+          : null;
+        if ((previousGroupId && !previous) || (nextGroupId && !next)) {
+          return { status: "stale" } as const;
+        }
+
+        // После удаления перемещаемой группы указанные соседи должны описывать
+        // реальный разрыв в текущем порядке. Иначе другая вкладка успела
+        // изменить порядок, и применять жест приблизительно было бы неожиданно.
+        const withoutMoving = groups.filter((group) => group.id !== groupId);
+        const previousIndex = previous
+          ? withoutMoving.findIndex((group) => group.id === previous.id)
+          : -1;
+        const nextIndex = next
+          ? withoutMoving.findIndex((group) => group.id === next.id)
+          : withoutMoving.length;
+        if (
+          nextIndex !== previousIndex + 1 ||
+          (!previous && nextIndex !== 0) ||
+          (!next && previousIndex !== withoutMoving.length - 1)
+        ) {
+          return { status: "stale" } as const;
+        }
+
+        if (!previous && !next) {
+          // Единственная группа уже находится на единственно возможном месте.
+          return { status: "moved", rebalanced: false } as const;
+        }
+
+        const lowestPosition = groups[0].position;
+        const highestPosition = groups[groups.length - 1].position;
+        let newPosition: number;
+        if (previous && next) {
+          newPosition = (previous.position + next.position) / 2;
+        } else if (previous) {
+          newPosition = highestPosition + POSITION_STEP;
+        } else {
+          newPosition = lowestPosition - POSITION_STEP;
+        }
+
+        const needsRebalance =
+          previous !== null &&
+          next !== null &&
+          (newPosition <= previous.position || newPosition >= next.position);
+
+        if (needsRebalance) {
+          const reordered = [...withoutMoving];
+          reordered.splice(nextIndex, 0, movingGroup);
+          await Promise.all(
+            reordered.map((group, index) =>
+              tx.listGroup.update({
+                where: { id: group.id },
+                data: { position: (index + 1) * POSITION_STEP },
+              }),
+            ),
+          );
+          return { status: "moved", rebalanced: true } as const;
+        }
+
+        await tx.listGroup.update({
+          where: { id: groupId },
+          data: { position: newPosition },
+        });
+        return { status: "moved", rebalanced: false } as const;
+      },
+    );
+
+    if (movement.status === "notFound") {
       return { success: false, error: "Группа не найдена" };
     }
-
-    const previous = previousGroupId
-      ? (groups.find((group) => group.id === previousGroupId) ?? null)
-      : null;
-    const next = nextGroupId
-      ? (groups.find((group) => group.id === nextGroupId) ?? null)
-      : null;
-    if ((previousGroupId && !previous) || (nextGroupId && !next)) {
+    if (movement.status === "stale") {
       return { success: false, error: "stale" };
     }
 
-    // После удаления перемещаемой группы указанные соседи должны описывать
-    // реальный разрыв в текущем порядке. Иначе другая вкладка успела изменить
-    // порядок, и применять жест приблизительно было бы неожиданно.
-    const withoutMoving = groups.filter((group) => group.id !== groupId);
-    const previousIndex = previous
-      ? withoutMoving.findIndex((group) => group.id === previous.id)
-      : -1;
-    const nextIndex = next
-      ? withoutMoving.findIndex((group) => group.id === next.id)
-      : withoutMoving.length;
-    if (
-      nextIndex !== previousIndex + 1 ||
-      (!previous && nextIndex !== 0) ||
-      (!next && previousIndex !== withoutMoving.length - 1)
-    ) {
-      return { success: false, error: "stale" };
-    }
-
-    if (!previous && !next) {
-      // Единственная группа уже находится на единственно возможном месте.
-      return { success: true };
-    }
-
-    const lowestPosition = groups[0].position;
-    const highestPosition = groups[groups.length - 1].position;
-    let newPosition: number;
-    if (previous && next) {
-      newPosition = (previous.position + next.position) / 2;
-    } else if (previous) {
-      newPosition = highestPosition + POSITION_STEP;
-    } else {
-      newPosition = lowestPosition - POSITION_STEP;
-    }
-
-    const needsRebalance =
-      previous !== null &&
-      next !== null &&
-      (newPosition <= previous.position || newPosition >= next.position);
-
-    if (needsRebalance) {
-      const reordered = [...withoutMoving];
-      reordered.splice(nextIndex, 0, movingGroup);
-      await prisma.$transaction(
-        reordered.map((group, index) =>
-          prisma.listGroup.update({
-            where: { id: group.id },
-            data: { position: (index + 1) * POSITION_STEP },
-          }),
-        ),
-      );
+    if (movement.rebalanced) {
       logger.info(
         {
           uid: hashId(session.user.id),
@@ -2023,11 +2060,6 @@ export async function moveGroup(formData: FormData) {
         },
         "Позиции групп перенумерованы: исчерпана точность дробной позиции",
       );
-    } else {
-      await prisma.listGroup.update({
-        where: { id: groupId },
-        data: { position: newPosition },
-      });
     }
 
     revalidatePath("/", "layout");

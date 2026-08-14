@@ -218,6 +218,58 @@ describe("moveGroup", () => {
     expect(work.position).toBe(2);
   });
 
+  it("атомарно перенумеровывает группы при исчерпании точности позиции", async () => {
+    const user = await makeUser();
+    const [first, second, moving] = await Promise.all([
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Первая",
+          position: 1,
+        },
+      }),
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Вторая",
+          position: 1 + Number.EPSILON,
+        },
+      }),
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Перемещаемая",
+          position: 3,
+        },
+      }),
+    ]);
+    setSessionUser(user.id);
+
+    const result = await moveGroup(
+      formData({
+        groupId: moving.id,
+        previousGroupId: first.id,
+        nextGroupId: second.id,
+        spaceId: user.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: true });
+    const ordered = await prisma.listGroup.findMany({
+      where: { userId: user.id, spaceId: user.defaultSpaceId },
+      orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, position: true },
+    });
+    expect(ordered).toEqual([
+      { id: first.id, position: 1 },
+      { id: moving.id, position: 2 },
+      { id: second.id, position: 3 },
+    ]);
+  });
+
   it("отклоняет устаревшую пару соседей без частичного обновления", async () => {
     const user = await makeUser();
     const groups = await Promise.all(

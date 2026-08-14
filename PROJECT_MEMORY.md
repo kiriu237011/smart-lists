@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для attachments)
+**Последнее обновление:** 2026-08-14 (scoped DB для ListGroup lifecycle)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -103,6 +103,15 @@ Smart Lists — локализованное веб-приложение для 
   `PENDING` глобальны между пространствами. Cross-space DB-тесты это
   фиксируют. До RLS enforcement требуется узкий DB-helper для aggregate и
   cleanup/restore; расширять обычные Attachment policies нельзя.
+- Седьмой группой перенесён ListGroup lifecycle в `src/app/actions/index.ts`:
+  create/delete/rename/move используют `withSpaceDb`; проверка лимита,
+  вычисление позиции и создание выполняются в одной транзакции, как и чтение
+  соседей с полным rebalance без nested `$transaction`. Это не добавляет
+  сериализацию между конкурентными create — прежний небольшой overshoot
+  container limit остаётся допустимым под общим mutation budget. Пока `index.ts`
+  содержит другие legacy-потоки, он остаётся в direct-import allowlist (6
+  файлов), но отдельный unit guard запрещает откат этих четырёх Actions к
+  global Prisma.
 - Остальные production tenant-мутации и специальные потоки ещё не перенесены,
   а RLS выключен. Поэтому текущую изоляцию по-прежнему обеспечивают прикладные
   проверки; DB-level security posture на этом подэтапе не изменился.
@@ -903,6 +912,15 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: первым подэтапом большого `src/app/actions/index.ts` выбран
+  полный lifecycle личных групп: `createGroup`, `deleteGroup`,
+  `renameGroup`, `moveGroup`. Внешних эффектов у группы нет, поэтому вся
+  DB-логика помещена в короткие `withSpaceDb` callbacks; batch rebalance
+  распрямлён внутрь текущей транзакции. Новый DB-тест принудительно исчерпывает
+  точность Float и проверяет атомарную перенумерацию. Зелёные: 72 целевых DB,
+  226 full integration и 4 group E2E на production build. Общий allowlist
+  остаётся 6, но per-action guard фиксирует уже перенесённую часть `index.ts`.
+  RLS и live-среды не менялись.
 - 2026-08-14: шестой consumer-группой scoped API выбран полный attachment
   flow. Two-phase `PENDING → S3 → UPLOADED` сохранён, а отдельное admin-
   соединение в DB-тестах доказывает commit до presign/HeadObject/delete.

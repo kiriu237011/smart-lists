@@ -38,4 +38,34 @@ describe("граница scoped DB API", () => {
       "src/lib/scoped-db.ts",
     ]);
   });
+
+  it("не допускает возврат перенесённых group actions к глобальному Prisma", async () => {
+    const actionsPath = path.join(
+      SOURCE_ROOT,
+      "app",
+      "actions",
+      "index.ts",
+    );
+    const source = await readFile(actionsPath, "utf8");
+
+    for (const actionName of [
+      "createGroup",
+      "deleteGroup",
+      "renameGroup",
+      "moveGroup",
+    ]) {
+      const marker = `export async function ${actionName}(`;
+      const start = source.indexOf(marker);
+      const next = source.indexOf("\nexport async function ", start + marker.length);
+      const action = source.slice(start, next === -1 ? undefined : next);
+
+      expect(start, `${actionName} должен существовать`).toBeGreaterThanOrEqual(0);
+      expect(action, `${actionName} должен использовать scoped DB`).toContain(
+        "withSpaceDb(",
+      );
+      expect(action, `${actionName} не должен использовать global prisma`).not.toMatch(
+        /\bprisma\./,
+      );
+    }
+  });
 });

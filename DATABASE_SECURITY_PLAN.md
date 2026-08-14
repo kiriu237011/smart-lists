@@ -2,7 +2,7 @@
 
 **Статус:** этапы 2a–2c завершены; foundation scoped Prisma API, `spaces`,
 server read-path, user quota, space mutations и AI insights локально проверены,
-attachment flow локально проверен, RLS выключен
+attachment flow и ListGroup lifecycle локально проверены, RLS выключен
 **Дата:** 2026-08-14
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -438,8 +438,15 @@ DB-фазу до S3. Получатели realtime вычисляются до c
 метаданных после сбоя S3 получает отдельный scoped-контекст. DB-тесты
 подтверждают commit-before-S3, fail-closed чужого пространства и сохранение
 глобальной пользовательской квоты/уборки между пространствами. Allowlist
-сократился с 13 до 6. Пока остальные tenant-потоки не переведены и RLS
-выключен, это ещё не завершённый контроль изоляции строк.
+сократился с 13 до 6. Седьмой группой переведены `createGroup`,
+`deleteGroup`, `renameGroup` и `moveGroup`: limit/position/create и
+read/validate/rebalance выполняются внутри `withSpaceDb`, а вложенная batch-
+транзакция reorder распрямлена в тот же scoped callback. Отдельный статический
+guard запрещает этим четырём функциям возвращаться к global Prisma, пока
+`index.ts` целиком остаётся в переходном allowlist. DB-тест закрепляет
+атомарный rebalance при исчерпании точности позиции; полный group UI flow прошёл
+E2E. Пока остальные tenant-потоки не переведены и RLS выключен, это ещё не
+завершённый контроль изоляции строк.
 
 ## Матрица первого RLS-контура
 
@@ -541,9 +548,9 @@ AI-сервиса расходует зарезервированную попы
    operations. Приложение всё ещё защищено существующими фильтрами.
 4. **Scoped Prisma API — в работе.** Foundation `withUserDb`/`withSpaceDb`,
    space helpers, основной server read-path, user quota, space mutations и DB-
-   фазы AI insights и attachments реализованы и локально проверены; далее
-   перенести остальные tenant-мутации и специальные потоки, сохранив поведение
-   и тесты.
+   фазы AI insights, attachments и ListGroup lifecycle реализованы и локально
+   проверены; далее перенести остальные tenant-мутации и специальные потоки,
+   сохранив поведение и тесты.
 5. **DB-объекты без enforcement.** Добавить helper-функции, column controls и
    политики миграцией, но пока не включать RLS для runtime-трафика.
 6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
