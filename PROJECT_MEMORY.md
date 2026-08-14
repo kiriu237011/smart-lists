@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для ListGroup lifecycle)
+**Последнее обновление:** 2026-08-14 (scoped DB для ListGroup membership)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -112,6 +112,14 @@ Smart Lists — локализованное веб-приложение для 
   содержит другие legacy-потоки, он остаётся в direct-import allowlist (6
   файлов), но отдельный unit guard запрещает откат этих четырёх Actions к
   global Prisma.
+- Восьмой группой перенесён ListGroup membership:
+  `addListToGroup`, `removeListFromGroup` и `moveListInGroup` выполняют
+  проверку личной группы, доступности собственного/расшаренного списка и все
+  membership-запросы внутри одного `withSpaceDb`. Rebalance распрямлён в тот
+  же callback. DB-тесты закрепляют reorder shared-list редактором и
+  fail-closed изоляцию всех трёх действий по `spaceId`. Общий direct-import
+  allowlist остаётся равен 6 из-за остальных функций `index.ts`, а per-action
+  guard теперь защищает семь перенесённых group actions.
 - Остальные production tenant-мутации и специальные потоки ещё не перенесены,
   а RLS выключен. Поэтому текущую изоляцию по-прежнему обеспечивают прикладные
   проверки; DB-level security posture на этом подэтапе не изменился.
@@ -912,6 +920,17 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: вторым подэтапом большого `src/app/actions/index.ts` выбран
+  membership личных групп: `addListToGroup`, `removeListFromGroup`,
+  `moveListInGroup`. Проверка группы и доступного own/shared списка не
+  отделяется от membership read/write границей транзакции; reorder/rebalance
+  выполняется в том же `withSpaceDb`. Удаление membership по-прежнему требует
+  только владения группой: это позволяет безопасно убрать устаревшую связь
+  после потери доступа к списку. Целевая RLS-матрица уточнена: UPDATE нужен для
+  `position`, но ключи `listId`/`groupId` менять нельзя. Зелёные: lint,
+  typecheck, 304 unit, 66 целевых DB, полный integration 228 passed/3 skipped,
+  production build и 7 E2E групп/порядка. Allowlist остаётся 6, per-action
+  guard расширен с четырёх до семи Actions. RLS и live-среды не менялись.
 - 2026-08-14: первым подэтапом большого `src/app/actions/index.ts` выбран
   полный lifecycle личных групп: `createGroup`, `deleteGroup`,
   `renameGroup`, `moveGroup`. Внешних эффектов у группы нет, поэтому вся

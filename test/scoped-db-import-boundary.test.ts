@@ -53,6 +53,9 @@ describe("граница scoped DB API", () => {
       "deleteGroup",
       "renameGroup",
       "moveGroup",
+      "moveListInGroup",
+      "addListToGroup",
+      "removeListFromGroup",
     ]) {
       const marker = `export async function ${actionName}(`;
       const start = source.indexOf(marker);

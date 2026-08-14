@@ -2110,105 +2110,136 @@ export async function moveListInGroup(formData: FormData) {
     }
 
     const { groupId, listId, previousListId, nextListId } = result.data;
-    const [group, visibleList] = await Promise.all([
-      prisma.listGroup.findFirst({
-        where: { id: groupId, userId: session.user.id, spaceId: space.id },
-        select: { id: true },
-      }),
-      prisma.list.findFirst({
-        where: { id: listId, ...listInSpaceWhere(session.user.id, space.id) },
-        select: { id: true },
-      }),
-    ]);
-    if (!group) return { success: false, error: "Группа не найдена" };
-    if (!visibleList) return { success: false, error: "Список не найден" };
+    const movement = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        const [group, visibleList] = await Promise.all([
+          tx.listGroup.findFirst({
+            where: { id: groupId, userId: space.userId, spaceId: space.id },
+            select: { id: true },
+          }),
+          tx.list.findFirst({
+            where: {
+              id: listId,
+              ...listInSpaceWhere(space.userId, space.id),
+            },
+            select: { id: true },
+          }),
+        ]);
+        if (!group) return { status: "groupNotFound" } as const;
+        if (!visibleList) return { status: "listNotFound" } as const;
 
-    const memberships = await prisma.listGroupMembership.findMany({
-      where: { groupId },
-      orderBy: [
-        { position: "asc" },
-        { list: { createdAt: "asc" } },
-        { listId: "asc" },
-      ],
-      select: { listId: true, position: true },
-    });
-    const movingMembership = memberships.find(
-      (membership) => membership.listId === listId,
+        const memberships = await tx.listGroupMembership.findMany({
+          where: { groupId },
+          orderBy: [
+            { position: "asc" },
+            { list: { createdAt: "asc" } },
+            { listId: "asc" },
+          ],
+          select: { listId: true, position: true },
+        });
+        const movingMembership = memberships.find(
+          (membership) => membership.listId === listId,
+        );
+        if (!movingMembership) return { status: "notMember" } as const;
+
+        const previous = previousListId
+          ? (memberships.find(
+              (membership) => membership.listId === previousListId,
+            ) ?? null)
+          : null;
+        const next = nextListId
+          ? (memberships.find(
+              (membership) => membership.listId === nextListId,
+            ) ?? null)
+          : null;
+        if ((previousListId && !previous) || (nextListId && !next)) {
+          return { status: "stale" } as const;
+        }
+
+        const withoutMoving = memberships.filter(
+          (membership) => membership.listId !== listId,
+        );
+        const previousIndex = previous
+          ? withoutMoving.findIndex(
+              (membership) => membership.listId === previous.listId,
+            )
+          : -1;
+        const nextIndex = next
+          ? withoutMoving.findIndex(
+              (membership) => membership.listId === next.listId,
+            )
+          : withoutMoving.length;
+        if (
+          nextIndex !== previousIndex + 1 ||
+          (!previous && nextIndex !== 0) ||
+          (!next && previousIndex !== withoutMoving.length - 1)
+        ) {
+          return { status: "stale" } as const;
+        }
+
+        if (!previous && !next) {
+          return { status: "moved", rebalanced: false } as const;
+        }
+
+        const lowestPosition = memberships[0].position;
+        const highestPosition = memberships[memberships.length - 1].position;
+        let newPosition: number;
+        if (previous && next) {
+          newPosition = (previous.position + next.position) / 2;
+        } else if (previous) {
+          newPosition = highestPosition + POSITION_STEP;
+        } else {
+          newPosition = lowestPosition - POSITION_STEP;
+        }
+
+        const needsRebalance =
+          previous !== null &&
+          next !== null &&
+          (newPosition <= previous.position || newPosition >= next.position);
+
+        if (needsRebalance) {
+          const reordered = [...withoutMoving];
+          reordered.splice(nextIndex, 0, movingMembership);
+          await Promise.all(
+            reordered.map((membership, index) =>
+              tx.listGroupMembership.update({
+                where: {
+                  listId_groupId: {
+                    listId: membership.listId,
+                    groupId,
+                  },
+                },
+                data: { position: (index + 1) * POSITION_STEP },
+              }),
+            ),
+          );
+          return { status: "moved", rebalanced: true } as const;
+        }
+
+        await tx.listGroupMembership.update({
+          where: { listId_groupId: { listId, groupId } },
+          data: { position: newPosition },
+        });
+        return { status: "moved", rebalanced: false } as const;
+      },
     );
-    if (!movingMembership) {
+
+    if (movement.status === "groupNotFound") {
+      return { success: false, error: "Группа не найдена" };
+    }
+    if (movement.status === "listNotFound") {
+      return { success: false, error: "Список не найден" };
+    }
+    if (movement.status === "notMember") {
       return { success: false, error: "Список не входит в группу" };
     }
-
-    const previous = previousListId
-      ? (memberships.find(
-          (membership) => membership.listId === previousListId,
-        ) ?? null)
-      : null;
-    const next = nextListId
-      ? (memberships.find((membership) => membership.listId === nextListId) ??
-        null)
-      : null;
-    if ((previousListId && !previous) || (nextListId && !next)) {
+    if (movement.status === "stale") {
       return { success: false, error: "stale" };
     }
 
-    const withoutMoving = memberships.filter(
-      (membership) => membership.listId !== listId,
-    );
-    const previousIndex = previous
-      ? withoutMoving.findIndex(
-          (membership) => membership.listId === previous.listId,
-        )
-      : -1;
-    const nextIndex = next
-      ? withoutMoving.findIndex(
-          (membership) => membership.listId === next.listId,
-        )
-      : withoutMoving.length;
-    if (
-      nextIndex !== previousIndex + 1 ||
-      (!previous && nextIndex !== 0) ||
-      (!next && previousIndex !== withoutMoving.length - 1)
-    ) {
-      return { success: false, error: "stale" };
-    }
-
-    if (!previous && !next) {
-      return { success: true };
-    }
-
-    const lowestPosition = memberships[0].position;
-    const highestPosition = memberships[memberships.length - 1].position;
-    let newPosition: number;
-    if (previous && next) {
-      newPosition = (previous.position + next.position) / 2;
-    } else if (previous) {
-      newPosition = highestPosition + POSITION_STEP;
-    } else {
-      newPosition = lowestPosition - POSITION_STEP;
-    }
-
-    const needsRebalance =
-      previous !== null &&
-      next !== null &&
-      (newPosition <= previous.position || newPosition >= next.position);
-
-    if (needsRebalance) {
-      const reordered = [...withoutMoving];
-      reordered.splice(nextIndex, 0, movingMembership);
-      await prisma.$transaction(
-        reordered.map((membership, index) =>
-          prisma.listGroupMembership.update({
-            where: {
-              listId_groupId: {
-                listId: membership.listId,
-                groupId,
-              },
-            },
-            data: { position: (index + 1) * POSITION_STEP },
-          }),
-        ),
-      );
+    if (movement.rebalanced) {
       logger.info(
         {
           uid: hashId(session.user.id),
@@ -2219,11 +2250,6 @@ export async function moveListInGroup(formData: FormData) {
         },
         "Позиции списков группы перенумерованы: исчерпана точность дробной позиции",
       );
-    } else {
-      await prisma.listGroupMembership.update({
-        where: { listId_groupId: { listId, groupId } },
-        data: { position: newPosition },
-      });
     }
 
     revalidatePath("/", "layout");
@@ -2278,44 +2304,59 @@ export async function addListToGroup(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
-    // Проверяем что группа принадлежит пользователю
-    const group = await prisma.listGroup.findFirst({
-      where: { id: result.data.groupId, userId: session.user.id, spaceId: space.id },
-    });
-    if (!group) {
+    const addition = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        const [group, list] = await Promise.all([
+          tx.listGroup.findFirst({
+            where: {
+              id: result.data.groupId,
+              userId: space.userId,
+              spaceId: space.id,
+            },
+            select: { id: true },
+          }),
+          tx.list.findFirst({
+            where: {
+              id: result.data.listId,
+              ...listInSpaceWhere(space.userId, space.id),
+            },
+            select: { id: true },
+          }),
+        ]);
+        if (!group) return { status: "groupNotFound" } as const;
+        if (!list) return { status: "listNotFound" } as const;
+
+        const lastMembership = await tx.listGroupMembership.findFirst({
+          where: { groupId: result.data.groupId },
+          orderBy: { position: "desc" },
+          select: { position: true },
+        });
+        await tx.listGroupMembership.upsert({
+          where: {
+            listId_groupId: {
+              listId: result.data.listId,
+              groupId: result.data.groupId,
+            },
+          },
+          create: {
+            listId: result.data.listId,
+            groupId: result.data.groupId,
+            position: (lastMembership?.position ?? 0) + POSITION_STEP,
+          },
+          update: {},
+        });
+        return { status: "added" } as const;
+      },
+    );
+
+    if (addition.status === "groupNotFound") {
       return { success: false, error: "Группа не найдена" };
     }
-
-    // Проверяем что пользователь имеет доступ к списку
-    const list = await prisma.list.findFirst({
-      where: {
-        id: result.data.listId,
-        ...listInSpaceWhere(session.user.id, space.id),
-      },
-    });
-    if (!list) {
+    if (addition.status === "listNotFound") {
       return { success: false, error: "Список не найден" };
     }
-
-    const lastMembership = await prisma.listGroupMembership.findFirst({
-      where: { groupId: result.data.groupId },
-      orderBy: { position: "desc" },
-      select: { position: true },
-    });
-    await prisma.listGroupMembership.upsert({
-      where: {
-        listId_groupId: {
-          listId: result.data.listId,
-          groupId: result.data.groupId,
-        },
-      },
-      create: {
-        listId: result.data.listId,
-        groupId: result.data.groupId,
-        position: (lastMembership?.position ?? 0) + POSITION_STEP,
-      },
-      update: {},
-    });
 
     revalidatePath("/", "layout");
     logger.info({ uid: hashId(session.user.id), groupId: result.data.groupId, listId: result.data.listId, action: "addListToGroup" }, "Список добавлен в группу");
@@ -2358,20 +2399,32 @@ export async function removeListFromGroup(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
-    // Проверяем что группа принадлежит пользователю
-    const group = await prisma.listGroup.findFirst({
-      where: { id: result.data.groupId, userId: session.user.id, spaceId: space.id },
-    });
-    if (!group) {
+    const removed = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        const group = await tx.listGroup.findFirst({
+          where: {
+            id: result.data.groupId,
+            userId: space.userId,
+            spaceId: space.id,
+          },
+          select: { id: true },
+        });
+        if (!group) return false;
+
+        await tx.listGroupMembership.deleteMany({
+          where: {
+            groupId: result.data.groupId,
+            listId: result.data.listId,
+          },
+        });
+        return true;
+      },
+    );
+    if (!removed) {
       return { success: false, error: "Группа не найдена" };
     }
-
-    await prisma.listGroupMembership.deleteMany({
-      where: {
-        groupId: result.data.groupId,
-        listId: result.data.listId,
-      },
-    });
 
     revalidatePath("/", "layout");
     logger.info({ uid: hashId(session.user.id), groupId: result.data.groupId, listId: result.data.listId, action: "removeListFromGroup" }, "Список убран из группы");
