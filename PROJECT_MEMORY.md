@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для item lifecycle)
+**Последнее обновление:** 2026-08-14 (scoped DB для item movement)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -151,9 +151,19 @@ Smart Lists — локализованное веб-приложение для 
   `withSpaceDb`. Все четыре Action передают заранее собранные owner/editor ID в
   `notifyUsers` после commit. Общий allowlist остаётся 6; guard защищает 20
   функций и запрещает им как global Prisma, так и post-commit tenant lookup.
-- Остальные production tenant-мутации и специальные потоки ещё не перенесены,
-  а RLS выключен. Поэтому текущую изоляцию по-прежнему обеспечивают прикладные
-  проверки; DB-level security posture на этом подэтапе не изменился.
+- Тринадцатой группой перенесены `moveItem` и `moveItemToList`. Чтение
+  исходного/целевого списка и соседей, проверка лимита, обычная запись,
+  полный rebalance, перенос поддерева и атомарное копирование выполняются в
+  одной `withSpaceDb`-транзакции. Для move realtime получает объединение
+  участников двух списков, для copy — только получателей целевого; `after()`
+  больше не читает tenant-таблицы. Глобальный Prisma из
+  `src/app/actions/index.ts` удалён, allowlist сократился с 6 до 5 файлов, а
+  per-action guard защищает 22 функции.
+- Обычный production tenant data plane теперь использует scoped API. До RLS
+  enforcement остаются узкий helper для глобальной attachment-квоты/cleanup,
+  политики и отрицательные проверки самих политик. RLS пока выключен, поэтому
+  текущую изоляцию по-прежнему обеспечивают прикладные проверки; DB-level
+  security posture на этом подэтапе не изменился.
 
 ### Авторизация
 
@@ -954,6 +964,15 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: седьмым подэтапом большого `src/app/actions/index.ts` выбраны
+  `moveItem` и `moveItemToList`. Проверка обоих списков/соседей/лимита,
+  move/copy, каскад подпунктов и полный rebalance теперь атомарны внутри
+  `withSpaceDb`; вложенные транзакции удалены. Realtime recipients собираются
+  до commit: union двух списков для move и только target для copy. После этого
+  глобальный Prisma import из `index.ts` исчез, allowlist сократился с 6 до 5,
+  guard расширен с 20 до 22 Actions. Зелёные: lint, typecheck, 305 unit,
+  112 целевых DB, полный integration 244 passed / 3 skipped, production build
+  и 36 item/order/sub-item/sharing E2E. RLS и live-среды не менялись.
 - 2026-08-14: шестым подэтапом большого `src/app/actions/index.ts` выбран item
   lifecycle: `addItem`, `deleteItem`, `toggleItem` и `renameItem` переведены на
   `withSpaceDb`. `syncParentCompletion` принимает transaction client; вложенные

@@ -20,23 +20,39 @@ async function sourceFiles(directory: string): Promise<string[]> {
   return nested.flat();
 }
 
+function relativeSourcePath(file: string): string {
+  return path.relative(process.cwd(), file).split(path.sep).join("/");
+}
+
 describe("граница scoped DB API", () => {
   it("не допускает новых прямых импортов глобального Prisma Client", async () => {
     const importers: string[] = [];
     for (const file of await sourceFiles(SOURCE_ROOT)) {
       if (DIRECT_DB_IMPORT.test(await readFile(file, "utf8"))) {
-        importers.push(path.relative(process.cwd(), file).replaceAll("\\", "/"));
+        importers.push(relativeSourcePath(file));
       }
     }
 
     expect(importers.sort()).toEqual([
-      "src/app/actions/index.ts",
       "src/auth.ts",
       "src/lib/allowed-email.ts",
       "src/lib/app-settings.ts",
       "src/lib/notify.ts",
       "src/lib/scoped-db.ts",
     ]);
+  });
+
+  it("не допускает tenant-read realtime helpers в production data plane", async () => {
+    const callers: string[] = [];
+    for (const file of await sourceFiles(SOURCE_ROOT)) {
+      const relative = relativeSourcePath(file);
+      if (relative === "src/lib/notify.ts") continue;
+      if (/\bnotifyLists?Members\s*\(/.test(await readFile(file, "utf8"))) {
+        callers.push(relative);
+      }
+    }
+
+    expect(callers).toEqual([]);
   });
 
   it("не допускает возврат перенесённых actions к глобальному Prisma", async () => {
@@ -69,6 +85,8 @@ describe("граница scoped DB API", () => {
       "deleteItem",
       "toggleItem",
       "renameItem",
+      "moveItem",
+      "moveItemToList",
     ]) {
       const marker = `export async function ${actionName}(`;
       const start = source.indexOf(marker);

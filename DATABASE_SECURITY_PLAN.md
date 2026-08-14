@@ -2,8 +2,8 @@
 
 **Статус:** этапы 2a–2c завершены; foundation scoped Prisma API, `spaces`,
 server read-path, user quota, space mutations и AI insights локально проверены,
-attachment flow, ListGroup lifecycle/membership, List lifecycle, sharing
-lifecycle, note mutations и item lifecycle локально проверены, RLS выключен
+attachment flow, ListGroup lifecycle/membership, List lifecycle, sharing,
+note mutations, item lifecycle и item movement локально проверены, RLS выключен
 **Дата:** 2026-08-14
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -487,8 +487,15 @@ fail-closed для всех четырёх Actions и прежнюю семан�
 Per-action guard расширен до двадцати функций и теперь также запрещает
 перенесённым Actions возвращать `notifyListMembers`/`notifyListsMembers`; общий
 direct-import allowlist остаётся 6.
-Пока остальные tenant-потоки не переведены и RLS выключен, это ещё не
-завершённый контроль изоляции строк.
+Тринадцатой группой переведены `moveItem` и `moveItemToList`. Доступ к
+исходному и целевому спискам, проверка соседей/лимита, обычная запись,
+rebalance, перенос поддерева и копирование родителя с подпунктами выполняются
+в одной `withSpaceDb`-транзакции. Realtime recipients собираются до commit:
+union двух списков для move и только target для copy. Глобальный Prisma import
+из `src/app/actions/index.ts` удалён; allowlist сократился с 6 до 5, guard
+расширен до двадцати двух функций. Обычный tenant data plane теперь scoped.
+RLS всё ещё выключен, поэтому это ещё не завершённый контроль изоляции строк;
+до enforcement остаются attachment helper, policies и их отрицательные тесты.
 
 ## Матрица первого RLS-контура
 
@@ -554,11 +561,10 @@ RLS-политика `Space` может остаться строго `userId = 
 
 `after()` не должен повторно обращаться к tenant-таблицам через Prisma:
 контекст транзакции к этому моменту уже закрыт. Attachment, List lifecycle,
-sharing, note Actions и item lifecycle уже вычисляют получателей внутри
+sharing, note, item lifecycle и item movement вычисляют получателей внутри
 авторизованной транзакции и передают в фоновую задачу минимальный набор
-идентификаторов. Оставшиеся `moveItem`/`moveItemToList` с
-`notifyListMembers`/`notifyListsMembers` должны перейти на тот же контракт до
-enforcement.
+идентификаторов. Обычный tenant data plane больше не вызывает
+`notifyListMembers`/`notifyListsMembers`.
 
 ### Очистка вложений
 

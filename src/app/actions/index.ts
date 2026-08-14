@@ -44,12 +44,11 @@ import {
   updateItemNoteSchema,
   setListAiEnabledSchema,
 } from "@/lib/validations";
-import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { auth } from "@/auth";
 import { logger, hashId } from "@/lib/logger";
-import { notifyListMembers, notifyListsMembers, notifyUsers } from "@/lib/notify";
+import { notifyUsers } from "@/lib/notify";
 import { deleteObjects } from "@/lib/s3";
 import { ZodError } from "zod";
 import {
@@ -634,11 +633,12 @@ export async function moveItem(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const userId = session.user.id;
 
-    if (!(await consumeMutationBudget(session.user.id))) {
+    if (!(await consumeMutationBudget(userId))) {
       return { success: false, error: "dailyLimitReached" };
     }
-    const space = await resolveActionSpace(session.user.id, formData);
+    const space = await resolveActionSpace(userId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
     const result = moveItemSchema.safeParse({
@@ -655,117 +655,129 @@ export async function moveItem(formData: FormData) {
 
     const { itemId, previousItemId, nextItemId } = result.data;
 
-    // Один запрос закрывает сразу три задачи: проверку доступа к списку,
-    // проверку принадлежности соседей ЭТОМУ ЖЕ списку и получение позиций.
-    // Условие items.some гарантирует, что перемещаемая запись лежит здесь же.
-    const list = await prisma.list.findFirst({
-      where: {
-        items: { some: { id: itemId } },
-        ...listInSpaceWhere(session.user.id, space.id),
-      },
-      select: {
-        id: true,
-        items: {
-          orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-          select: { id: true, position: true, parentId: true },
-        },
-      },
-    });
+    const movement = await withSpaceDb(
+      userId,
+      space.id,
+      async (tx) => {
+        // Один запрос закрывает доступ, принадлежность записи списку и позиции.
+        const list = await tx.list.findFirst({
+          where: {
+            items: { some: { id: itemId } },
+            ...listInSpaceWhere(userId, space.id),
+          },
+          select: {
+            id: true,
+            ownerId: true,
+            shares: { select: { userId: true } },
+            items: {
+              orderBy: [
+                { position: "asc" },
+                { createdAt: "asc" },
+                { id: "asc" },
+              ],
+              select: { id: true, position: true, parentId: true },
+            },
+          },
+        });
+        if (!list) return { status: "notFound" } as const;
 
-    if (!list) {
+        // Позиции сравнимы только внутри одного уровня дерева.
+        const moving = list.items.find((item) => item.id === itemId);
+        if (!moving) return { status: "notFound" } as const;
+        const siblings = list.items.filter(
+          (item) => item.parentId === moving.parentId,
+        );
+
+        const previous = previousItemId
+          ? (siblings.find((item) => item.id === previousItemId) ?? null)
+          : null;
+        const next = nextItemId
+          ? (siblings.find((item) => item.id === nextItemId) ?? null)
+          : null;
+        if ((previousItemId && !previous) || (nextItemId && !next)) {
+          return { status: "stale" } as const;
+        }
+
+        const lowestPosition = siblings[0].position;
+        const highestPosition = siblings[siblings.length - 1].position;
+        let newPosition: number;
+        if (previous && next) {
+          newPosition = (previous.position + next.position) / 2;
+        } else if (previous) {
+          newPosition = highestPosition + POSITION_STEP;
+        } else if (next) {
+          newPosition = lowestPosition - POSITION_STEP;
+        } else {
+          return { status: "unchanged" } as const;
+        }
+
+        const needsRebalance =
+          previous !== null &&
+          next !== null &&
+          (newPosition <= previous.position || newPosition >= next.position);
+
+        if (needsRebalance) {
+          // Rebalance уже атомарен внутри scoped callback, вложенная транзакция
+          // здесь лишь потеряла бы установленный transaction-local контекст.
+          const reordered = siblings.filter((item) => item.id !== itemId);
+          const insertAt = previous
+            ? reordered.findIndex((item) => item.id === previous.id) + 1
+            : 0;
+          reordered.splice(insertAt, 0, {
+            id: itemId,
+            position: newPosition,
+            parentId: moving.parentId,
+          });
+          await Promise.all(
+            reordered.map((item, index) =>
+              tx.item.update({
+                where: { id: item.id },
+                data: { position: (index + 1) * POSITION_STEP },
+              }),
+            ),
+          );
+        } else {
+          await tx.item.update({
+            where: { id: itemId },
+            data: { position: newPosition },
+          });
+        }
+
+        return {
+          status: "moved",
+          listId: list.id,
+          notificationUserIds: listNotificationUserIds(list),
+          rebalanced: needsRebalance,
+        } as const;
+      },
+    );
+
+    if (movement.status === "notFound") {
       return { success: false, error: "Запись не найдена" };
     }
-
-    // Перемещение всегда идёт внутри своего уровня: подпункт остаётся у своего
-    // родителя, пункт — среди пунктов списка. Позиции сравнимы только внутри
-    // этой группы, поэтому и соседи ищутся только среди неё: сосед с другого
-    // уровня означает устаревшее или подделанное представление клиента.
-    const moving = list.items.find((item) => item.id === itemId);
-    if (!moving) {
-      return { success: false, error: "Запись не найдена" };
-    }
-    const siblings = list.items.filter((item) => item.parentId === moving.parentId);
-
-    // `?? null` приводит «сосед не запрошен» и «сосед не найден» к одному типу:
-    // различает их проверка ниже, а дальше по коду null означает край уровня.
-    const previous = previousItemId
-      ? (siblings.find((item) => item.id === previousItemId) ?? null)
-      : null;
-    const next = nextItemId
-      ? (siblings.find((item) => item.id === nextItemId) ?? null)
-      : null;
-
-    // Сосед не найден — другой участник успел удалить запись, и представление
-    // клиента устарело. Переставить «примерно куда просили» хуже, чем отказать:
-    // клиент откатит оптимистичное перемещение и покажет актуальный порядок.
-    if ((previousItemId && !previous) || (nextItemId && !next)) {
+    if (movement.status === "stale") {
       return { success: false, error: "stale" };
     }
-
-    // Записи уже отсортированы по позиции, поэтому края берутся без обхода.
-    const lowestPosition = siblings[0].position;
-    const highestPosition = siblings[siblings.length - 1].position;
-
-    let newPosition: number;
-    if (previous && next) {
-      newPosition = (previous.position + next.position) / 2;
-    } else if (previous) {
-      newPosition = highestPosition + POSITION_STEP;
-    } else if (next) {
-      newPosition = lowestPosition - POSITION_STEP;
-    } else {
-      // Соседей нет вовсе: на этом уровне одна запись, двигать её некуда.
+    if (movement.status === "unchanged") {
       return { success: true };
     }
-
-    // Середина не легла строго между соседями — double исчерпал мантиссу.
-    // Практически недостижимо (нужно ~50 вставок подряд между одной и той же
-    // парой), но молча получить одинаковые позиции нельзя, поэтому здесь
-    // перенумеровывается весь уровень. Проверка идёт по факту, а не по
-    // произвольному эпсилону: так она верна при любых значениях позиций.
-    const needsRebalance =
-      previous !== null &&
-      next !== null &&
-      (newPosition <= previous.position || newPosition >= next.position);
-
-    if (needsRebalance) {
-      // Перенумеровываются только соседи по уровню: позиции подпунктов и
-      // пунктов независимы, и трогать чужой уровень незачем.
-      const reordered = siblings.filter((item) => item.id !== itemId);
-      const insertAt = previous
-        ? reordered.findIndex((item) => item.id === previous.id) + 1
-        : 0;
-      reordered.splice(insertAt, 0, {
-        id: itemId,
-        position: newPosition,
-        parentId: moving.parentId,
-      });
-
-      await prisma.$transaction(
-        reordered.map((item, index) =>
-          prisma.item.update({
-            where: { id: item.id },
-            data: { position: (index + 1) * POSITION_STEP },
-          }),
-        ),
-      );
+    if (movement.rebalanced) {
       logger.info(
-        { uid: hashId(session.user.id), listId: list.id, action: "moveItem" },
+        {
+          uid: hashId(userId),
+          listId: movement.listId,
+          action: "moveItem",
+        },
         "Позиции записей перенумерованы: исчерпана точность дробной позиции",
       );
-    } else {
-      await prisma.item.update({
-        where: { id: itemId },
-        data: { position: newPosition },
-      });
     }
 
     revalidatePath("/", "layout");
     // Уведомление после ответа (after), без эха вкладке автора (socketId)
     const socketId = formData.get("socketId");
-    after(() => notifyListMembers(list.id, socketId));
+    after(() => notifyUsers(movement.notificationUserIds, socketId));
     logger.info(
-      { uid: hashId(session.user.id), listId: list.id, action: "moveItem" },
+      { uid: hashId(userId), listId: movement.listId, action: "moveItem" },
       "Запись перемещена",
     );
     return { success: true };
@@ -812,11 +824,12 @@ export async function moveItemToList(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const userId = session.user.id;
 
-    if (!(await consumeMutationBudget(session.user.id))) {
+    if (!(await consumeMutationBudget(userId))) {
       return { success: false, error: "dailyLimitReached" };
     }
-    const space = await resolveActionSpace(session.user.id, formData);
+    const space = await resolveActionSpace(userId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
     const result = moveItemToListSchema.safeParse({
@@ -832,137 +845,149 @@ export async function moveItemToList(formData: FormData) {
 
     const { itemId, targetListId, mode } = result.data;
 
-    // Доступ к записи проверяется через её список: право менять содержимое
-    // есть и у владельца, и у редактора (ListShare).
-    const item = await prisma.item.findFirst({
-      where: {
-        id: itemId,
-        list: listInSpaceWhere(session.user.id, space.id),
-      },
-      select: {
-        id: true,
-        name: true,
-        note: true,
-        listId: true,
-        parentId: true,
-        // Подпункты нужны только при копировании, но отдельный запрос ради
-        // этого стоил бы round-trip: список подпунктов у записи короткий.
-        children: {
-          orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-          select: { name: true, note: true, position: true },
-        },
-      },
-    });
+    const mutation = await withSpaceDb(
+      userId,
+      space.id,
+      async (tx) => {
+        // Исходная запись, оба списка и все записи меняются в одном контексте:
+        // будущая RLS-политика видит одну пару app.user_id/app.space_id.
+        const item = await tx.item.findFirst({
+          where: {
+            id: itemId,
+            list: listInSpaceWhere(userId, space.id),
+          },
+          select: {
+            id: true,
+            name: true,
+            note: true,
+            listId: true,
+            parentId: true,
+            list: {
+              select: {
+                ownerId: true,
+                shares: { select: { userId: true } },
+              },
+            },
+            children: {
+              orderBy: [
+                { position: "asc" },
+                { createdAt: "asc" },
+                { id: "asc" },
+              ],
+              select: { name: true, note: true, position: true },
+            },
+          },
+        });
+        if (!item) return { status: "itemNotFound" } as const;
+        if (item.parentId) return { status: "subItem" } as const;
+        if (item.listId === targetListId) {
+          return { status: "sameList" } as const;
+        }
 
-    if (!item) {
+        const targetList = await tx.list.findFirst({
+          where: {
+            id: targetListId,
+            ...listInSpaceWhere(userId, space.id),
+          },
+          select: {
+            id: true,
+            ownerId: true,
+            shares: { select: { userId: true } },
+            items: {
+              where: { parentId: null },
+              orderBy: { position: "desc" },
+              take: 1,
+              select: { position: true },
+            },
+            _count: { select: { items: { where: { parentId: null } } } },
+          },
+        });
+        if (!targetList) return { status: "listNotFound" } as const;
+        if (targetList._count.items >= MAX_ITEMS_PER_LIST) {
+          return { status: "itemLimit" } as const;
+        }
+
+        const position =
+          (targetList.items[0]?.position ?? 0) + POSITION_STEP;
+        if (mode === "move") {
+          // Составной FK каскадно переносит listId подпунктов вместе с родителем.
+          await tx.item.update({
+            where: { id: itemId },
+            data: { listId: targetListId, position },
+          });
+        } else {
+          const copyData = {
+            name: item.name,
+            note: item.note,
+            noteUpdatedAt: item.note ? new Date() : null,
+            listId: targetListId,
+            addedById: userId,
+            position,
+          };
+          const copy = await tx.item.create({
+            data: copyData,
+            select: { id: true },
+          });
+          if (item.children.length > 0) {
+            await tx.item.createMany({
+              data: item.children.map((child) => ({
+                name: child.name,
+                note: child.note,
+                noteUpdatedAt: child.note ? new Date() : null,
+                listId: targetListId,
+                parentId: copy.id,
+                addedById: userId,
+                position: child.position,
+              })),
+            });
+          }
+        }
+
+        const sourceUserIds = listNotificationUserIds(item.list);
+        const targetUserIds = listNotificationUserIds(targetList);
+        return {
+          status: "mutated",
+          sourceListId: item.listId,
+          notificationUserIds:
+            mode === "move"
+              ? [...new Set([...sourceUserIds, ...targetUserIds])]
+              : targetUserIds,
+        } as const;
+      },
+    );
+
+    if (mutation.status === "itemNotFound") {
       return { success: false, error: "Запись не найдена" };
     }
-
-    // Подпункт принадлежит родителю: переносить его отдельно в другой список
-    // нельзя, туда он поедет только вместе с ним.
-    if (item.parentId) {
+    if (mutation.status === "subItem") {
       return { success: false, error: "subItem" };
     }
-
-    // Клиент такой пункт и не показывает, но присланному ID доверять нельзя.
-    if (item.listId === targetListId) {
+    if (mutation.status === "sameList") {
       return { success: false, error: "sameList" };
     }
-
-    // Тем же запросом, что и проверку доступа к целевому списку, забираем его
-    // максимальную позицию: запись встаёт в конец (см. addItem).
-    const targetList = await prisma.list.findFirst({
-      where: {
-        id: targetListId,
-        ...listInSpaceWhere(session.user.id, space.id),
-      },
-      select: {
-        id: true,
-        items: {
-          where: { parentId: null },
-          orderBy: { position: "desc" },
-          take: 1,
-          select: { position: true },
-        },
-        _count: { select: { items: { where: { parentId: null } } } },
-      },
-    });
-
-    if (!targetList) {
+    if (mutation.status === "listNotFound") {
       return { success: false, error: "Список не найден" };
     }
-
-    // Перенос и копирование — вторая дверь к росту списка. Потолок здесь не
-    // ради хранилища (при переносе строк не прибавляется вовсе), а ради
-    // инварианта: ни один список не должен вырасти за размер, на котором
-    // интерфейс и пересчёт позиций остаются отзывчивыми.
-    if (targetList._count.items >= MAX_ITEMS_PER_LIST) {
+    if (mutation.status === "itemLimit") {
       logger.warn(
-        { uid: hashId(session.user.id), listId: targetListId, action: "moveItemToList" },
+        {
+          uid: hashId(userId),
+          listId: targetListId,
+          action: "moveItemToList",
+        },
         "Целевой список достиг потолка пунктов",
       );
       return { success: false, error: "itemLimitReached" };
     }
 
-    const position = (targetList.items[0]?.position ?? 0) + POSITION_STEP;
-
-    if (mode === "move") {
-      // Подпункты едут за родителем сами: ON UPDATE CASCADE на составном
-      // ключе (parentId, listId) переписывает им listId. Позиции подпунктов
-      // значимы внутри родителя, поэтому остаются прежними.
-      await prisma.item.update({
-        where: { id: itemId },
-        data: { listId: targetListId, position },
-      });
-    } else {
-      // Внутри колбэка транзакции сужение типа сессии теряется, поэтому ID
-      // автора берётся здесь, где он ещё проверен.
-      const authorId = session.user.id;
-      const copyData = {
-        name: item.name,
-        note: item.note,
-        // У копии своя история заметки: версия начинается с нуля, а отметка
-        // времени ставится по факту создания — по ней AI отбирает контекст.
-        noteUpdatedAt: item.note ? new Date() : null,
-        listId: targetListId,
-        addedById: authorId,
-        position,
-      };
-
-      if (item.children.length === 0) {
-        await prisma.item.create({ data: copyData });
-      } else {
-        // ID копии известен только после её создания, поэтому подпункты
-        // пишутся вторым запросом — но в одной транзакции: половина
-        // скопированного пункта хуже, чем не скопированный вовсе.
-        await prisma.$transaction(async (tx) => {
-          const copy = await tx.item.create({ data: copyData, select: { id: true } });
-          await tx.item.createMany({
-            data: item.children.map((child) => ({
-              name: child.name,
-              note: child.note,
-              noteUpdatedAt: child.note ? new Date() : null,
-              listId: targetListId,
-              parentId: copy.id,
-              addedById: authorId,
-              position: child.position,
-            })),
-          });
-        });
-      }
-    }
-
     revalidatePath("/", "layout");
-    // Затронуты ДВА списка с разными наборами участников. При копировании
-    // исходный список не менялся — его участников дёргать незачем.
+    // Получатели собраны до commit; after не открывает tenant-контекст заново.
     const socketId = formData.get("socketId");
-    const affectedListIds =
-      mode === "move" ? [item.listId, targetListId] : [targetListId];
-    after(() => notifyListsMembers(affectedListIds, socketId));
+    after(() => notifyUsers(mutation.notificationUserIds, socketId));
     logger.info(
       {
-        uid: hashId(session.user.id),
-        listId: item.listId,
+        uid: hashId(userId),
+        listId: mutation.sourceListId,
         targetListId,
         action: mode === "move" ? "moveItemToList" : "copyItemToList",
       },
