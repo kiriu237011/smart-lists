@@ -14,9 +14,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getListInsight } from "@/app/actions/insights";
-import { MAX_INSIGHT_ITEMS } from "@/lib/notes";
+import { MAX_INSIGHT_GROUPS, MAX_INSIGHT_ITEMS } from "@/lib/notes";
 import { prisma, setSessionUser } from "./setup";
-import { makeItem, makeList, makeUser } from "./factories";
+import { makeItem, makeList, makeUser, shareList } from "./factories";
 
 /**
  * Федерация в тестах не поднимается: настоящий обмен пошёл бы в STS Google.
@@ -34,6 +34,7 @@ vi.mock("@/lib/gcp-auth", () => ({
 /** Форма запроса к сервису — ровно то, что проверяют тесты. */
 type InsightRequest = {
   title: string;
+  groups: string[];
   list_note: string | null;
   items: Array<{
     name: string;
@@ -308,5 +309,186 @@ describe("аутентификация вызова Cloud Run", () => {
     // Переменная может ещё существовать в окружении до её удаления, но код
     // обязан её игнорировать: иначе «секрет удалён» осталось бы намерением.
     expect(JSON.stringify(lastHeaders())).not.toContain("должен-остаться");
+  });
+});
+
+describe("контекст AI — границы состава", () => {
+  /**
+   * Тест на точный набор ключей, а не на отсутствие конкретного лишнего поля.
+   * Утечка в этом потоке выглядит не как ошибка, а как удобство: добавить в
+   * выборку `id`, чтобы что-то связать, или `email`, чтобы обратиться по имени.
+   * Явный список заставляет расширение состава быть намеренным — и заодно
+   * напоминает, что менять его нужно вместе с privacy-notice и моделью угроз.
+   */
+  it("не отправляет ничего сверх согласованного состава", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId, { title: "Ремонт" });
+    await prisma.list.update({
+      where: { id: list.id },
+      data: { note: "Заметка списка" },
+    });
+    const parent = await makeItem(list.id, { name: "Плитка" });
+    const subItem = await makeItem(list.id, { name: "Затирка", parentId: parent.id });
+    await prisma.item.update({
+      where: { id: parent.id },
+      data: { note: "Заметка записи", noteUpdatedAt: new Date() },
+    });
+    const group = await prisma.listGroup.create({
+      data: {
+        userId: user.id,
+        spaceId: user.defaultSpaceId,
+        name: "Дом",
+        position: 1,
+        listMemberships: { create: { listId: list.id, position: 1 } },
+      },
+    });
+    setSessionUser(user.id);
+
+    await getListInsight(list.id, "С чего начать?", user.defaultSpaceId);
+
+    const body = lastRequest();
+    expect(Object.keys(body).sort()).toEqual([
+      "groups",
+      "items",
+      "list_note",
+      "notes_meta",
+      "title",
+      "user_message",
+    ]);
+    expect(Object.keys(body.items[0]).sort()).toEqual([
+      "is_completed",
+      "name",
+      "note",
+      "sub_items",
+    ]);
+    expect(Object.keys(body.items[0].sub_items[0]).sort()).toEqual([
+      "is_completed",
+      "name",
+      "note",
+    ]);
+    expect(Object.keys(body.notes_meta).sort()).toEqual([
+      "included_item_notes",
+      "list_note_included",
+      "omitted_item_notes",
+    ]);
+
+    // Ни одного идентификатора: ни списка, ни записей, ни группы, ни самого
+    // пользователя. Модель получает содержимое, но не может связать его с
+    // человеком, а логи Anthropic — сопоставить два запроса одного владельца.
+    const serialized = JSON.stringify(body);
+    for (const identifier of [
+      list.id,
+      parent.id,
+      subItem.id,
+      group.id,
+      user.id,
+      user.email,
+      user.defaultSpaceId,
+    ]) {
+      expect(serialized).not.toContain(identifier);
+    }
+  });
+});
+
+describe("контекст AI — группы", () => {
+  it("шлёт группы вызывающего в том порядке, в каком тот их видит", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId, { title: "Ремонт" });
+    await makeItem(list.id, { name: "Купить плитку" });
+    for (const [index, name] of ["Дом", "Работа"].entries()) {
+      await prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name,
+          position: index + 1,
+          listMemberships: { create: { listId: list.id, position: 1 } },
+        },
+      });
+    }
+    setSessionUser(user.id);
+
+    await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    expect(lastRequest().groups).toEqual(["Дом", "Работа"]);
+  });
+
+  it("не шлёт группы, в которых список не состоит", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    await prisma.listGroup.create({
+      data: {
+        userId: user.id,
+        spaceId: user.defaultSpaceId,
+        name: "Посторонняя группа",
+        position: 1,
+      },
+    });
+    setSessionUser(user.id);
+
+    await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    expect(lastRequest().groups).toEqual([]);
+  });
+
+  it("не раскрывает группы другого участника расшаренного списка", async () => {
+    // Группы персональные, а инсайт читает тот, кто его запросил. Название
+    // чужой группы — личная организация её владельца, и в контекст оно
+    // попасть не должно ни при каких условиях.
+    const owner = await makeUser();
+    const member = await makeUser();
+    const list = await makeList(owner.id, owner.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    await shareList(list.id, member.id, member.defaultSpaceId);
+
+    await prisma.listGroup.create({
+      data: {
+        userId: owner.id,
+        spaceId: owner.defaultSpaceId,
+        name: "Кандидаты на увольнение",
+        position: 1,
+        listMemberships: { create: { listId: list.id, position: 1 } },
+      },
+    });
+    await prisma.listGroup.create({
+      data: {
+        userId: member.id,
+        spaceId: member.defaultSpaceId,
+        name: "Мои задачи",
+        position: 1,
+        listMemberships: { create: { listId: list.id, position: 1 } },
+      },
+    });
+
+    setSessionUser(member.id);
+    await getListInsight(list.id, undefined, member.defaultSpaceId);
+
+    expect(lastRequest().groups).toEqual(["Мои задачи"]);
+    expect(JSON.stringify(lastRequest())).not.toContain("увольнение");
+  });
+
+  it("обрезает число групп до лимита сервиса", async () => {
+    // Групп в пространстве бывает больше, чем принимает сервис: превышение
+    // отбраковало бы весь запрос, а не лишние элементы.
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    for (let index = 0; index < MAX_INSIGHT_GROUPS + 5; index += 1) {
+      await prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: `Группа ${index}`,
+          position: index + 1,
+          listMemberships: { create: { listId: list.id, position: 1 } },
+        },
+      });
+    }
+    setSessionUser(user.id);
+
+    await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    expect(lastRequest().groups).toHaveLength(MAX_INSIGHT_GROUPS);
   });
 });
