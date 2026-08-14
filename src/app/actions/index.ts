@@ -1114,101 +1114,94 @@ export async function createList(formData: FormData) {
       };
     }
 
-    // Потолок на размер пространства. Без лока: при 200 списках перебор на
-    // один-два ничего не значит, а параллельный флуд, способный проскочить
-    // окно между COUNT и INSERT, ограничивает суточный лимит мутаций. Там,
-    // где счёт мал и точность важна (5 пространств, 5 вложений), в проекте
-    // используется строгий вариант с транзакцией — здесь он был бы платой
-    // без выигрыша.
-    const listsInSpace = await prisma.list.count({
-      where: { ownerId: session.user.id, spaceId: space.id },
-    });
-    if (listsInSpace >= MAX_LISTS_PER_SPACE) {
+    const creation = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        // Потолок на размер пространства. Без сериализации: при 200 списках
+        // небольшой конкурентный перебор допустим и ограничен mutation budget.
+        const listsInSpace = await tx.list.count({
+          where: { ownerId: space.userId, spaceId: space.id },
+        });
+        if (listsInSpace >= MAX_LISTS_PER_SPACE) {
+          return { status: "limitReached" } as const;
+        }
+
+        // Если список создаётся из активной группы, группа и начальная позиция
+        // проверяются в том же scoped-контексте, что и nested create.
+        let initialMembership: {
+          group: { id: string; name: string };
+          position: number;
+        } | null = null;
+        if (result.data.groupId) {
+          const group = await tx.listGroup.findFirst({
+            where: {
+              id: result.data.groupId,
+              userId: space.userId,
+              spaceId: space.id,
+            },
+            select: { id: true, name: true },
+          });
+          if (!group) return { status: "groupNotFound" } as const;
+
+          const firstMembership = await tx.listGroupMembership.findFirst({
+            where: { groupId: group.id },
+            orderBy: { position: "asc" },
+            select: { position: true },
+          });
+          initialMembership = {
+            group,
+            position: firstMembership
+              ? firstMembership.position - POSITION_STEP
+              : POSITION_STEP,
+          };
+        }
+
+        // Список и начальное членство создаются одной атомарной Prisma-
+        // операцией. ownerId всегда берётся из подтверждённой сессии.
+        const list = await tx.list.create({
+          data: {
+            title: result.data.title,
+            ownerId: space.userId,
+            spaceId: space.id,
+            groupMemberships: initialMembership
+              ? {
+                  create: {
+                    groupId: initialMembership.group.id,
+                    position: initialMembership.position,
+                  },
+                }
+              : undefined,
+          },
+          include: {
+            owner: true,
+            items: {
+              include: {
+                addedBy: {
+                  select: { id: true, name: true, email: true },
+                },
+              },
+            },
+          },
+        });
+
+        return { status: "created", list, initialMembership } as const;
+      },
+    );
+
+    if (creation.status === "limitReached") {
       logger.warn(
         { uid: hashId(session.user.id), spaceId: space.id, action: "createList" },
         "Достигнут потолок списков в пространстве",
       );
       return { success: false, error: "listLimitReached" };
     }
-
-    // Если список создаётся из активной группы, сначала проверяем личную группу
-    // в том же пространстве и вычисляем позицию в её начале. Сам membership
-    // создаётся вложенно вместе со списком: ошибка связи не должна оставлять
-    // успешно созданный, но не показанный в активной группе список.
-    let initialMembership: {
-      group: { id: string; name: string };
-      position: number;
-    } | null = null;
-    if (result.data.groupId) {
-      const group = await prisma.listGroup.findFirst({
-        where: {
-          id: result.data.groupId,
-          userId: session.user.id,
-          spaceId: space.id,
-        },
-        select: { id: true, name: true },
-      });
-      if (!group) return { success: false, error: "Группа не найдена" };
-
-      const firstMembership = await prisma.listGroupMembership.findFirst({
-        where: { groupId: group.id },
-        orderBy: { position: "asc" },
-        select: { position: true },
-      });
-      initialMembership = {
-        group,
-        position: firstMembership
-          ? firstMembership.position - POSITION_STEP
-          : POSITION_STEP,
-      };
+    if (creation.status === "groupNotFound") {
+      return { success: false, error: "Группа не найдена" };
     }
 
-    // 3. Создаём список и начальное членство одной атомарной Prisma-операцией.
-    // ownerId берём из сессии — клиент не может его подменить!
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const newList = (await (prisma.list.create as any)({
-      data: {
-        title: result.data.title,
-        ownerId: session.user.id,
-        spaceId: space.id,
-        groupMemberships: initialMembership
-          ? {
-              create: {
-                groupId: initialMembership.group.id,
-                position: initialMembership.position,
-              },
-            }
-          : undefined,
-      },
-      // include подгружает связанные записи одним запросом
-      include: {
-        owner: true,
-        items: {
-          include: {
-            addedBy: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-        },
-      },
-    })) as {
-      id: string;
-      title: string;
-      note: string | null;
-      noteVersion: number;
-      aiEnabled: boolean;
-      ownerId: string;
-      owner: { name: string | null; email: string };
-      items: {
-        id: string;
-        name: string;
-        note: string | null;
-        noteVersion: number;
-        isCompleted: boolean;
-        parentId: string | null;
-        addedBy: { id: string; name: string | null; email: string } | null;
-      }[];
-    };
+    const newList = creation.list;
+    const initialMembership = creation.initialMembership;
 
     const listGroups = initialMembership
       ? [
@@ -1223,7 +1216,7 @@ export async function createList(formData: FormData) {
     revalidatePath("/", "layout");
     // Уведомление после ответа (after), без эха вкладке автора (socketId)
     const socketId = formData.get("socketId");
-    after(() => notifyListMembers(newList.id, socketId));
+    after(() => notifyUsers([space.userId], socketId));
     logger.info({ uid: hashId(session.user.id), listId: newList.id, action: "createList" }, "Список создан");
 
     // Возвращаем только нужные поля (не весь объект Prisma)
@@ -1300,28 +1293,46 @@ export async function deleteList(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
-    // Собираем участников И ключи вложений ДО удаления: каскад снесёт строки
-    // Attachment вместе со списком, а ключи для S3-уборки лежат именно в них.
-    const listToNotify = await prisma.list.findFirst({
-      where: { id: result.data.listId, ownerId: session.user.id, spaceId: space.id },
-      select: {
-        ownerId: true,
-        shares: { select: { userId: true } },
-        files: { select: { key: true } },
-      },
-    });
+    const deletion = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        // Участники и ключи должны быть собраны до каскадного удаления, но
+        // внутри той же транзакции: наружу выйдет уже готовый post-commit payload.
+        const list = await tx.list.findFirst({
+          where: {
+            id: result.data.listId,
+            ownerId: space.userId,
+            spaceId: space.id,
+          },
+          select: {
+            ownerId: true,
+            shares: { select: { userId: true } },
+            files: { select: { key: true } },
+          },
+        });
+        if (!list) return null;
 
-    // deleteMany с двойным условием — атомарная проверка прав.
-    // onDelete: Cascade удалит строки Attachment автоматически.
-    const deleted = await prisma.list.deleteMany({
-      where: {
-        id: result.data.listId,
-        ownerId: session.user.id, // Только владелец может удалить список
-        spaceId: space.id,
-      },
-    });
+        const deleted = await tx.list.deleteMany({
+          where: {
+            id: result.data.listId,
+            ownerId: space.userId,
+            spaceId: space.id,
+          },
+        });
+        if (deleted.count === 0) return null;
 
-    if (deleted.count === 0) {
+        return {
+          fileKeys: list.files.map((file) => file.key),
+          userIds: [
+            list.ownerId,
+            ...list.shares.map((share) => share.userId),
+          ],
+        };
+      },
+    );
+
+    if (!deletion) {
       return {
         success: false,
         error: "Только владелец может удалить список",
@@ -1330,9 +1341,9 @@ export async function deleteList(formData: FormData) {
 
     // S3-уборка батчем — best-effort. Удаление списка НЕ блокируется её успехом:
     // при сбое останется редкий невидимый сирота в бакете (дешевле битой ссылки).
-    if (listToNotify && listToNotify.files.length > 0) {
+    if (deletion.fileKeys.length > 0) {
       try {
-        await deleteObjects(listToNotify.files.map((f) => f.key));
+        await deleteObjects(deletion.fileKeys);
       } catch (s3Error) {
         logger.error(
           { error: s3Error, listId: result.data.listId, action: "deleteList" },
@@ -1344,14 +1355,8 @@ export async function deleteList(formData: FormData) {
     revalidatePath("/", "layout");
     // Уведомляем всех участников после удаления (используем заранее собранные ID).
     // after — после отправки ответа; socketId исключает вкладку автора из эха.
-    if (listToNotify) {
-      const userIds = [
-        listToNotify.ownerId,
-        ...listToNotify.shares.map((share) => share.userId),
-      ];
-      const socketId = formData.get("socketId");
-      after(() => notifyUsers(userIds, socketId));
-    }
+    const socketId = formData.get("socketId");
+    after(() => notifyUsers(deletion.userIds, socketId));
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "deleteList" }, "Список удалён");
     return { success: true };
   } catch (error) {
@@ -1631,14 +1636,36 @@ export async function setListAiEnabled(formData: FormData) {
 
     const { listId, aiEnabled } = result.data;
 
-    // Членство проверяется тем же `listInSpaceWhere`, что и везде: без него
-    // запрос просто не найдёт строку, и забыть проверку нельзя.
-    const updated = await prisma.list.updateMany({
-      where: { id: listId, ...listInSpaceWhere(session.user.id, space.id) },
-      data: { aiEnabled },
-    });
+    const notificationUserIds = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        // Членство проверяется тем же `listInSpaceWhere`, что и везде: право
+        // выключить AI есть и у владельца, и у editor текущего пространства.
+        const updated = await tx.list.updateMany({
+          where: {
+            id: listId,
+            ...listInSpaceWhere(space.userId, space.id),
+          },
+          data: { aiEnabled },
+        });
+        if (updated.count === 0) return null;
 
-    if (updated.count === 0) {
+        const list = await tx.list.findUniqueOrThrow({
+          where: { id: listId },
+          select: {
+            ownerId: true,
+            shares: { select: { userId: true } },
+          },
+        });
+        return [
+          list.ownerId,
+          ...list.shares.map((share) => share.userId),
+        ];
+      },
+    );
+
+    if (!notificationUserIds) {
       return { success: false, error: "Список не найден" };
     }
 
@@ -1647,7 +1674,7 @@ export async function setListAiEnabled(formData: FormData) {
     // Уведомление обязательно: остальные участники должны увидеть новое
     // состояние сразу. Иначе один выключил бы AI, а другой продолжал бы
     // видеть кнопку и считать, что отправка разрешена.
-    after(() => notifyListMembers(listId, socketId));
+    after(() => notifyUsers(notificationUserIds, socketId));
     logger.info(
       { uid: hashId(session.user.id), listId, aiEnabled, action: "setListAiEnabled" },
       "Изменён доступ AI к списку",
@@ -1696,19 +1723,38 @@ export async function renameList(formData: FormData) {
       };
     }
 
-    // updateMany с двойным условием — атомарная проверка прав
-    const updated = await prisma.list.updateMany({
-      where: {
-        id: result.data.listId,
-        ownerId: session.user.id, // Только владелец может переименовать список
-        spaceId: space.id,
-      },
-      data: {
-        title: result.data.title,
-      },
-    });
+    const notificationUserIds = await withSpaceDb(
+      session.user.id,
+      space.id,
+      async (tx) => {
+        // updateMany сохраняет атомарную владельческую проверку.
+        const updated = await tx.list.updateMany({
+          where: {
+            id: result.data.listId,
+            ownerId: space.userId,
+            spaceId: space.id,
+          },
+          data: {
+            title: result.data.title,
+          },
+        });
+        if (updated.count === 0) return null;
 
-    if (updated.count === 0) {
+        const list = await tx.list.findUniqueOrThrow({
+          where: { id: result.data.listId },
+          select: {
+            ownerId: true,
+            shares: { select: { userId: true } },
+          },
+        });
+        return [
+          list.ownerId,
+          ...list.shares.map((share) => share.userId),
+        ];
+      },
+    );
+
+    if (!notificationUserIds) {
       return {
         success: false,
         error: "Только владелец может переименовать список",
@@ -1718,7 +1764,7 @@ export async function renameList(formData: FormData) {
     revalidatePath("/", "layout");
     // Уведомление после ответа (after), без эха вкладке автора (socketId)
     const socketId = formData.get("socketId");
-    after(() => notifyListMembers(result.data.listId, socketId));
+    after(() => notifyUsers(notificationUserIds, socketId));
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "renameList" }, "Список переименован");
     return { success: true };
   } catch (error) {

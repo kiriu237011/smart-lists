@@ -39,7 +39,7 @@ describe("граница scoped DB API", () => {
     ]);
   });
 
-  it("не допускает возврат перенесённых group actions к глобальному Prisma", async () => {
+  it("не допускает возврат перенесённых actions к глобальному Prisma", async () => {
     const actionsPath = path.join(
       SOURCE_ROOT,
       "app",
@@ -56,6 +56,10 @@ describe("граница scoped DB API", () => {
       "moveListInGroup",
       "addListToGroup",
       "removeListFromGroup",
+      "createList",
+      "deleteList",
+      "setListAiEnabled",
+      "renameList",
     ]) {
       const marker = `export async function ${actionName}(`;
       const start = source.indexOf(marker);

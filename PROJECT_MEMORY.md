@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для ListGroup membership)
+**Последнее обновление:** 2026-08-14 (scoped DB для List lifecycle)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -120,6 +120,14 @@ Smart Lists — локализованное веб-приложение для 
   fail-closed изоляцию всех трёх действий по `spaceId`. Общий direct-import
   allowlist остаётся равен 6 из-за остальных функций `index.ts`, а per-action
   guard теперь защищает семь перенесённых group actions.
+- Девятой группой перенесён List lifecycle: `createList`, `deleteList`,
+  `renameList` и `setListAiEnabled`. Создание атомарно объединяет space-limit,
+  optional group membership и nested create; удаление собирает S3/realtime
+  payload до каскада в той же транзакции. Rename остаётся owner-only, AI-toggle
+  доступен любому участнику выбранного пространства. Все четыре Action
+  передают в post-commit эффекты уже готовые данные, поэтому S3/Pusher не
+  удерживают scoped-транзакцию и `after()` не читает tenant-таблицы. Общий
+  direct-import allowlist остаётся 6, per-action guard защищает 11 функций.
 - Остальные production tenant-мутации и специальные потоки ещё не перенесены,
   а RLS выключен. Поэтому текущую изоляцию по-прежнему обеспечивают прикладные
   проверки; DB-level security posture на этом подэтапе не изменился.
@@ -920,6 +928,19 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: третьим подэтапом большого `src/app/actions/index.ts` выбран
+  lifecycle списка: `createList`, `deleteList`, `renameList`,
+  `setListAiEnabled`. Существующие права не унифицировались намеренно:
+  rename/delete остаются owner-only, а AI-флаг может выключить editor, чьи
+  данные тоже отправляются наружу. Initial group membership создаётся вместе
+  со списком; delete возвращает из транзакции ключи S3 и участников до
+  каскада. Create уведомляет только заведомого владельца, остальные Action
+  используют собранные в scoped-контексте user IDs вместо фонового
+  `notifyListMembers`. DB-тест отдельным соединением доказывает commit до S3.
+  Зелёные: lint, typecheck, 304 unit, 75 целевых DB, полный integration 233
+  passed/3 skipped, production build и 8 list E2E. Allowlist остаётся 6,
+  per-action guard расширен с семи до одиннадцати Actions. RLS и live-среды не
+  менялись.
 - 2026-08-14: вторым подэтапом большого `src/app/actions/index.ts` выбран
   membership личных групп: `addListToGroup`, `removeListFromGroup`,
   `moveListInGroup`. Проверка группы и доступного own/shared списка не

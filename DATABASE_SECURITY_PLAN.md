@@ -2,8 +2,8 @@
 
 **Статус:** этапы 2a–2c завершены; foundation scoped Prisma API, `spaces`,
 server read-path, user quota, space mutations и AI insights локально проверены,
-attachment flow, ListGroup lifecycle и membership локально проверены, RLS
-выключен
+attachment flow, ListGroup lifecycle/membership и List lifecycle локально
+проверены, RLS выключен
 **Дата:** 2026-08-14
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -453,8 +453,17 @@ membership read/write и rebalance теперь находятся в одном
 group actions. DB-тесты закрепляют reorder расшаренного списка редактором и
 fail-closed отказ всех трёх действий при подмене пространства; production
 build и семь E2E групп/порядка зелёные. Общий allowlist остаётся равен 6,
-поскольку в `index.ts` ещё есть legacy-потоки. Пока остальные tenant-потоки не
-переведены и RLS выключен, это ещё не завершённый контроль изоляции строк.
+поскольку в `index.ts` ещё есть legacy-потоки. Девятой группой переведены
+`createList`, `deleteList`, `renameList` и `setListAiEnabled`: проверка
+лимита, optional initial membership, owner/editor access, mutation и сбор
+post-commit payload выполняются внутри `withSpaceDb`. S3 и Pusher запускаются
+после commit; create уведомляет известного владельца, остальные действия
+передают в `notifyUsers` участников, собранных в транзакции, поэтому
+`after()` не читает tenant-таблицы. DB-тест отдельным соединением подтверждает
+commit каскадного удаления до S3; cross-space тест закрывает все четыре Action.
+Per-action guard расширен с семи до одиннадцати функций, общий direct-import
+allowlist остаётся равен 6. Пока остальные tenant-потоки не переведены и RLS
+выключен, это ещё не завершённый контроль изоляции строк.
 
 ## Матрица первого RLS-контура
 
@@ -556,9 +565,9 @@ AI-сервиса расходует зарезервированную попы
    operations. Приложение всё ещё защищено существующими фильтрами.
 4. **Scoped Prisma API — в работе.** Foundation `withUserDb`/`withSpaceDb`,
    space helpers, основной server read-path, user quota, space mutations и DB-
-   фазы AI insights, attachments, ListGroup lifecycle и membership реализованы
-   и локально проверены; далее перенести остальные tenant-мутации и специальные
-   потоки, сохранив поведение и тесты.
+   фазы AI insights, attachments, ListGroup lifecycle/membership и List
+   lifecycle реализованы и локально проверены; далее перенести остальные
+   tenant-мутации и специальные потоки, сохранив поведение и тесты.
 5. **DB-объекты без enforcement.** Добавить helper-функции, column controls и
    политики миграцией, но пока не включать RLS для runtime-трафика.
 6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
