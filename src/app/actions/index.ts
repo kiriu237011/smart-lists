@@ -893,11 +893,12 @@ export async function updateItemNote(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const userId = session.user.id;
 
-    if (!(await consumeMutationBudget(session.user.id))) {
+    if (!(await consumeMutationBudget(userId))) {
       return { success: false, error: "dailyLimitReached" };
     }
-    const space = await resolveActionSpace(session.user.id, formData);
+    const space = await resolveActionSpace(userId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
     const result = updateItemNoteSchema.safeParse({
@@ -909,67 +910,127 @@ export async function updateItemNote(formData: FormData) {
       return { success: false, error: getValidationError(result.error) };
     }
 
-    const current = await prisma.item.findFirst({
-      where: {
-        id: result.data.itemId,
-        list: listInSpaceWhere(session.user.id, space.id),
-      },
-      select: { note: true, noteVersion: true, listId: true },
-    });
-    if (!current) return { success: false, error: "Запись не найдена" };
-
-    if (current.noteVersion !== result.data.expectedVersion) {
-      return {
-        success: false,
-        error: "noteConflict",
-        currentNote: current.note,
-        currentVersion: current.noteVersion,
-      };
-    }
-
     const note = normalizeNote(result.data.note);
-    if (current.note === note) {
-      return { success: true, note, noteVersion: current.noteVersion };
+    const mutation = await withSpaceDb(
+      userId,
+      space.id,
+      async (tx) => {
+        const current = await tx.item.findFirst({
+          where: {
+            id: result.data.itemId,
+            list: listInSpaceWhere(userId, space.id),
+          },
+          select: {
+            note: true,
+            noteVersion: true,
+            listId: true,
+            list: {
+              select: {
+                ownerId: true,
+                shares: { select: { userId: true } },
+              },
+            },
+          },
+        });
+        if (!current) return { status: "notFound" } as const;
+
+        if (current.noteVersion !== result.data.expectedVersion) {
+          return {
+            status: "conflict",
+            currentNote: current.note,
+            currentVersion: current.noteVersion,
+          } as const;
+        }
+
+        if (current.note === note) {
+          return {
+            status: "unchanged",
+            note,
+            noteVersion: current.noteVersion,
+          } as const;
+        }
+
+        const updated = await tx.item.updateMany({
+          where: {
+            id: result.data.itemId,
+            noteVersion: result.data.expectedVersion,
+            list: listInSpaceWhere(userId, space.id),
+          },
+          data: {
+            note,
+            noteVersion: { increment: 1 },
+            noteUpdatedAt: new Date(),
+          },
+        });
+
+        if (updated.count === 0) {
+          const latest = await tx.item.findFirst({
+            where: {
+              id: result.data.itemId,
+              list: listInSpaceWhere(userId, space.id),
+            },
+            select: { note: true, noteVersion: true },
+          });
+          return {
+            status: "conflict",
+            currentNote: latest?.note ?? null,
+            currentVersion:
+              latest?.noteVersion ?? result.data.expectedVersion,
+          } as const;
+        }
+
+        return {
+          status: "updated",
+          note,
+          noteVersion: result.data.expectedVersion + 1,
+          listId: current.listId,
+          notificationUserIds: [
+            ...new Set([
+              current.list.ownerId,
+              ...current.list.shares.map((share) => share.userId),
+            ]),
+          ],
+        } as const;
+      },
+    );
+
+    if (mutation.status === "notFound") {
+      return { success: false, error: "Запись не найдена" };
     }
-
-    const updated = await prisma.item.updateMany({
-      where: {
-        id: result.data.itemId,
-        noteVersion: result.data.expectedVersion,
-        list: listInSpaceWhere(session.user.id, space.id),
-      },
-      data: {
-        note,
-        noteVersion: { increment: 1 },
-        noteUpdatedAt: new Date(),
-      },
-    });
-
-    if (updated.count === 0) {
-      const latest = await prisma.item.findFirst({
-        where: {
-          id: result.data.itemId,
-          list: listInSpaceWhere(session.user.id, space.id),
-        },
-        select: { note: true, noteVersion: true },
-      });
+    if (mutation.status === "conflict") {
       return {
         success: false,
         error: "noteConflict",
-        currentNote: latest?.note ?? null,
-        currentVersion: latest?.noteVersion ?? result.data.expectedVersion,
+        currentNote: mutation.currentNote,
+        currentVersion: mutation.currentVersion,
+      };
+    }
+    if (mutation.status === "unchanged") {
+      return {
+        success: true,
+        note: mutation.note,
+        noteVersion: mutation.noteVersion,
       };
     }
 
-    const noteVersion = result.data.expectedVersion + 1;
     revalidatePath("/", "layout");
     const socketId = formData.get("socketId");
-    after(() => notifyListMembers(current.listId, socketId));
+    after(() =>
+      notifyUsers([...mutation.notificationUserIds], socketId),
+    );
     logger.info(
-      { uid: hashId(session.user.id), listId: current.listId, action: "updateItemNote" },
+      {
+        uid: hashId(userId),
+        listId: mutation.listId,
+        action: "updateItemNote",
+      },
       "Заметка записи обновлена",
     );
-    return { success: true, note, noteVersion };
+    return {
+      success: true,
+      note: mutation.note,
+      noteVersion: mutation.noteVersion,
+    };
   } catch (error) {
     logger.error({ error }, "Ошибка при сохранении заметки записи:");
     return { success: false, error: "Не удалось сохранить заметку" };
@@ -990,11 +1051,12 @@ export async function updateListNote(formData: FormData) {
     if (!session?.user?.id) {
       return { success: false, error: "Необходима авторизация" };
     }
+    const userId = session.user.id;
 
-    if (!(await consumeMutationBudget(session.user.id))) {
+    if (!(await consumeMutationBudget(userId))) {
       return { success: false, error: "dailyLimitReached" };
     }
-    const space = await resolveActionSpace(session.user.id, formData);
+    const space = await resolveActionSpace(userId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
 
     const result = updateListNoteSchema.safeParse({
@@ -1006,67 +1068,117 @@ export async function updateListNote(formData: FormData) {
       return { success: false, error: getValidationError(result.error) };
     }
 
-    const current = await prisma.list.findFirst({
-      where: {
-        id: result.data.listId,
-        ...listInSpaceWhere(session.user.id, space.id),
-      },
-      select: { note: true, noteVersion: true },
-    });
-    if (!current) return { success: false, error: "Список не найден" };
-
-    if (current.noteVersion !== result.data.expectedVersion) {
-      return {
-        success: false,
-        error: "noteConflict",
-        currentNote: current.note,
-        currentVersion: current.noteVersion,
-      };
-    }
-
     const note = normalizeNote(result.data.note);
-    if (current.note === note) {
-      return { success: true, note, noteVersion: current.noteVersion };
+    const mutation = await withSpaceDb(
+      userId,
+      space.id,
+      async (tx) => {
+        const current = await tx.list.findFirst({
+          where: {
+            id: result.data.listId,
+            ...listInSpaceWhere(userId, space.id),
+          },
+          select: {
+            note: true,
+            noteVersion: true,
+            ownerId: true,
+            shares: { select: { userId: true } },
+          },
+        });
+        if (!current) return { status: "notFound" } as const;
+
+        if (current.noteVersion !== result.data.expectedVersion) {
+          return {
+            status: "conflict",
+            currentNote: current.note,
+            currentVersion: current.noteVersion,
+          } as const;
+        }
+
+        if (current.note === note) {
+          return {
+            status: "unchanged",
+            note,
+            noteVersion: current.noteVersion,
+          } as const;
+        }
+
+        const updated = await tx.list.updateMany({
+          where: {
+            id: result.data.listId,
+            noteVersion: result.data.expectedVersion,
+            ...listInSpaceWhere(userId, space.id),
+          },
+          data: {
+            note,
+            noteVersion: { increment: 1 },
+            noteUpdatedAt: new Date(),
+          },
+        });
+
+        if (updated.count === 0) {
+          const latest = await tx.list.findFirst({
+            where: {
+              id: result.data.listId,
+              ...listInSpaceWhere(userId, space.id),
+            },
+            select: { note: true, noteVersion: true },
+          });
+          return {
+            status: "conflict",
+            currentNote: latest?.note ?? null,
+            currentVersion:
+              latest?.noteVersion ?? result.data.expectedVersion,
+          } as const;
+        }
+
+        return {
+          status: "updated",
+          note,
+          noteVersion: result.data.expectedVersion + 1,
+          notificationUserIds: [
+            ...new Set([
+              current.ownerId,
+              ...current.shares.map((share) => share.userId),
+            ]),
+          ],
+        } as const;
+      },
+    );
+
+    if (mutation.status === "notFound") {
+      return { success: false, error: "Список не найден" };
     }
-
-    const updated = await prisma.list.updateMany({
-      where: {
-        id: result.data.listId,
-        noteVersion: result.data.expectedVersion,
-        ...listInSpaceWhere(session.user.id, space.id),
-      },
-      data: {
-        note,
-        noteVersion: { increment: 1 },
-        noteUpdatedAt: new Date(),
-      },
-    });
-
-    if (updated.count === 0) {
-      const latest = await prisma.list.findFirst({
-        where: {
-          id: result.data.listId,
-          ...listInSpaceWhere(session.user.id, space.id),
-        },
-        select: { note: true, noteVersion: true },
-      });
+    if (mutation.status === "conflict") {
       return {
         success: false,
         error: "noteConflict",
-        currentNote: latest?.note ?? null,
-        currentVersion: latest?.noteVersion ?? result.data.expectedVersion,
+        currentNote: mutation.currentNote,
+        currentVersion: mutation.currentVersion,
+      };
+    }
+    if (mutation.status === "unchanged") {
+      return {
+        success: true,
+        note: mutation.note,
+        noteVersion: mutation.noteVersion,
       };
     }
 
-    const noteVersion = result.data.expectedVersion + 1;
     revalidatePath("/", "layout");
     const socketId = formData.get("socketId");
-    after(() => notifyListMembers(result.data.listId, socketId));
+    after(() =>
+      notifyUsers([...mutation.notificationUserIds], socketId),
+    );
     logger.info(
-      { uid: hashId(session.user.id), listId: result.data.listId, action: "updateListNote" },
+      { uid: hashId(userId), listId: result.data.listId, action: "updateListNote" },
       "Заметка списка обновлена",
     );
-    return { success: true, note, noteVersion };
+    return {
+      success: true,
+      note: mutation.note,
+      noteVersion: mutation.noteVersion,
+    };
   } catch (error) {
     logger.error({ error }, "Ошибка при сохранении заметки списка:");
     return { success: false, error: "Не удалось сохранить заметку" };

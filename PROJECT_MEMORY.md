@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для sharing lifecycle)
+**Последнее обновление:** 2026-08-14 (scoped DB для note mutations)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -137,6 +137,14 @@ Smart Lists — локализованное веб-приложение для 
   запрет cross-user `Space INSERT` будущей RLS-политикой. Проверка владения
   списком предшествует lookup email; чужой listId не раскрывает регистрацию.
   Общий allowlist остаётся 6, per-action guard защищает 14 функций.
+- Одиннадцатой группой перенесены note mutations: `updateItemNote` и
+  `updateListNote`. Чтение версии, условный `updateMany`, конфликтный readback
+  и сбор получателей realtime находятся в одной `withSpaceDb`-транзакции.
+  `noteVersion` по-прежнему защищает от потерянных правок; DB-тест запускает
+  два одновременных сохранения одной версии и принимает ровно одно. Оба Action
+  fail-closed привязаны к выбранному пространству, а `after()` вызывает
+  `notifyUsers` без tenant-чтения. Общий allowlist остаётся 6, per-action guard
+  защищает 16 функций.
 - Остальные production tenant-мутации и специальные потоки ещё не перенесены,
   а RLS выключен. Поэтому текущую изоляцию по-прежнему обеспечивают прикладные
   проверки; DB-level security posture на этом подэтапе не изменился.
@@ -940,6 +948,14 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: пятым подэтапом большого `src/app/actions/index.ts` выбраны
+  note mutations. `updateItemNote` и `updateListNote` переведены на
+  `withSpaceDb` без изменения editor-доступа, нормализации `null` и optimistic
+  concurrency по `noteVersion`. Получатели Pusher собираются до commit и
+  передаются в `notifyUsers`; post-commit tenant lookup устранён. Зелёные:
+  lint, typecheck, 304 unit, 68 целевых DB, полный integration 239 passed /
+  3 skipped, production build и 7 note E2E. Allowlist остаётся 6, per-action
+  guard расширен с 14 до 16 Actions. RLS и live-среды не менялись.
 - 2026-08-14: четвёртым подэтапом большого `src/app/actions/index.ts` выбран
   sharing lifecycle. `shareList`, `removeSharedUser` и `leaveSharedList`
   переведены на `withSpaceDb`; все получатели Pusher собираются до commit и
