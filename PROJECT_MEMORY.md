@@ -38,7 +38,10 @@ Smart Lists — локализованное веб-приложение для 
 - `src/components/spaces/` — переключатель и контекст пространств;
 - `src/components/providers/` — темы, пользовательские настройки, адаптер `ListsApi` и справочник списков пространства;
 - `src/components/guest/` и `src/lib/guest-storage.ts` — гостевой режим;
-- `src/lib/` — Prisma, доступ, S3, Pusher, логирование, затвор realtime на время перетаскивания, геометрия меню и подсказок (`menu-anchor.ts`, `tooltip-anchor.ts`), ID-токены для Cloud Run (`gcp-auth.ts`) и общие ограничения;
+- `src/lib/` — Prisma, scoped DB-контекст (`scoped-db.ts`), доступ, S3, Pusher,
+  логирование, затвор realtime на время перетаскивания, геометрия меню и
+  подсказок (`menu-anchor.ts`, `tooltip-anchor.ts`), ID-токены для Cloud Run
+  (`gcp-auth.ts`) и общие ограничения;
 - `src/i18n/` и `messages/*.json` — маршрутизация и переводы;
 - `prisma/schema.prisma` и `prisma/migrations/` — модель данных и миграции;
 - `src/proxy.ts` — locale middleware-механизм Next.js 16;
@@ -52,6 +55,22 @@ Smart Lists — локализованное веб-приложение для 
   tenant-RLS: матрица доступа, специальные потоки, go/no-go и откат.
 
 ## Модель данных и права доступа
+
+### Доступ к PostgreSQL
+
+- Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS, но до
+  включения RLS она сохраняет table-wide DML на разрешённых таблицах.
+- `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
+  transaction-local GUC задаются параметризованно, space-контекст разрешается
+  только после проверки `Space(id, userId)`, а callback получает только
+  `Prisma.TransactionClient`. User-only поток явно очищает `app.space_id`.
+- Реальные PostgreSQL-тесты проверяют fail-closed входные данные, чужое
+  пространство, rollback и отсутствие утечки контекста между транзакциями.
+  Статический переходный allowlist не допускает новых прямых импортов
+  глобального Prisma Client.
+- Foundation ещё не подключён к production tenant-потокам, а RLS выключен.
+  Поэтому текущую изоляцию по-прежнему обеспечивают прикладные проверки;
+  security posture на этом подэтапе не изменился.
 
 ### Авторизация
 
@@ -848,6 +867,17 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 `expire-backups-30d`, а не workflow.
 
 ## Важные решения
+
+- 2026-08-14: реализован только foundation scoped transaction context без
+  изменения Preview/Production и без включения RLS. `withUserDb`/
+  `withSpaceDb` fail-closed валидируют идентификаторы, устанавливают и
+  перечитывают transaction-local `app.user_id`/`app.space_id`, а space-wrapper
+  подтверждает принадлежность пространства внутри той же транзакции. Реальные
+  PostgreSQL-тесты покрывают чужое пространство, rollback и переиспользование
+  соединения; статический тест фиксирует 13 текущих прямых Prisma-импортов как
+  сокращаемый allowlist. Это инфраструктура для будущего контроля, а не сам
+  контроль: до переноса tenant-потоков и включения policies фактическая
+  изоляция строк не изменилась.
 
 - 2026-08-12: этап 2 разделён на подготовку и cutover. Production migration
   выполняется после всех CI job того же SHA, Preview migration — до push.

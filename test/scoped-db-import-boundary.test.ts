@@ -1,0 +1,48 @@
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+const SOURCE_ROOT = path.resolve(process.cwd(), "src");
+const DIRECT_DB_IMPORT = /\bfrom\s+["']@\/lib\/db["']/;
+
+async function sourceFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        return entry.name === "generated" ? [] : sourceFiles(absolute);
+      }
+      return /\.(?:ts|tsx)$/.test(entry.name) ? [absolute] : [];
+    }),
+  );
+  return nested.flat();
+}
+
+describe("граница scoped DB API", () => {
+  it("не допускает новых прямых импортов глобального Prisma Client", async () => {
+    const importers: string[] = [];
+    for (const file of await sourceFiles(SOURCE_ROOT)) {
+      if (DIRECT_DB_IMPORT.test(await readFile(file, "utf8"))) {
+        importers.push(path.relative(process.cwd(), file).replaceAll("\\", "/"));
+      }
+    }
+
+    expect(importers.sort()).toEqual([
+      "src/app/actions/attachments.ts",
+      "src/app/actions/index.ts",
+      "src/app/actions/insights.ts",
+      "src/app/actions/spaces.ts",
+      "src/auth.ts",
+      "src/components/lists/ListsDataFetcher.tsx",
+      "src/components/spaces/AuthenticatedHome.tsx",
+      "src/lib/allowed-email.ts",
+      "src/lib/app-settings.ts",
+      "src/lib/notify.ts",
+      "src/lib/scoped-db.ts",
+      "src/lib/spaces.ts",
+      "src/lib/usage.ts",
+    ]);
+  });
+});
