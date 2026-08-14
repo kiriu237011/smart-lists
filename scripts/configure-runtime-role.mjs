@@ -4,7 +4,9 @@ import { createHash } from "node:crypto";
 import {
   ALL_TABLE_PRIVILEGES,
   DATABASE_ROLES,
+  EXPECTED_ROUTINES,
   EXPECTED_TABLES,
+  RUNTIME_EXECUTE_ROUTINES,
   RUNTIME_TABLE_PRIVILEGES,
 } from "./database-role-contract.mjs";
 
@@ -72,6 +74,24 @@ async function listPublicTables(client) {
     ORDER BY relation.relname
   `);
   return result.rows.map((row) => row.name);
+}
+
+async function listPublicRoutines(client) {
+  const result = await client.query(`
+    SELECT CASE routine.prokind
+             WHEN 'p' THEN 'procedure'
+             ELSE 'function'
+           END AS kind,
+           routine.proname AS name,
+           pg_get_function_identity_arguments(routine.oid) AS arguments
+    FROM pg_proc routine
+    JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+    WHERE namespace.nspname = 'public'
+    ORDER BY name, arguments
+  `);
+  return result.rows.map(
+    (row) => `${row.kind}:${row.name}(${row.arguments})`,
+  );
 }
 
 async function assertExistingRuntimeRoleIsRestricted(client) {
@@ -185,6 +205,24 @@ async function verifyRuntimeRole(connectionString) {
       );
     }
 
+    for (const routine of RUNTIME_EXECUTE_ROUTINES) {
+      const signature =
+        `public.${routine.name}(${routine.identityArguments})`;
+      const privilegeResult = await runtimeClient.query(
+        `SELECT has_function_privilege(
+           current_user,
+           $1::regprocedure,
+           'EXECUTE'
+         ) AS execute`,
+        [signature],
+      );
+      if (!privilegeResult.rows[0]?.execute) {
+        throw new Error(
+          `Runtime не имеет ожидаемого EXECUTE на ${signature}.`,
+        );
+      }
+    }
+
     await runtimeClient.query("ROLLBACK");
   } catch (error) {
     await runtimeClient.query("ROLLBACK").catch(() => undefined);
@@ -203,6 +241,7 @@ async function main() {
       role: RUNTIME_ROLE,
       endpointFingerprint: fingerprint(adminUrl.hostname),
       tablePrivileges: RUNTIME_TABLE_PRIVILEGES,
+      routineExecute: RUNTIME_EXECUTE_ROUTINES,
       denied: [
         "database CREATE",
         "schema CREATE",
@@ -232,6 +271,11 @@ async function main() {
       await listPublicTables(client),
       EXPECTED_TABLES,
       "Набор таблиц public",
+    );
+    assertSameValues(
+      await listPublicRoutines(client),
+      EXPECTED_ROUTINES,
+      "Набор routines public",
     );
 
     const roleResult = await client.query(
@@ -291,6 +335,16 @@ async function main() {
       await client.query(
         `GRANT ${privileges.join(", ")} ON TABLE ${client.escapeIdentifier(table)} ` +
           `TO ${roleIdentifier}`,
+      );
+    }
+
+    for (const routine of RUNTIME_EXECUTE_ROUTINES) {
+      if (routine.kind !== "function") {
+        throw new Error("Runtime configurator поддерживает только functions.");
+      }
+      await client.query(
+        `GRANT EXECUTE ON FUNCTION public.${client.escapeIdentifier(routine.name)}` +
+          `(${routine.identityArguments}) TO ${roleIdentifier}`,
       );
     }
 

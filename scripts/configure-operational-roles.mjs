@@ -11,6 +11,7 @@ import {
   EXPECTED_SEQUENCES,
   EXPECTED_TABLES,
   EXPECTED_VIEWS,
+  RUNTIME_EXECUTE_ROUTINES,
   RUNTIME_TABLE_PRIVILEGES,
 } from "./database-role-contract.mjs";
 
@@ -278,7 +279,20 @@ async function runtimeSnapshot(client) {
       `Runtime privileges on ${table}`,
     );
   }
-  return { boundary: boundary.rows[0], tables };
+  const routines = {};
+  for (const routine of RUNTIME_EXECUTE_ROUTINES) {
+    const signature =
+      `public.${routine.name}(${routine.identityArguments})`;
+    const result = await client.query(
+      `SELECT has_function_privilege($1, $2::regprocedure, 'EXECUTE') AS execute`,
+      [DATABASE_ROLES.runtime, signature],
+    );
+    routines[signature] = result.rows[0]?.execute === true;
+    if (!routines[signature]) {
+      throw new Error(`Runtime EXECUTE отсутствует на ${signature}.`);
+    }
+  }
+  return { boundary: boundary.rows[0], tables, routines };
 }
 
 function assertRuntimeUnchanged(before, after) {
@@ -735,6 +749,21 @@ async function verifyBackup(connectionString) {
         ["SELECT"],
         `Backup privileges on ${table}`,
       );
+    }
+    for (const routine of RUNTIME_EXECUTE_ROUTINES) {
+      const signature =
+        `public.${routine.name}(${routine.identityArguments})`;
+      const result = await client.query(
+        `SELECT has_function_privilege(
+           current_user,
+           $1::regprocedure,
+           'EXECUTE'
+         ) AS execute`,
+        [signature],
+      );
+      if (result.rows[0]?.execute) {
+        throw new Error(`Backup неожиданно имеет EXECUTE на ${signature}.`);
+      }
     }
     await client.query("ROLLBACK");
   } catch (error) {

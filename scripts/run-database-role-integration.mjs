@@ -84,6 +84,21 @@ async function createLocalOperationalAdmin(rolePassword) {
   adminDatabaseUrl = url.toString();
 }
 
+async function createPreexistingRuntimeRole(rolePassword) {
+  const client = new Client({ connectionString: adminDatabaseUrl });
+  await client.connect();
+  try {
+    const identifier = client.escapeIdentifier(DATABASE_ROLES.runtime);
+    await client.query(
+      `CREATE ROLE ${identifier} LOGIN PASSWORD ` +
+        `${client.escapeLiteral(rolePassword)} NOSUPERUSER NOCREATEDB ` +
+        "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS",
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 async function recreateRestoreDatabase(name) {
   const maintenanceUrl = new URL(adminDatabaseUrl);
   maintenanceUrl.pathname = "/postgres";
@@ -252,6 +267,11 @@ async function main() {
     DIRECT_URL: adminDatabaseUrl,
     EXPECTED_DATABASE_HOST: adminUrl.hostname,
   };
+
+  // Production/Preview уже имеют runtime-роль до новой миграции. Создаём тот
+  // же порядок локально, чтобы conditional GRANT внутри миграции был реально
+  // исполнен, а не оставался непроверенной веткой.
+  await createPreexistingRuntimeRole(initialRuntimePassword);
 
   // Чистая БД сначала получает схему владельцем. Configurator обязан видеть
   // полный inventory и откажется работать до миграций.

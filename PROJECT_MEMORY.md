@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для item movement)
+**Последнее обновление:** 2026-08-14 (attachment maintenance helper)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -97,12 +97,16 @@ Smart Lists — локализованное веб-приложение для 
   после закрытия DB-фазы. Confirm использует второй scoped state transition,
   delete атомарно собирает S3/realtime payload и удаляет строку. Получатели
   realtime передаются напрямую в `notifyUsers`, поэтому `after()` не читает
-  tenant-таблицы. Fail-soft восстановление stale metadata использует отдельный
-  `withSpaceDb`. Allowlist прямых Prisma-импортов сократился с 13 до 6.
+  tenant-таблицы. Stale-cleanup использует две узкие `SECURITY DEFINER`-
+  функции: DB переводит только просроченные строки в `CLEANUP_PENDING` с
+  одноразовыми UUID-токенами, а отдельный `withSpaceDb` callback может только
+  удалить или вернуть в `PENDING` токены текущего пользователя. Allowlist
+  прямых Prisma-импортов сократился с 13 до 6.
 - Attachment quota `MAX_FILES_PER_USER` и очистка собственных stale
-  `PENDING` глобальны между пространствами. Cross-space DB-тесты это
-  фиксируют. До RLS enforcement требуется узкий DB-helper для aggregate и
-  cleanup/restore; расширять обычные Attachment policies нельзя.
+  `PENDING` глобальны между пространствами. Узкий DB-helper сохраняет эту
+  семантику, не расширяя будущую обычную Attachment policy; PUBLIC и backup
+  не имеют `EXECUTE`, runtime получает только две явно перечисленные функции.
+  До RLS enforcement остаются policies и отрицательные проверки самих policies.
 - Седьмой группой перенесён ListGroup lifecycle в `src/app/actions/index.ts`:
   create/delete/rename/move используют `withSpaceDb`; проверка лимита,
   вычисление позиции и создание выполняются в одной транзакции, как и чтение
@@ -159,11 +163,12 @@ Smart Lists — локализованное веб-приложение для 
   больше не читает tenant-таблицы. Глобальный Prisma из
   `src/app/actions/index.ts` удалён, allowlist сократился с 6 до 5 файлов, а
   per-action guard защищает 22 функции.
-- Обычный production tenant data plane теперь использует scoped API. До RLS
-  enforcement остаются узкий helper для глобальной attachment-квоты/cleanup,
-  политики и отрицательные проверки самих политик. RLS пока выключен, поэтому
-  текущую изоляцию по-прежнему обеспечивают прикладные проверки; DB-level
-  security posture на этом подэтапе не изменился.
+- Обычный production tenant data plane теперь использует scoped API, а
+  специальный глобальный attachment-поток локально переведён на fail-closed
+  helper. До RLS enforcement остаются policies и отрицательные проверки самих
+  policies. RLS пока выключен, поэтому live-изоляцию по-прежнему обеспечивают
+  прикладные проверки; helper закрывает blocker, но сам по себе ещё не
+  превращает scoped GUC в DB-level изоляцию строк.
 
 ### Авторизация
 
@@ -367,10 +372,12 @@ Smart Lists — локализованное веб-приложение для 
   показывается другим участникам и уходит в `Content-Disposition`, поэтому
   подмена расширения через `U+202E` вводила бы в заблуждение и в UI, и в диалоге
   сохранения. В адресации имя не участвует — object key генерирует сервер.
-- `PENDING` старше 15 минут лениво удаляются при новом запросе загрузки вместе
-  с уже загруженными объектами S3. Строки блокируются на время DB-удаления;
-  при сбое фоновой S3-уборки метаданные возвращаются как `PENDING`, чтобы
-  следующая загрузка повторила попытку и объект не выпал из квоты навсегда.
+- `PENDING` старше 15 минут лениво переводятся в служебный
+  `CLEANUP_PENDING` с DB-generated UUID-токеном и перестают занимать квоту.
+  После успешного S3 delete helper удаляет только строки этих токенов; при
+  сбое возвращает их в `PENDING`. Потерянный callback безопасно повторяется
+  следующим запросом, а успешный S3 delete при сбое DB-finalize не создаёт
+  битую ссылку. UI и download не видят `CLEANUP_PENDING`.
 - В UI видны только `UPLOADED`; скачивание идёт по краткоживущему presigned URL.
 - Удаление Prisma-строки не удаляет байты из S3 автоматически. У
   `deleteList`/`deleteSpace` уборка best-effort и без повтора, поэтому её сбой
@@ -612,9 +619,10 @@ AI-сервис вызывается с сервера и в политику н
 - `npm run db:configure-operational-roles` — plan-only configurator ролей
   `smartlists_owner`, `smartlists_migrator`, `smartlists_backup`; apply требует
   явного scope, exact host и отдельные пароли, не печатает credentials;
-- `npm run test:integration:roles` — на чистой test-БД применяет миграции,
-  создаёт и повторно ротирует runtime/migrator/backup, запускает no-op Prisma
-  migration под migrator и 213 integration-тестов под runtime, доказывает
+- `npm run test:integration:roles` — на чистой test-БД создаёт pre-existing
+  runtime-роль, применяет миграции, повторно ротирует runtime/migrator/backup,
+  запускает no-op Prisma migration под migrator и 251 integration-тест под
+  runtime, доказывает
   fail-closed отказ при лишнем owner-member и выполняет полный
   `pg_dump -> pg_restore` с проверкой контрольной строки;
 - `npm run test:integration:runtime` — совместимый alias той же полной
@@ -964,6 +972,18 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: enforcement-blocker глобальной attachment-квоты закрыт локально
+  без включения RLS. Две additive-миграции добавляют `CLEANUP_PENDING`,
+  согласованность служебных полей через CHECK и две `SECURITY DEFINER`-
+  функции с фиксированным `search_path`. Prepare повторно проверяет
+  transaction-local user/space и доступ к списку, возвращает только
+  `{token,key}` и глобальный count; finish принимает не больше 1000 токенов
+  и затрагивает только cleanup текущего пользователя. Runtime имеет точечный
+  `EXECUTE`, PUBLIC/backup — нет; role-suite также исполняет production-
+  порядок, где runtime существует до миграции. S3 batch ошибки, включая
+  частичный HTTP 200, не удаляют DB metadata. Зелёные: lint, typecheck,
+  307 unit, 27 attachment DB, полный role lifecycle с 251 runtime integration
+  и backup restore, production build и 104 E2E. RLS и live-среды не менялись.
 - 2026-08-14: седьмым подэтапом большого `src/app/actions/index.ts` выбраны
   `moveItem` и `moveItemToList`. Проверка обоих списков/соседей/лимита,
   move/copy, каскад подпунктов и полный rebalance теперь атомарны внутри

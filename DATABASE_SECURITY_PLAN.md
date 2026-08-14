@@ -3,7 +3,8 @@
 **Статус:** этапы 2a–2c завершены; foundation scoped Prisma API, `spaces`,
 server read-path, user quota, space mutations и AI insights локально проверены,
 attachment flow, ListGroup lifecycle/membership, List lifecycle, sharing,
-note mutations, item lifecycle и item movement локально проверены, RLS выключен
+note mutations, item lifecycle, item movement и attachment maintenance helper
+локально проверены, RLS выключен
 **Дата:** 2026-08-14
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -81,7 +82,10 @@ credential. Это уменьшает число одновременно мен
 | `_prisma_migrations` | нет | доступен только миграционному контуру |
 
 Во всей схеме runtime не получает `TRUNCATE`, `REFERENCES`, `TRIGGER`, права на
-sequences/functions и автоматический доступ к будущим объектам. Сейчас
+sequences и автоматический доступ к будущим объектам. Из routines точечный
+`EXECUTE` разрешён только
+`app_attachment_prepare_maintenance(text)` и
+`app_attachment_finish_maintenance(uuid[], boolean)`. Сейчас
 application sequences в `public` отсутствуют: идентификаторы создаются в коде.
 Новая таблица намеренно ломает runtime до явного review и добавления в матрицу,
 а не наследует широкий `GRANT ALL`.
@@ -495,7 +499,8 @@ union двух списков для move и только target для copy. Г
 из `src/app/actions/index.ts` удалён; allowlist сократился с 6 до 5, guard
 расширен до двадцати двух функций. Обычный tenant data plane теперь scoped.
 RLS всё ещё выключен, поэтому это ещё не завершённый контроль изоляции строк;
-до enforcement остаются attachment helper, policies и их отрицательные тесты.
+attachment helper уже локально проверен; до enforcement остаются policies и
+их отрицательные тесты.
 
 ## Матрица первого RLS-контура
 
@@ -573,15 +578,30 @@ sharing, note, item lifecycle и item movement вычисляют получат
 понадобится, выполняется отдельным job-role, а не расширением пользовательской
 политики.
 
-**Обнаруженный enforcement-gap 2026-08-14:** `MAX_FILES_PER_USER` и уборка
+**Enforcement-blocker закрыт локально 2026-08-14:** `MAX_FILES_PER_USER` и уборка
 собственных stale `PENDING` имеют глобальную семантику по всем пространствам
 пользователя. Обычная policy `Attachment`, ограниченная `app.space_id`,
-занизит count и не сможет восстановить метаданные другого пространства после
-сбоя S3. До включения RLS нужен узкий DB-helper: он принимает только текущий
-`app.user_id`, возвращает aggregate/minimal cleanup payload и разрешает
-удалять/восстанавливать только собственные stale `PENDING`. Расширять обычный
-`SELECT`/`DELETE` всех вложений ради квоты нельзя. Cross-space DB-тесты уже
-фиксируют текущий контракт и должны стать enforcement-тестами helper.
+занизила бы count и не смогла бы безопасно повторить cleanup другого
+пространства. Две owner-функции решают это без расширения обычной policy:
+
+- prepare требует непустые `app.user_id`/`app.space_id`, повторно проверяет
+  принадлежность Space и owner/editor-доступ к целевому списку;
+- только stale `PENDING` целевого списка или текущего uploader переводятся в
+  `CLEANUP_PENDING`; одноразовые UUID-токены создаёт БД;
+- наружу возвращаются только глобальный count и `{token,key}`; произвольные
+  metadata, status или user ID функция не принимает;
+- finish удаляет либо возвращает в `PENDING` только токены, ранее выданные
+  текущему пользователю; успешный S3 delete при сбое finalize остаётся
+  `CLEANUP_PENDING` для идемпотентного повтора;
+- CHECK связывает служебные поля со статусом; fixed `search_path`,
+  `REVOKE FROM PUBLIC`, точечный runtime `EXECUTE` и отсутствие EXECUTE у
+  backup закреплены role-contract;
+- старый application build понимает схему: служебные строки не видны в UI,
+  но до возврата нового build могут временно учитываться старым quota count.
+
+Cross-space, чужой token, S3 rollback, quota-rejection и exact ACL проверены на
+реальной БД. RLS остаётся выключен: helper закрывает специальный data-flow
+blocker, но table-wide DML runtime будет ограничен только будущими policies.
 
 ### Auth.js и квоты
 
@@ -601,14 +621,15 @@ AI-сервиса расходует зарезервированную попы
 3. **Least privilege без RLS.** Создать owner/migrator/runtime-роли, передать
    runtime минимальные права и доказать, что он не может DDL/ownership/role
    operations. Приложение всё ещё защищено существующими фильтрами.
-4. **Scoped Prisma API — в работе.** Foundation `withUserDb`/`withSpaceDb`,
+4. **Scoped Prisma API — завершён для обычного tenant data plane.** Foundation `withUserDb`/`withSpaceDb`,
    space helpers, основной server read-path, user quota, space mutations и DB-
    фазы AI insights, attachments, ListGroup lifecycle/membership, List
-   lifecycle, sharing lifecycle, note mutations и item lifecycle реализованы и
-   локально проверены; далее перенести остальные tenant-мутации и специальные
-   потоки, сохранив поведение и тесты.
-5. **DB-объекты без enforcement.** Добавить helper-функции, column controls и
-   политики миграцией, но пока не включать RLS для runtime-трафика.
+   lifecycle, sharing lifecycle, note/item lifecycle и movement реализованы и
+   локально проверены.
+5. **DB-объекты без enforcement — в работе.** Attachment helper и служебный
+   column/state control добавлены локально; далее добавить общую access-
+   функцию, column controls остальных моделей и policies миграцией, но пока
+   не включать RLS для runtime-трафика.
 6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
    полного go/no-go — production. Таблицы включаются небольшими связанными
    группами, а не одним большим переключателем.

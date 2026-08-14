@@ -39,12 +39,16 @@ import {
   MAX_FILE_SIZE,
   MAX_FILES_PER_LIST,
   MAX_FILES_PER_USER,
-  STALE_MINUTES,
   getCategory,
   hasMagicBytes,
   isAllowedType,
   matchesMagicBytes,
 } from "@/lib/attachments";
+import {
+  finishAttachmentMaintenance,
+  prepareAttachmentMaintenance,
+} from "@/lib/attachment-maintenance";
+import type { AttachmentCleanupItem } from "@/lib/attachment-maintenance";
 import {
   buildAttachmentKey,
   createUploadPost,
@@ -76,6 +80,82 @@ interface RequestUploadResult {
     /** ID созданной PENDING-строки — нужен для confirm. */
     attachmentId: string;
   };
+}
+
+function scheduleAttachmentCleanup(input: {
+  cleanupItems: AttachmentCleanupItem[];
+  userId: string;
+  spaceId: string;
+  listId: string;
+}): void {
+  if (input.cleanupItems.length === 0) return;
+
+  logger.info(
+    {
+      count: input.cleanupItems.length,
+      listId: input.listId,
+      action: "requestUpload",
+    },
+    "Просроченные PENDING-вложения подготовлены к ленивой уборке",
+  );
+
+  after(async () => {
+    // S3 DeleteObjects принимает не больше 1000 ключей. Каждый batch
+    // финализируется отдельно: успех S3 никогда не откатывается обратно в
+    // PENDING, а сбой не затрагивает токены успешных batch.
+    for (let offset = 0; offset < input.cleanupItems.length; offset += 1000) {
+      const batch = input.cleanupItems.slice(offset, offset + 1000);
+      const tokens = batch.map((attachment) => attachment.token);
+
+      try {
+        await deleteObjects(batch.map((attachment) => attachment.key));
+      } catch (s3Error) {
+        try {
+          await withSpaceDb(input.userId, input.spaceId, (tx) => {
+            return finishAttachmentMaintenance(tx, tokens, true);
+          });
+        } catch (restoreError) {
+          logger.error(
+            {
+              error: restoreError,
+              count: batch.length,
+              listId: input.listId,
+              action: "requestUpload.cleanup.restore",
+            },
+            "Не удалось вернуть cleanup-токены в PENDING",
+          );
+        }
+        logger.error(
+          {
+            error: s3Error,
+            count: batch.length,
+            listId: input.listId,
+            action: "requestUpload.cleanup",
+          },
+          "Не удалось удалить просроченные PENDING-объекты из S3",
+        );
+        continue;
+      }
+
+      try {
+        await withSpaceDb(input.userId, input.spaceId, (tx) => {
+          return finishAttachmentMaintenance(tx, tokens, false);
+        });
+      } catch (finalizeError) {
+        // Объекты уже удалены. Оставляем CLEANUP_PENDING для безопасного
+        // идемпотентного повтора вместо восстановления битых ссылок.
+        logger.error(
+          {
+            error: finalizeError,
+            count: batch.length,
+            listId: input.listId,
+            action: "requestUpload.cleanup.finalize",
+          },
+          "Не удалось финализировать cleanup-токены после удаления S3",
+        );
+      }
+    }
+  });
 }
 
 /**
@@ -159,64 +239,34 @@ export async function requestUpload(input: {
         return { error: "listNotFound" as const };
       }
 
-      // Ленивая уборка зависших PENDING — вместо внешнего крона. Чистим ровно
-      // те два измерения квоты, что проверим ниже (этот список и этот юзер):
-      // так квота освобождается ровно тогда, когда на неё есть давление.
-      // Под List-локом → списочная квота без гонок; deleteMany атомарен и
-      // идемпотентен, поэтому пересечение по юзеру с параллельным запросом
-      // (другой список того же юзера) безвредно.
-      const threshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000);
-      // Строки блокируются до удаления, чтобы параллельный confirm не успел
-      // перевести одну из них в UPLOADED между чтением key и DELETE. Без key
-      // удалялась только запись PostgreSQL: уже загруженный, но не
-      // подтверждённый объект оставался в S3 навсегда и переставал учитываться
-      // файловой квотой.
-      const staleAttachments = await tx.$queryRaw<
-        {
-          id: string;
-          key: string;
-          name: string;
-          type: FileCategory;
-          contentType: string;
-          size: number;
-          listId: string;
-          uploadedById: string | null;
-          createdAt: Date;
-        }[]
-      >`SELECT "id", "key", "name", "type", "contentType", "size",
-               "listId", "uploadedById", "createdAt"
-        FROM "Attachment"
-        WHERE "status" = 'PENDING'::"AttachmentStatus"
-          AND "createdAt" < ${threshold}
-          AND ("listId" = ${listId} OR "uploadedById" = ${userId})
-        FOR UPDATE`;
-
-      if (staleAttachments.length > 0) {
-        await tx.attachment.deleteMany({
-          where: {
-            id: { in: staleAttachments.map((attachment) => attachment.id) },
-            status: "PENDING",
-          },
-        });
-        logger.info(
-          { count: staleAttachments.length, listId, action: "requestUpload" },
-          "Прибраны зависшие PENDING-вложения (ленивая уборка)",
-        );
-      }
+      // SECURITY DEFINER helper видит глобальную пользовательскую квоту, но
+      // принимает только проверенный transaction-local user/space context.
+      // Просроченные PENDING не удаляются сразу: БД выдаёт одноразовые токены
+      // и переводит их в невидимое CLEANUP_PENDING до результата S3.
+      const maintenance = await prepareAttachmentMaintenance(tx, listId);
 
       // Квота на список: считаем PENDING + UPLOADED (иначе обход через пачку
-      // запросов «всё PENDING — ничего не в счёт»).
-      const listCount = await tx.attachment.count({ where: { listId } });
+      // запросов «всё PENDING — ничего не в счёт»). CLEANUP_PENDING уже
+      // исключён из активной квоты, но метаданные остаются восстанавливаемыми.
+      const listCount = await tx.attachment.count({
+        where: {
+          listId,
+          status: { in: ["PENDING", "UPLOADED"] },
+        },
+      });
       if (listCount >= MAX_FILES_PER_LIST) {
-        return { error: "listQuotaExceeded" as const };
+        return {
+          error: "listQuotaExceeded" as const,
+          cleanupItems: maintenance.cleanupItems,
+        };
       }
 
       // Квота на пользователя — без отдельного лока (ставки низкие, см. доку).
-      const userCount = await tx.attachment.count({
-        where: { uploadedById: userId },
-      });
-      if (userCount >= MAX_FILES_PER_USER) {
-        return { error: "userQuotaExceeded" as const };
+      if (maintenance.userCount >= MAX_FILES_PER_USER) {
+        return {
+          error: "userQuotaExceeded" as const,
+          cleanupItems: maintenance.cleanupItems,
+        };
       }
 
       // Создаём PENDING-строку. size здесь — заявленный; реальный перезапишем
@@ -236,7 +286,7 @@ export async function requestUpload(input: {
       });
       return {
         attachmentId: attachment.id,
-        staleAttachments,
+        cleanupItems: maintenance.cleanupItems,
       };
     }).catch((error) => {
       if (isMissingSpace(error)) {
@@ -245,56 +295,21 @@ export async function requestUpload(input: {
       throw error;
     });
 
-    if ("error" in txResult) {
-      return { success: false, error: txResult.error };
-    }
-
     // S3-уборка не должна задерживать выдачу нового presigned POST и не
     // откатывает уже завершённую транзакцию. Versioning бакета превращает
     // удаление в recoverable delete marker, а noncurrent-версия истекает по
     // lifecycle-правилу.
-    if (txResult.staleAttachments.length > 0) {
-      after(async () => {
-        try {
-          await deleteObjects(
-            txResult.staleAttachments.map((attachment) => attachment.key),
-          );
-        } catch (s3Error) {
-          // Возвращаем метаданные для следующей ленивой попытки. Иначе
-          // временный сбой S3 превращал бы объект в навсегда неучитываемый:
-          // ключ уже невозможно было бы снова найти по базе.
-          try {
-            await withSpaceDb(userId, spaceId, (tx) => {
-              return tx.attachment.createMany({
-                data: txResult.staleAttachments.map((attachment) => ({
-                  ...attachment,
-                  status: "PENDING" as const,
-                })),
-                skipDuplicates: true,
-              });
-            });
-          } catch (restoreError) {
-            logger.error(
-              {
-                error: restoreError,
-                count: txResult.staleAttachments.length,
-                listId,
-                action: "requestUpload.cleanup.restore",
-              },
-              "Не удалось вернуть метаданные для повторной S3-уборки",
-            );
-          }
-          logger.error(
-            {
-              error: s3Error,
-              count: txResult.staleAttachments.length,
-              listId,
-              action: "requestUpload.cleanup",
-            },
-            "Не удалось удалить просроченные PENDING-объекты из S3",
-          );
-        }
+    if ("cleanupItems" in txResult && txResult.cleanupItems) {
+      scheduleAttachmentCleanup({
+        cleanupItems: txResult.cleanupItems,
+        userId,
+        spaceId,
+        listId,
       });
+    }
+
+    if ("error" in txResult) {
+      return { success: false, error: txResult.error };
     }
 
     // Presigned POST генерим вне транзакции (это сетевой вызов к AWS, не БД).

@@ -488,6 +488,7 @@ enum FileCategory {
 enum AttachmentStatus {
   PENDING // строка создана, файл ещё не подтверждён через HeadObject
   UPLOADED // файл залит в S3 и проверен на сервере
+  CLEANUP_PENDING // внутреннее состояние: S3-объект ожидает удаления
 }
 
 /// Вложение к списку. Сами байты хранятся в приватном S3-бакете,
@@ -518,6 +519,17 @@ model Attachment {
   /// Статус two-phase-загрузки. По умолчанию PENDING до подтверждения.
   status AttachmentStatus @default(PENDING)
 
+  /// Одноразовый DB-generated токен ленивой S3-уборки. Поля cleanup не
+  /// принимаются от клиента и заполнены только в состоянии CLEANUP_PENDING.
+  cleanupToken String? @unique @db.Uuid
+
+  /// Пользователь, инициировавший cleanup. Намеренно без FK: удаление аккаунта
+  /// не должно мешать каскадному удалению списка или аварийному обслуживанию.
+  cleanupRequestedById String?
+
+  /// Момент перевода в CLEANUP_PENDING для диагностики зависшего callback.
+  cleanupStartedAt DateTime?
+
   // ---- Связь со списком (Many-to-One) ----
 
   /// ID списка, которому принадлежит вложение.
@@ -543,4 +555,5 @@ model Attachment {
   // для выборок по списку/пользователю и ускоряют каскадное удаление.
   @@index([listId])
   @@index([uploadedById])
+  @@index([cleanupRequestedById, status])
 }

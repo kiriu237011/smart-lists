@@ -35,7 +35,22 @@ export const EXPECTED_SEQUENCES = [];
 export const EXPECTED_VIEWS = [];
 // Формат routines: `function:name(identity arguments)` или
 // `procedure:name(identity arguments)`, чтобы ALTER-команда не угадывала тип.
-export const EXPECTED_ROUTINES = [];
+export const RUNTIME_EXECUTE_ROUTINES = [
+  {
+    kind: "function",
+    name: "app_attachment_finish_maintenance",
+    identityArguments: "uuid[], boolean",
+  },
+  {
+    kind: "function",
+    name: "app_attachment_prepare_maintenance",
+    identityArguments: "text",
+  },
+];
+export const EXPECTED_ROUTINES = RUNTIME_EXECUTE_ROUTINES.map(
+  (routine) =>
+    `${routine.kind}:${routine.name}(${routine.identityArguments})`,
+);
 export const EXPECTED_DOMAINS = [];
 
 export const RUNTIME_TABLE_PRIVILEGES = {
