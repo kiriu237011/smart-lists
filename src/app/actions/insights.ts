@@ -24,10 +24,14 @@
 "use server";
 
 import { auth } from "@/auth";
-import prisma from "@/lib/db";
 import { listInSpaceWhere } from "@/lib/spaces";
 import { getCloudRunIdToken } from "@/lib/gcp-auth";
 import { logger, hashId } from "@/lib/logger";
+import {
+  DatabaseContextError,
+  withSpaceDb,
+  withUserDb,
+} from "@/lib/scoped-db";
 import {
   MAX_INSIGHT_GROUP_NAME_LENGTH,
   MAX_INSIGHT_GROUPS,
@@ -75,24 +79,125 @@ export async function getListInsight(
     return { error: "Unauthorized" };
   }
 
-  // Получаем данные из БД и одновременно проверяем права доступа.
-  // Пользователь должен быть владельцем или участником списка.
-  // Эта проверка идёт ДО rate limiting: запрос на недоступный listId
-  // не должен списывать квоту легитимного пользователя.
-  const list = await prisma.list.findFirst({
-    where: {
-      id: listId,
-      ...listInSpaceWhere(session.user.id, spaceId),
-    },
-    select: {
-      title: true,
-      note: true,
-      aiEnabled: true,
-    },
+  const userId = session.user.id;
+  const serviceUrl = process.env.INSIGHTS_SERVICE_URL;
+
+  // Все tenant-чтения выполняются с подтверждёнными userId и spaceId. Внешний
+  // AI-вызов ниже намеренно остаётся за пределами транзакции: сетевое ожидание
+  // не должно удерживать соединение и PostgreSQL-контекст.
+  const dbContext = await withSpaceDb(userId, spaceId, async (tx) => {
+    // Проверка идёт ДО rate limiting: запрос на недоступный listId не должен
+    // списывать квоту легитимного пользователя.
+    const list = await tx.list.findFirst({
+      where: {
+        id: listId,
+        ...listInSpaceWhere(userId, spaceId),
+      },
+      select: {
+        title: true,
+        note: true,
+        aiEnabled: true,
+      },
+    });
+
+    if (!list) return { status: "notFound" } as const;
+    if (!list.aiEnabled) return { status: "aiDisabled" } as const;
+    if (!serviceUrl) return { status: "notConfigured" } as const;
+
+    // Заметка списка имеет отдельный гарантированный бюджет. Заметки записей
+    // выбираются независимо от первых 50 обычных записей: важная заметка не
+    // исчезнет только потому, что её запись находится ниже в длинном списке.
+    // Пункты и подпункты выбираются раздельно, чтобы один длинный блок не
+    // вытеснил из контекста половину списка.
+    const [
+      topLevelItems,
+      subItemRows,
+      noteCandidates,
+      totalItemNotes,
+      groupRows,
+    ] =
+      await Promise.all([
+        tx.item.findMany({
+          where: { listId, parentId: null },
+          orderBy: [
+            { isCompleted: "asc" },
+            { position: "asc" },
+            { createdAt: "asc" },
+          ],
+          take: MAX_INSIGHT_ITEMS,
+          select: { id: true, name: true, isCompleted: true },
+        }),
+        tx.item.findMany({
+          where: { listId, parentId: { not: null } },
+          orderBy: [
+            { isCompleted: "asc" },
+            { position: "asc" },
+            { createdAt: "asc" },
+          ],
+          take: MAX_INSIGHT_SUB_ITEMS,
+          select: {
+            id: true,
+            name: true,
+            isCompleted: true,
+            parentId: true,
+          },
+        }),
+        tx.item.findMany({
+          where: { listId, note: { not: null } },
+          orderBy: [
+            { isCompleted: "asc" },
+            { noteUpdatedAt: "desc" },
+            { position: "asc" },
+            { createdAt: "asc" },
+          ],
+          take: MAX_INSIGHT_ITEM_NOTES,
+          select: {
+            id: true,
+            name: true,
+            isCompleted: true,
+            note: true,
+            parentId: true,
+          },
+        }),
+        tx.item.count({ where: { listId, note: { not: null } } }),
+        // Группы персональны даже для расшаренного списка. Фильтры userId и
+        // spaceId не дают отправить в AI личную организацию другого участника.
+        tx.listGroup.findMany({
+          where: {
+            userId,
+            spaceId,
+            listMemberships: { some: { listId } },
+          },
+          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+          take: MAX_INSIGHT_GROUPS,
+          select: { name: true },
+        }),
+      ]);
+
+    return {
+      status: "ready",
+      list,
+      topLevelItems,
+      subItemRows,
+      noteCandidates,
+      totalItemNotes,
+      groupRows,
+    } as const;
+  }).catch((error) => {
+    if (
+      error instanceof DatabaseContextError &&
+      error.code === "SPACE_NOT_FOUND"
+    ) {
+      return { status: "notFound" } as const;
+    }
+    throw error;
   });
 
-  if (!list) {
-    logger.warn({ uid: hashId(session.user.id), listId, action: "getListInsight" }, "Доступ к списку запрещён или список не найден");
+  if (dbContext.status === "notFound") {
+    logger.warn(
+      { uid: hashId(userId), listId, action: "getListInsight" },
+      "Доступ к списку запрещён или список не найден",
+    );
     return { error: "Список не найден" };
   }
 
@@ -100,9 +205,9 @@ export async function getListInsight(
   // защищает данные участников списка, поэтому обойти его прямым вызовом
   // Action не должно быть возможно. Отказ идёт до расхода квоты: запрет —
   // не ошибка пользователя.
-  if (!list.aiEnabled) {
+  if (dbContext.status === "aiDisabled") {
     logger.info(
-      { uid: hashId(session.user.id), listId, action: "getListInsight" },
+      { uid: hashId(userId), listId, action: "getListInsight" },
       "AI выключен для списка",
     );
     return { error: "aiDisabled" };
@@ -110,73 +215,22 @@ export async function getListInsight(
 
   // Конфиг сервиса проверяем тоже ДО rate limiting — иначе при отсутствии
   // env-переменных квота списывалась бы впустую.
-  const serviceUrl = process.env.INSIGHTS_SERVICE_URL;
-
-  if (!serviceUrl) {
+  if (dbContext.status === "notConfigured" || !serviceUrl) {
     logger.error({ action: "getListInsight" }, "INSIGHTS_SERVICE_URL не задан");
     return { error: "Service not configured" };
   }
 
-  // Заметка списка имеет отдельный гарантированный бюджет. Заметки записей
-  // выбираются независимо от первых 50 обычных записей: важная заметка не
-  // исчезнет только потому, что её запись находится ниже в длинном списке.
-  //
-  // Пункты и подпункты выбираются раздельно. Общая выборка «первые 50 записей»
-  // после появления подпунктов означала бы разное для разных списков: один
-  // длинный блок вытеснил бы из контекста половину списка.
-  const [topLevelItems, subItemRows, noteCandidates, totalItemNotes, groupRows] =
-    await Promise.all([
-      prisma.item.findMany({
-        where: { listId, parentId: null },
-        // Тот же порядок, что видит пользователь: невыполненные сверху,
-        // внутри группы — по позиции.
-        orderBy: [{ isCompleted: "asc" }, { position: "asc" }, { createdAt: "asc" }],
-        take: MAX_INSIGHT_ITEMS,
-        select: { id: true, name: true, isCompleted: true },
-      }),
-      prisma.item.findMany({
-        where: { listId, parentId: { not: null } },
-        // Позиции сравнимы только внутри своего родителя, поэтому общая
-        // сортировка задаёт не глобальный порядок, а лишь то, какие подпункты
-        // попадут в бюджет: сначала невыполненные и стоящие выше у себя в
-        // блоке. Внутри каждого родителя порядок при этом верен.
-        orderBy: [{ isCompleted: "asc" }, { position: "asc" }, { createdAt: "asc" }],
-        take: MAX_INSIGHT_SUB_ITEMS,
-        select: { id: true, name: true, isCompleted: true, parentId: true },
-      }),
-      prisma.item.findMany({
-        where: { listId, note: { not: null } },
-        orderBy: [
-          { isCompleted: "asc" },
-          { noteUpdatedAt: "desc" },
-          { position: "asc" },
-          { createdAt: "asc" },
-        ],
-        take: MAX_INSIGHT_ITEM_NOTES,
-        select: {
-          id: true,
-          name: true,
-          isCompleted: true,
-          note: true,
-          parentId: true,
-        },
-      }),
-      prisma.item.count({ where: { listId, note: { not: null } } }),
-      // Только группы вызывающего. Группы персональные: один и тот же
-      // расшаренный список другой участник мог положить в свою группу с любым
-      // названием, и без фильтра по `userId` его личная организация уехала бы
-      // в контекст, а оттуда — в инсайт, который читает не он.
-      prisma.listGroup.findMany({
-        where: { userId: session.user.id, spaceId, listMemberships: { some: { listId } } },
-        // Тот же порядок, что видит пользователь в боковой панели.
-        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-        take: MAX_INSIGHT_GROUPS,
-        select: { name: true },
-      }),
-    ]);
+  const {
+    list,
+    topLevelItems,
+    subItemRows,
+    noteCandidates,
+    totalItemNotes,
+    groupRows,
+  } = dbContext;
 
-  // Пустое имя схемой не создать, но строка из старых данных отбраковала бы
-  // весь запрос: у сервиса на элементе стоит min_length=1.
+  // Пустое имя схемой не создать, но строка из старых данных не должна
+  // отбраковать весь запрос: у AI-сервиса на элементе стоит min_length=1.
   const groups = groupRows
     .map((group) => group.name.slice(0, MAX_INSIGHT_GROUP_NAME_LENGTH).trim())
     .filter((name) => name.length > 0);
@@ -269,11 +323,13 @@ export async function getListInsight(
   // строго возрастающие значения count: 1, 2, 3, ...
   // Это закрывает TOCTOU-окно прежней схемы (отдельные findUnique и upsert),
   // через которое Promise.all из N запросов мог проскочить проверку при count=0.
-  const usage = await prisma.userDailyUsage.upsert({
-    where: { userId_date: { userId: session.user.id, date: today } },
-    update: { insights: { increment: 1 } },
-    create: { userId: session.user.id, date: today, insights: 1 },
-    select: { insights: true },
+  const usage = await withUserDb(userId, (tx) => {
+    return tx.userDailyUsage.upsert({
+      where: { userId_date: { userId, date: today } },
+      update: { insights: { increment: 1 } },
+      create: { userId, date: today, insights: 1 },
+      select: { insights: true },
+    });
   });
 
   // Если перебрали лимит — откатываем свой инкремент и возвращаем ошибку.
@@ -281,15 +337,24 @@ export async function getListInsight(
   // на 1, но на следующий день будет создана новая строка по новому ключу
   // (userId, date) — старая с завышенным count просто перестаёт читаться.
   if (usage.insights > DAILY_INSIGHT_LIMIT) {
-    await prisma.userDailyUsage
-      .update({
-        where: { userId_date: { userId: session.user.id, date: today } },
+    await withUserDb(userId, (tx) => {
+      return tx.userDailyUsage.update({
+        where: { userId_date: { userId, date: today } },
         data: { insights: { decrement: 1 } },
-      })
+      });
+    })
       .catch((err) => {
         logger.error({ error: err }, "UserDailyUsage decrement failed:");
       });
-    logger.warn({ uid: hashId(session.user.id), listId, count: usage.insights, action: "getListInsight" }, "Превышен дневной лимит AI-инсайтов");
+    logger.warn(
+      {
+        uid: hashId(userId),
+        listId,
+        count: usage.insights,
+        action: "getListInsight",
+      },
+      "Превышен дневной лимит AI-инсайтов",
+    );
     return { error: "rateLimitError" };
   }
   // --- /Rate limiting ---
@@ -313,7 +378,7 @@ export async function getListInsight(
     // сразу и понятной ошибкой, а не ждём 403 из сети: рвётся федерация, а не
     // сервис, и в логе должно быть видно именно это.
     logger.error(
-      { uid: hashId(session.user.id), action: "getListInsight" },
+      { uid: hashId(userId), action: "getListInsight" },
       "ID-токен Cloud Run не получен — запрос не отправлен",
     );
     return { error: "Service not configured" };
@@ -328,8 +393,7 @@ export async function getListInsight(
       },
       body: JSON.stringify({
         title: list.title.slice(0, 200),
-        // Группы вызывающего: для модели это единственный внешний признак типа
-        // списка — «Работа» и «Поход» задают разбор лучше, чем сам заголовок.
+        // Группы принадлежат вызывающему и были выбраны внутри withSpaceDb.
         groups,
         list_note: list.note?.slice(0, MAX_NOTE_LENGTH) ?? null,
         // `items` сохраняет прежний смысл — записи верхнего уровня, — поэтому
@@ -346,18 +410,18 @@ export async function getListInsight(
     });
 
     if (!response.ok) {
-      logger.error({ uid: hashId(session.user.id), listId, status: response.status, action: "getListInsight" }, "AI-сервис вернул ошибку");
+      logger.error({ uid: hashId(userId), listId, status: response.status, action: "getListInsight" }, "AI-сервис вернул ошибку");
       return { error: "Service error" };
     }
 
     const data = (await response.json()) as { insight: string };
-    logger.info({ uid: hashId(session.user.id), listId, action: "getListInsight" }, "AI-инсайт получен");
+    logger.info({ uid: hashId(userId), listId, action: "getListInsight" }, "AI-инсайт получен");
     return {
       insight: data.insight,
       notesContext: { includedItemNotes, omittedItemNotes },
     };
   } catch (error) {
-    logger.error({ uid: hashId(session.user.id), listId, error, action: "getListInsight" }, "Ошибка подключения к AI-сервису");
+    logger.error({ uid: hashId(userId), listId, error, action: "getListInsight" }, "Ошибка подключения к AI-сервису");
     return { error: "Could not connect to AI service" };
   }
 }

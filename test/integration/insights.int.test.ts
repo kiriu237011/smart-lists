@@ -240,6 +240,56 @@ describe("контекст AI — заметки", () => {
   });
 });
 
+describe("scoped-доступ и суточная квота", () => {
+  it("чужое пространство выглядит как отсутствующий список и не тратит квоту", async () => {
+    const owner = await makeUser();
+    const stranger = await makeUser();
+    const list = await makeList(owner.id, owner.defaultSpaceId);
+    setSessionUser(stranger.id);
+
+    const result = await getListInsight(
+      list.id,
+      undefined,
+      owner.defaultSpaceId,
+    );
+
+    expect(result).toEqual({ error: "Список не найден" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(
+      await prisma.userDailyUsage.count({ where: { userId: stranger.id } }),
+    ).toBe(0);
+  });
+
+  it("параллельные запросы атомарно соблюдают лимит и откатывают лишний инкремент", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    await prisma.userDailyUsage.create({
+      data: { userId: user.id, date: today, insights: 14 },
+    });
+    setSessionUser(user.id);
+
+    const results = await Promise.all([
+      getListInsight(list.id, undefined, user.defaultSpaceId),
+      getListInsight(list.id, undefined, user.defaultSpaceId),
+    ]);
+
+    expect(results.filter((result) => result.insight === "ok")).toHaveLength(1);
+    expect(
+      results.filter((result) => result.error === "rateLimitError"),
+    ).toHaveLength(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(
+      await prisma.userDailyUsage.findUnique({
+        where: { userId_date: { userId: user.id, date: today } },
+        select: { insights: true },
+      }),
+    ).toEqual({ insights: 15 });
+  });
+});
+
 describe("аутентификация вызова Cloud Run", () => {
   /** Заголовки последнего запроса к сервису. */
   function lastHeaders(): Record<string, string> {
