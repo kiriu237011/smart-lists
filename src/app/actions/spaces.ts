@@ -6,10 +6,14 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { auth } from "@/auth";
-import prisma from "@/lib/db";
 import { deleteObjects } from "@/lib/s3";
 import { logger } from "@/lib/logger";
 import { notifyUsers } from "@/lib/notify";
+import {
+  DatabaseContextError,
+  withSpaceDb,
+  withUserDb,
+} from "@/lib/scoped-db";
 import {
   ensureSpaceState,
   getUserSpace,
@@ -29,6 +33,12 @@ function errorCode(error: unknown): string {
   return "unknownError";
 }
 
+function isMissingSpace(error: unknown): boolean {
+  return (
+    error instanceof DatabaseContextError && error.code === "SPACE_NOT_FOUND"
+  );
+}
+
 export async function createSpace(name: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "unauthorized" };
@@ -43,7 +53,8 @@ export async function createSpace(name: string) {
   await ensureSpaceState(userId);
 
   try {
-    const space = await prisma.$transaction(
+    const space = await withUserDb(
+      userId,
       async (tx) => {
         const count = await tx.space.count({ where: { userId, isDefault: false } });
         if (count >= MAX_CUSTOM_SPACES) return null;
@@ -71,7 +82,8 @@ export async function createSpace(name: string) {
 export async function renameSpace(spaceId: string, name: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: "unauthorized" };
-  if (!(await consumeMutationBudget(session.user.id))) {
+  const userId = session.user.id;
+  if (!(await consumeMutationBudget(userId))) {
     return { success: false, error: "dailyLimitReached" };
   }
 
@@ -82,17 +94,24 @@ export async function renameSpace(spaceId: string, name: string) {
   }
 
   try {
-    const updated = await prisma.space.updateMany({
-      where: { id: parsedId.data, userId: session.user.id },
-      data: {
-        name: parsedName.data,
-        normalizedName: normalizeSpaceName(parsedName.data),
+    const updated = await withSpaceDb(
+      userId,
+      parsedId.data,
+      (tx) => {
+        return tx.space.updateMany({
+          where: { id: parsedId.data, userId },
+          data: {
+            name: parsedName.data,
+            normalizedName: normalizeSpaceName(parsedName.data),
+          },
+        });
       },
-    });
+    );
     if (updated.count === 0) return { success: false, error: "notFound" };
     revalidatePath("/", "layout");
     return { success: true };
   } catch (error) {
+    if (isMissingSpace(error)) return { success: false, error: "notFound" };
     return { success: false, error: errorCode(error) };
   }
 }
@@ -102,14 +121,23 @@ export async function getSpaceDeleteImpact(spaceId: string) {
   if (!session?.user?.id) return { success: false, error: "unauthorized" };
   if (!idSchema.safeParse(spaceId).success) return { success: false, error: "notFound" };
 
-  const space = await prisma.space.findFirst({
-    where: { id: spaceId, userId: session.user.id },
-    select: {
-      isDefault: true,
-      _count: { select: { lists: true, groups: true, receivedShares: true } },
-      lists: { select: { _count: { select: { files: true, shares: true } } } },
+  const space = await withSpaceDb(
+    session.user.id,
+    spaceId,
+    (tx) => {
+      return tx.space.findUnique({
+        where: { id: spaceId },
+        select: {
+          isDefault: true,
+          _count: { select: { lists: true, groups: true, receivedShares: true } },
+          lists: { select: { _count: { select: { files: true, shares: true } } } },
+        },
+      });
     },
-  });
+  ).catch((error) => {
+      if (isMissingSpace(error)) return null;
+      throw error;
+    });
   if (!space) return { success: false, error: "notFound" };
   if (space.isDefault) return { success: false, error: "defaultSpace" };
 
@@ -132,30 +160,54 @@ export async function deleteSpace(spaceId: string, confirmationName: string) {
     return { success: false, error: "dailyLimitReached" };
   }
   const userId = session.user.id;
-  const space = await getUserSpace(userId, spaceId);
-  if (!space) return { success: false, error: "notFound" };
-  if (space.isDefault) return { success: false, error: "defaultSpace" };
-  if (normalizeSpaceName(confirmationName) !== space.normalizedName) {
-    return { success: false, error: "confirmationMismatch" };
+  if (!idSchema.safeParse(spaceId).success) {
+    return { success: false, error: "notFound" };
   }
 
-  const ownedLists = await prisma.list.findMany({
-    where: { ownerId: userId, spaceId },
-    select: {
-      files: { select: { key: true } },
-      shares: { select: { userId: true } },
-    },
-  });
-  const keys = ownedLists.flatMap((list) => list.files.map((file) => file.key));
-  const affectedUsers = [
-    ...new Set(
-      ownedLists.flatMap((list) =>
-        list.shares.map((share) => share.userId),
-      ),
-    ),
-  ];
+  const deletion = await withSpaceDb(
+    userId,
+    spaceId,
+    async (tx) => {
+      const space = await tx.space.findUnique({
+        where: { id: spaceId },
+        select: { isDefault: true, normalizedName: true },
+      });
+      if (!space) return { status: "notFound" } as const;
+      if (space.isDefault) return { status: "defaultSpace" } as const;
+      if (normalizeSpaceName(confirmationName) !== space.normalizedName) {
+        return { status: "confirmationMismatch" } as const;
+      }
 
-  await prisma.space.delete({ where: { id: spaceId } });
+      const ownedLists = await tx.list.findMany({
+        where: { ownerId: userId, spaceId },
+        select: {
+          files: { select: { key: true } },
+          shares: { select: { userId: true } },
+        },
+      });
+      const keys = ownedLists.flatMap((list) =>
+        list.files.map((file) => file.key),
+      );
+      const affectedUsers = [
+        ...new Set(
+          ownedLists.flatMap((list) =>
+            list.shares.map((share) => share.userId),
+          ),
+        ),
+      ];
+
+      await tx.space.delete({ where: { id: spaceId } });
+      return { status: "deleted", keys, affectedUsers } as const;
+    },
+  ).catch((error) => {
+      if (isMissingSpace(error)) return { status: "notFound" } as const;
+      throw error;
+    });
+
+  if (deletion.status !== "deleted") {
+    return { success: false, error: deletion.status };
+  }
+
   const cookieStore = await cookies();
   if (cookieStore.get(LAST_SPACE_COOKIE)?.value === spaceId) {
     cookieStore.delete(LAST_SPACE_COOKIE);
@@ -165,13 +217,13 @@ export async function deleteSpace(spaceId: string, confirmationName: string) {
   after(async () => {
     try {
       // S3 DeleteObjects принимает максимум 1000 ключей за запрос.
-      for (let index = 0; index < keys.length; index += 1000) {
-        await deleteObjects(keys.slice(index, index + 1000));
+      for (let index = 0; index < deletion.keys.length; index += 1000) {
+        await deleteObjects(deletion.keys.slice(index, index + 1000));
       }
     } catch (error) {
       logger.error({ error, spaceId, action: "deleteSpace.s3" }, "Не удалось очистить S3");
     }
-    await notifyUsers(affectedUsers);
+    await notifyUsers(deletion.affectedUsers);
   });
 
   return { success: true };

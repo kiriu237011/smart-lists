@@ -1,7 +1,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
-import { PrismaClient } from "@/generated/prisma/client";
+import { Prisma, PrismaClient } from "@/generated/prisma/client";
 import type { ScopedTransaction } from "@/lib/scoped-db";
 import { createScopedDatabase } from "@/lib/scoped-db";
 import {
@@ -43,6 +43,23 @@ describe("scoped transaction context", () => {
     const context = await withUserDb(user.id, readContext);
 
     expect(context).toEqual({ userId: user.id, spaceId: null });
+  });
+
+  it("передаёт transaction options в PostgreSQL", async () => {
+    const user = await makeUser();
+
+    const isolationLevel = await withUserDb(
+      user.id,
+      async (tx) => {
+        const [transaction] = await tx.$queryRaw<Array<{ level: string }>>`
+          SELECT current_setting('transaction_isolation') AS level
+        `;
+        return transaction.level;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    expect(isolationLevel).toBe("serializable");
   });
 
   it("устанавливает userId и подтверждённый spaceId", async () => {

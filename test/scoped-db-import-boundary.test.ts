@@ -33,7 +33,6 @@ describe("граница scoped DB API", () => {
       "src/app/actions/attachments.ts",
       "src/app/actions/index.ts",
       "src/app/actions/insights.ts",
-      "src/app/actions/spaces.ts",
       "src/auth.ts",
       "src/lib/allowed-email.ts",
       "src/lib/app-settings.ts",

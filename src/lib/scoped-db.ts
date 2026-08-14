@@ -8,6 +8,11 @@ const USER_SETTING = "app.user_id";
 const SPACE_SETTING = "app.space_id";
 
 export type ScopedTransaction = Prisma.TransactionClient;
+export type ScopedTransactionOptions = {
+  isolationLevel?: Prisma.TransactionIsolationLevel;
+  maxWait?: number;
+  timeout?: number;
+};
 
 export class DatabaseContextError extends Error {
   constructor(
@@ -75,48 +80,59 @@ async function assertSettings(
  * использует экспортированные ниже функции, привязанные к singleton-клиенту.
  */
 export function createScopedDatabase(client: PrismaClient) {
-  async function withUserDb<T>(userId: string, work: ScopedWork<T>): Promise<T> {
+  async function withUserDb<T>(
+    userId: string,
+    work: ScopedWork<T>,
+    options: ScopedTransactionOptions = {},
+  ): Promise<T> {
     assertContextId(userId, "userId");
 
-    return client.$transaction(async (tx) => {
-      await setLocalSetting(tx, USER_SETTING, userId);
-      // User-only поток обязан быть fail-closed для space-политик. Явная пустая
-      // настройка также не позволяет унаследовать session-level значение.
-      await setLocalSetting(tx, SPACE_SETTING, "");
-      await assertSettings(tx, { userId, spaceId: null });
-      return work(tx);
-    });
+    return client.$transaction(
+      async (tx) => {
+        await setLocalSetting(tx, USER_SETTING, userId);
+        // User-only поток обязан быть fail-closed для space-политик. Явная пустая
+        // настройка также не позволяет унаследовать session-level значение.
+        await setLocalSetting(tx, SPACE_SETTING, "");
+        await assertSettings(tx, { userId, spaceId: null });
+        return work(tx);
+      },
+      options,
+    );
   }
 
   async function withSpaceDb<T>(
     userId: string,
     spaceId: string,
     work: ScopedWork<T>,
+    options: ScopedTransactionOptions = {},
   ): Promise<T> {
     assertContextId(userId, "userId");
     assertContextId(spaceId, "spaceId");
 
-    return client.$transaction(async (tx) => {
-      await setLocalSetting(tx, USER_SETTING, userId);
-      await setLocalSetting(tx, SPACE_SETTING, "");
+    return client.$transaction(
+      async (tx) => {
+        await setLocalSetting(tx, USER_SETTING, userId);
+        await setLocalSetting(tx, SPACE_SETTING, "");
 
-      // spaceId приходит из URL/FormData, поэтому до публикации в контексте
-      // подтверждаем его через серверный userId из auth().
-      const space = await tx.space.findFirst({
-        where: { id: spaceId, userId },
-        select: { id: true },
-      });
-      if (!space) {
-        throw new DatabaseContextError(
-          "SPACE_NOT_FOUND",
-          "Пространство не найдено.",
-        );
-      }
+        // spaceId приходит из URL/FormData, поэтому до публикации в контексте
+        // подтверждаем его через серверный userId из auth().
+        const space = await tx.space.findFirst({
+          where: { id: spaceId, userId },
+          select: { id: true },
+        });
+        if (!space) {
+          throw new DatabaseContextError(
+            "SPACE_NOT_FOUND",
+            "Пространство не найдено.",
+          );
+        }
 
-      await setLocalSetting(tx, SPACE_SETTING, space.id);
-      await assertSettings(tx, { userId, spaceId: space.id });
-      return work(tx);
-    });
+        await setLocalSetting(tx, SPACE_SETTING, space.id);
+        await assertSettings(tx, { userId, spaceId: space.id });
+        return work(tx);
+      },
+      options,
+    );
   }
 
   return { withUserDb, withSpaceDb };

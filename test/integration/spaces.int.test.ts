@@ -231,13 +231,17 @@ describe("deleteSpace", () => {
     });
     setSessionUser(user.id);
     const { deleteObjects } = await import("@/lib/s3");
+    const { notifyUsers } = await import("@/lib/notify");
 
     await deleteSpace(space.id, "С файлами");
 
-    // До flushAfter очистка ещё не запущена (идёт после ответа).
+    // До flushAfter внешние эффекты ещё не запущены: DB commit уже завершён,
+    // но S3 и realtime идут только после ответа.
     expect(vi.mocked(deleteObjects)).not.toHaveBeenCalled();
+    expect(vi.mocked(notifyUsers)).not.toHaveBeenCalled();
     await flushAfter();
     expect(vi.mocked(deleteObjects)).toHaveBeenCalledWith(["lists/x/file.png"]);
+    expect(vi.mocked(notifyUsers)).toHaveBeenCalledWith([]);
   });
 
   it("чистит cookie последнего пространства, если удалили именно его", async () => {
