@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { LogOut } from "lucide-react";
-import prisma from "@/lib/db";
 import { signOut } from "@/auth";
 import { listInSpaceWhere } from "@/lib/spaces";
+import { withSpaceDb } from "@/lib/scoped-db";
 import AvatarButton from "@/components/ui/AvatarButton";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 import ListsDataFetcher from "@/components/lists/ListsDataFetcher";
@@ -25,14 +25,20 @@ export default async function AuthenticatedHome({
   userEmail: string;
   spaceId: string;
 }) {
-  const [t, spaces, listsCount] = await Promise.all([
+  // Переводы загружаются параллельно, но не внутри DB-транзакции.
+  const [t, { spaces, listsCount }] = await Promise.all([
     getTranslations(),
-    prisma.space.findMany({
-      where: { userId },
-      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
-      select: { id: true, name: true, isDefault: true },
+    withSpaceDb(userId, spaceId, async (tx) => {
+      const [spaces, listsCount] = await Promise.all([
+        tx.space.findMany({
+          where: { userId },
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+          select: { id: true, name: true, isDefault: true },
+        }),
+        tx.list.count({ where: listInSpaceWhere(userId, spaceId) }),
+      ]);
+      return { spaces, listsCount };
     }),
-    prisma.list.count({ where: listInSpaceWhere(userId, spaceId) }),
   ]);
 
   return (

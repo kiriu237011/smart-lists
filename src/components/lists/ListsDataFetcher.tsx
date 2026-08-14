@@ -1,6 +1,7 @@
-import prisma from "@/lib/db";
 import ListsContainer from "@/components/lists/ListsContainer";
 import ServerListsApiProvider from "@/components/providers/ServerListsApiProvider";
+import type { ScopedTransaction } from "@/lib/scoped-db";
+import { withSpaceDb } from "@/lib/scoped-db";
 import { listInSpaceWhere } from "@/lib/spaces";
 
 /**
@@ -25,11 +26,11 @@ export default async function ListsDataFetcher({
   userEmail: string;
   spaceId: string;
 }) {
-  const [allLists, userGroups] = await Promise.all([
+  const loadData = (tx: ScopedTransaction) => Promise.all([
     // Списки, доступные пользователю (свои + расшаренные), со всеми связями.
     // relationLoadStrategy: "join" — все связи одним SQL-запросом (LATERAL JOIN):
     // один round-trip до БД вместо ~6 последовательных (по одному на связь).
-    prisma.list.findMany({
+    tx.list.findMany({
       relationLoadStrategy: "join",
       where: listInSpaceWhere(userId, spaceId),
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
@@ -94,7 +95,7 @@ export default async function ListsDataFetcher({
       },
     }),
     // Группы пользователя для панели фильтрации
-    prisma.listGroup.findMany({
+    tx.listGroup.findMany({
       where: { userId, spaceId },
       orderBy: [
         { position: "asc" },
@@ -104,6 +105,11 @@ export default async function ListsDataFetcher({
       select: { id: true, name: true },
     }),
   ]);
+  const [allLists, userGroups] = await withSpaceDb(
+    userId,
+    spaceId,
+    loadData,
+  );
 
   // UI пока использует имя sharedWith как представление списка участников.
   // Источником данных уже служит только явная модель ListShare.

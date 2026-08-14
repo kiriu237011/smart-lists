@@ -4,7 +4,11 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@/generated/prisma/client";
 import type { ScopedTransaction } from "@/lib/scoped-db";
 import { createScopedDatabase } from "@/lib/scoped-db";
-import { canAccessListInSpace, getUserSpace } from "@/lib/spaces";
+import {
+  canAccessListInSpace,
+  getUserSpace,
+  listInSpaceWhere,
+} from "@/lib/spaces";
 import { makeList, makeSpace, makeUser, shareList } from "./factories";
 
 const singleConnectionPrisma = new PrismaClient({
@@ -146,5 +150,60 @@ describe("scoped transaction context", () => {
     expect(
       await canAccessListInSpace(recipient.id, "\0", list.id),
     ).toBe(false);
+  });
+
+  it("server reads не смешивают списки и группы разных пространств", async () => {
+    const user = await makeUser();
+    const owner = await makeUser();
+    const firstSpace = await makeSpace(user.id, "Первое");
+    const secondSpace = await makeSpace(user.id, "Второе");
+    const ownFirst = await makeList(user.id, firstSpace.id);
+    const ownSecond = await makeList(user.id, secondSpace.id);
+    const shared = await makeList(owner.id, owner.defaultSpaceId);
+    await shareList(shared.id, user.id, firstSpace.id);
+    const firstGroup = await singleConnectionPrisma.listGroup.create({
+      data: {
+        userId: user.id,
+        spaceId: firstSpace.id,
+        name: "Первая группа",
+        position: 1,
+      },
+    });
+    await singleConnectionPrisma.listGroup.create({
+      data: {
+        userId: user.id,
+        spaceId: secondSpace.id,
+        name: "Вторая группа",
+        position: 1,
+      },
+    });
+
+    const result = await withSpaceDb(user.id, firstSpace.id, async (tx) => {
+      const [spaces, lists, groups] = await Promise.all([
+        tx.space.findMany({ where: { userId: user.id } }),
+        tx.list.findMany({
+          where: listInSpaceWhere(user.id, firstSpace.id),
+          select: { id: true },
+        }),
+        tx.listGroup.findMany({
+          where: { userId: user.id, spaceId: firstSpace.id },
+          select: { id: true },
+        }),
+      ]);
+      return { spaces, lists, groups };
+    });
+
+    expect(result.spaces.map(({ id }) => id)).toEqual(
+      expect.arrayContaining([
+        user.defaultSpaceId,
+        firstSpace.id,
+        secondSpace.id,
+      ]),
+    );
+    expect(result.lists.map(({ id }) => id).sort()).toEqual(
+      [ownFirst.id, shared.id].sort(),
+    );
+    expect(result.lists).not.toContainEqual({ id: ownSecond.id });
+    expect(result.groups).toEqual([{ id: firstGroup.id }]);
   });
 });
