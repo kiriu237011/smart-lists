@@ -53,7 +53,7 @@ import { notifyListMembers, notifyListsMembers, notifyUsers } from "@/lib/notify
 import { deleteObjects } from "@/lib/s3";
 import { ZodError } from "zod";
 import {
-  ensureSpaceState,
+  defaultSpaceId,
   getUserSpace,
   listInSpaceWhere,
 } from "@/lib/spaces";
@@ -1409,60 +1409,80 @@ export async function shareList(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
-    // 1. Ищем пользователя по email (он должен быть зарегистрирован в системе)
-    const userToShare = await prisma.user.findUnique({
-      where: { email: result.data.email },
+    const sharing = await withSpaceDb(ownerId, space.id, async (tx) => {
+      // Сначала подтверждаем право на список. Так чужой listId нельзя
+      // использовать как oracle существования зарегистрированных email.
+      const ownedList = await tx.list.findFirst({
+        where: { id: result.data.listId, ownerId, spaceId: space.id },
+        select: { id: true, ownerId: true },
+      });
+      if (!ownedList) return { status: "listNotFound" } as const;
+
+      const recipient = await tx.user.findUnique({
+        where: { email: result.data.email },
+        select: { id: true, name: true, email: true },
+      });
+      if (!recipient) return { status: "userNotFound" } as const;
+      if (recipient.id === ownerId) return { status: "selfShare" } as const;
+
+      // Default-space гарантирован backfill-миграцией и Auth.js createUser.
+      // Здесь намеренно нет ensureSpaceState(recipient.id): Action не должен
+      // устанавливать tenant-контекст другого пользователя. Составной FK
+      // ListShare(spaceId, userId) остановит операцию fail-closed, если
+      // инфраструктурный инвариант неожиданно нарушен.
+      await tx.listShare.createMany({
+        data: [
+          {
+            listId: ownedList.id,
+            userId: recipient.id,
+            spaceId: defaultSpaceId(recipient.id),
+          },
+        ],
+        skipDuplicates: true,
+      });
+
+      const shares = await tx.listShare.findMany({
+        where: { listId: ownedList.id },
+        select: { userId: true },
+      });
+      return {
+        status: "shared",
+        recipient,
+        notificationUserIds: [
+          ownedList.ownerId,
+          ...shares.map((share) => share.userId),
+        ],
+      } as const;
     });
 
-    if (!userToShare) {
+    if (sharing.status === "listNotFound") {
+      return { success: false, error: "Не удалось предоставить доступ" };
+    }
+    if (sharing.status === "userNotFound") {
       return {
         success: false,
         error: "Пользователь с таким email не найден",
       };
     }
-
-    // Нельзя поделиться списком с самим собой
-    if (userToShare.id === session.user.id) {
+    if (sharing.status === "selfShare") {
       return {
         success: false,
         error: "Нельзя поделиться списком с самим собой",
       };
     }
 
-    // Получатель всегда видит новый общий список в своём default-пространстве.
-    const recipientSpaceId = await ensureSpaceState(userToShare.id);
-    await prisma.$transaction(async (tx) => {
-      const ownedList = await tx.list.findFirst({
-        where: { id: result.data.listId, ownerId, spaceId: space.id },
-        select: { id: true },
-      });
-      if (!ownedList) throw new Error("LIST_NOT_FOUND");
-
-      await tx.listShare.upsert({
-        where: {
-          listId_userId: { listId: ownedList.id, userId: userToShare.id },
-        },
-        create: {
-          listId: ownedList.id,
-          userId: userToShare.id,
-          spaceId: recipientSpaceId,
-        },
-        update: {},
-      });
-    });
-
     revalidatePath("/", "layout");
     // Уведомление после ответа (after), без эха вкладке автора (socketId)
     const socketId = formData.get("socketId");
-    after(() => notifyListMembers(result.data.listId, socketId));
+    after(() => notifyUsers([...sharing.notificationUserIds], socketId));
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "shareList" }, "Доступ к списку предоставлен");
 
     return {
       success: true,
       user: {
-        id: userToShare.id,
-        name: userToShare.name,
-        email: userToShare.email,
+        id: sharing.recipient.id,
+        name: sharing.recipient.name,
+        email: sharing.recipient.email,
       },
     };
   } catch (error) {
@@ -1509,28 +1529,40 @@ export async function removeSharedUser(formData: FormData) {
       return { success: false, error: "Неверные данные" };
     }
 
-    await prisma.$transaction(async (tx) => {
-      const ownedList = await tx.list.findFirst({
-        where: { id: result.data.listId, ownerId, spaceId: space.id },
-        select: { id: true },
-      });
-      if (!ownedList) throw new Error("LIST_NOT_FOUND");
+    const notificationUserIds = await withSpaceDb(
+      ownerId,
+      space.id,
+      async (tx) => {
+        const ownedList = await tx.list.findFirst({
+          where: { id: result.data.listId, ownerId, spaceId: space.id },
+          select: { id: true, ownerId: true },
+        });
+        if (!ownedList) return null;
 
-      await tx.listShare.deleteMany({
-        where: { listId: ownedList.id, userId: result.data.userId },
-      });
-    });
+        const deleted = await tx.listShare.deleteMany({
+          where: { listId: ownedList.id, userId: result.data.userId },
+        });
+        const remainingShares = await tx.listShare.findMany({
+          where: { listId: ownedList.id },
+          select: { userId: true },
+        });
+
+        return [
+          ...(deleted.count > 0 ? [result.data.userId] : []),
+          ownedList.ownerId,
+          ...remainingShares.map((share) => share.userId),
+        ];
+      },
+    );
+    if (!notificationUserIds) {
+      return { success: false, error: "Не удалось убрать доступ" };
+    }
 
     revalidatePath("/", "layout");
-    // Уведомляем удалённого пользователя отдельно — после удаления ListShare
-    // notifyListMembers уже не включает его в рассылку.
-    // after гарантирует, что refresh придёт после ответа (и после revalidatePath);
-    // socketId исключает вкладку автора из эха.
+    // Получатели собраны до/после удаления внутри scoped-транзакции:
+    // удалённый участник получает refresh вместе с владельцем и оставшимися.
     const socketId = formData.get("socketId");
-    after(async () => {
-      await notifyUsers([result.data.userId], socketId);
-      await notifyListMembers(result.data.listId, socketId);
-    });
+    after(() => notifyUsers(notificationUserIds, socketId));
     logger.info({ uid: hashId(session.user.id), listId: result.data.listId, action: "removeSharedUser" }, "Доступ к списку отозван");
     return { success: true };
   } catch (error) {
@@ -1570,25 +1602,48 @@ export async function leaveSharedList(formData: FormData) {
     const userId = session.user.id;
     const space = await resolveActionSpace(userId, formData);
     if (!space) return { success: false, error: "Пространство не найдено" };
-    const share = await prisma.listShare.findFirst({
-      where: { listId, userId, spaceId: space.id },
-      select: { listId: true },
-    });
-    if (!share) return { success: false, error: "Список не найден" };
+    const notificationUserIds = await withSpaceDb(
+      userId,
+      space.id,
+      async (tx) => {
+        // Получателей собираем до удаления: после него будущая RLS-политика
+        // справедливо перестанет давать участнику доступ к строке списка.
+        const share = await tx.listShare.findFirst({
+          where: { listId, userId, spaceId: space.id },
+          select: {
+            list: {
+              select: {
+                ownerId: true,
+                shares: { select: { userId: true } },
+              },
+            },
+          },
+        });
+        if (!share) return null;
 
-    await prisma.listShare.deleteMany({
-      where: { listId, userId, spaceId: space.id },
-    });
+        const deleted = await tx.listShare.deleteMany({
+          where: { listId, userId, spaceId: space.id },
+        });
+        if (deleted.count === 0) return null;
+
+        return [
+          ...new Set([
+            userId,
+            share.list.ownerId,
+            ...share.list.shares.map((member) => member.userId),
+          ]),
+        ];
+      },
+    );
+    if (!notificationUserIds) {
+      return { success: false, error: "Список не найден" };
+    }
 
     revalidatePath("/", "layout");
-    // Уведомляем самого пользователя отдельно — после удаления его нет в ListShare,
-    // поэтому notifyListMembers его не затронет (нужно для других вкладок/устройств).
-    // after — после ответа; socketId исключает ТЕКУЩУЮ вкладку автора (другие получат).
+    // Список получателей включает вышедшего пользователя, владельца и остальных
+    // участников; after не выполняет повторное tenant-чтение.
     const socketId = formData.get("socketId");
-    after(async () => {
-      await notifyUsers([userId], socketId);
-      await notifyListMembers(listId, socketId);
-    });
+    after(() => notifyUsers(notificationUserIds, socketId));
     logger.info({ uid: hashId(session.user.id), listId, action: "leaveSharedList" }, "Пользователь покинул список");
     return { success: true };
   } catch (error) {

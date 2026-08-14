@@ -3,7 +3,7 @@
 **Статус:** этапы 2a–2c завершены; foundation scoped Prisma API, `spaces`,
 server read-path, user quota, space mutations и AI insights локально проверены,
 attachment flow, ListGroup lifecycle/membership и List lifecycle локально
-проверены, RLS выключен
+проверены, sharing lifecycle локально проверен, RLS выключен
 **Дата:** 2026-08-14
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -462,8 +462,17 @@ post-commit payload выполняются внутри `withSpaceDb`. S3 и Pus
 `after()` не читает tenant-таблицы. DB-тест отдельным соединением подтверждает
 commit каскадного удаления до S3; cross-space тест закрывает все четыре Action.
 Per-action guard расширен с семи до одиннадцати функций, общий direct-import
-allowlist остаётся равен 6. Пока остальные tenant-потоки не переведены и RLS
-выключен, это ещё не завершённый контроль изоляции строк.
+allowlist остаётся равен 6. Десятой группой переведены `shareList`,
+`removeSharedUser` и `leaveSharedList`: owner/self checks, запись `ListShare`
+и сбор всех realtime recipients выполняются внутри `withSpaceDb`, а
+`after()` получает только готовые user IDs. `shareList` больше не вызывает
+`ensureSpaceState(recipientId)` и не устанавливает DB-контекст другого
+пользователя; default-space определяется детерминированно, а составной FK
+откатывает share при нарушении инварианта. Проверка владения списком идёт до
+поиска email, поэтому чужой `listId` не является oracle регистрации.
+Per-action guard расширен до четырнадцати функций; общий allowlist остаётся 6.
+Пока остальные tenant-потоки не переведены и RLS выключен, это ещё не
+завершённый контроль изоляции строк.
 
 ## Матрица первого RLS-контура
 
@@ -512,21 +521,26 @@ definer-функция получает фиксированный `search_path`
 
 ### Расшаривание и пространство получателя
 
-Сейчас `shareList` может создать получателю default-space через
-`ensureSpaceState(recipientId)`. Обычная пользовательская RLS-политика не должна
-позволять создавать `Space` другому пользователю. До включения enforcement
-нужно либо изменить инвариант так, чтобы default-space создавался только при
-регистрации/входе, либо вынести этот один поток в узкую owner-функцию. Второй
-вариант требует отдельного abuse-теста и не должен давать произвольный
-cross-user `INSERT`.
+**Blocker закрыт 2026-08-14 без privileged helper.** Все существовавшие на
+момент перехода пользователи получили default-space expand/contract-
+миграциями; новые получают его в Auth.js `createUser`, а собственные entrypoint
+дополнительно выполняют idempotent self-heal. `shareList` теперь работает
+только в owner-scoped транзакции, вычисляет детерминированный
+`space_default_<recipientId>` и не вызывает
+`ensureSpaceState(recipientId)`. Составной FK `ListShare(spaceId, userId)`
+подтверждает принадлежность пространства получателю; если инвариант нарушен,
+вся выдача доступа откатывается. DB-тест доказывает одновременно отсутствие
+`ListShare` и отсутствие cross-user `Space INSERT`. Следовательно, обычная
+RLS-политика `Space` может остаться строго `userId = app.user_id`, а
+`SECURITY DEFINER` для sharing не требуется.
 
 ### Realtime после commit
 
-`after()` сейчас может читать участников списка после завершения мутации.
-Контекст транзакции к этому моменту уже закрыт. Список получателей нужно
-вычислять внутри авторизованной транзакции и передавать в фоновую задачу как
-минимальный набор идентификаторов; `after()` не должен повторно обращаться к
-tenant-таблицам через Prisma.
+`after()` не должен повторно обращаться к tenant-таблицам через Prisma:
+контекст транзакции к этому моменту уже закрыт. Attachment, List lifecycle и
+sharing уже вычисляют получателей внутри авторизованной транзакции и передают
+в фоновую задачу минимальный набор идентификаторов. Оставшиеся item/note
+Actions с `notifyListMembers` должны перейти на тот же контракт до enforcement.
 
 ### Очистка вложений
 
@@ -565,9 +579,10 @@ AI-сервиса расходует зарезервированную попы
    operations. Приложение всё ещё защищено существующими фильтрами.
 4. **Scoped Prisma API — в работе.** Foundation `withUserDb`/`withSpaceDb`,
    space helpers, основной server read-path, user quota, space mutations и DB-
-   фазы AI insights, attachments, ListGroup lifecycle/membership и List
-   lifecycle реализованы и локально проверены; далее перенести остальные
-   tenant-мутации и специальные потоки, сохранив поведение и тесты.
+   фазы AI insights, attachments, ListGroup lifecycle/membership, List
+   lifecycle и sharing lifecycle реализованы и локально проверены; далее
+   перенести остальные tenant-мутации и специальные потоки, сохранив поведение
+   и тесты.
 5. **DB-объекты без enforcement.** Добавить helper-функции, column controls и
    политики миграцией, но пока не включать RLS для runtime-трафика.
 6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
@@ -667,7 +682,8 @@ restore-проверки не менялись. Пункты 4 и 5 выполн
 - тесты покрывают owner/editor/stranger, неверное пространство, подмену
   `userId`/`spaceId`, смену владельца и перенос строки между пространствами;
 - проверены relation-запросы Prisma, nested writes и все поля `include`;
-- работают sign-in/session/Auth.js Adapter, создание default-space при share,
+- работают sign-in/session/Auth.js Adapter, гарантия default-space через
+  migration/Auth.js и fail-closed share без cross-user создания `Space`,
   realtime после commit, квоты и очистка stale attachments;
 - backup создан привилегированным workflow и пробно восстановлен в отдельную
   базу;

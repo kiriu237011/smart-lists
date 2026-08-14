@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для List lifecycle)
+**Последнее обновление:** 2026-08-14 (scoped DB для sharing lifecycle)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -128,6 +128,15 @@ Smart Lists — локализованное веб-приложение для 
   передают в post-commit эффекты уже готовые данные, поэтому S3/Pusher не
   удерживают scoped-транзакцию и `after()` не читает tenant-таблицы. Общий
   direct-import allowlist остаётся 6, per-action guard защищает 11 функций.
+- Десятой группой перенесён sharing lifecycle: `shareList`,
+  `removeSharedUser` и `leaveSharedList` выполняют owner/self проверки,
+  запись `ListShare` и сбор realtime recipients внутри `withSpaceDb`.
+  `shareList` больше не вызывает `ensureSpaceState` для получателя:
+  migration/Auth.js гарантируют детерминированный default-space, а составной
+  FK откатывает выдачу доступа при нарушении инварианта. Это сохраняет строгий
+  запрет cross-user `Space INSERT` будущей RLS-политикой. Проверка владения
+  списком предшествует lookup email; чужой listId не раскрывает регистрацию.
+  Общий allowlist остаётся 6, per-action guard защищает 14 функций.
 - Остальные production tenant-мутации и специальные потоки ещё не перенесены,
   а RLS выключен. Поэтому текущую изоляцию по-прежнему обеспечивают прикладные
   проверки; DB-level security posture на этом подэтапе не изменился.
@@ -196,6 +205,9 @@ Smart Lists — локализованное веб-приложение для 
 - `List` принадлежит одному владельцу и одному его пространству.
 - `ListShare` даёт роль `EDITOR` и размещает список в пространстве получателя.
 - Ключ `ListShare(listId, userId)` означает одно размещение списка на получателя.
+- Default-space существующих пользователей создан миграцией, новых — событием
+  Auth.js `createUser`; share использует детерминированный ID и составной FK,
+  но не создаёт `Space` от имени получателя.
 - Видимость определяет `listInSpaceWhere(userId, spaceId)`: собственный список в пространстве либо share, размещённый в нём.
 - Редактор изменяет содержимое. Управление владением, удалением списка и участниками остаётся за владельцем.
 - `ListGroup` — личная организация внутри пространства. Список может находиться в разных группах у разных пользователей.
@@ -928,6 +940,18 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: четвёртым подэтапом большого `src/app/actions/index.ts` выбран
+  sharing lifecycle. `shareList`, `removeSharedUser` и `leaveSharedList`
+  переведены на `withSpaceDb`; все получатели Pusher собираются до commit и
+  передаются одному `notifyUsers` без фонового Prisma-чтения. От cross-user
+  `ensureSpaceState(recipientId)` отказались: backfill и Auth.js `createUser`
+  уже гарантируют default-space, а FK `(spaceId, userId)` даёт безопасный
+  rollback при аномалии. Это закрывает отдельный RLS-blocker без
+  `SECURITY DEFINER`. Проверка owner-list перед email lookup также убирает
+  oracle регистрации через чужой listId. Зелёные: lint, typecheck, 304 unit,
+  90 целевых DB, полный integration 236 passed/3 skipped, production build и
+  3 sharing E2E. Allowlist остаётся 6, per-action guard расширен с 11 до 14
+  Actions. RLS и live-среды не менялись.
 - 2026-08-14: третьим подэтапом большого `src/app/actions/index.ts` выбран
   lifecycle списка: `createList`, `deleteList`, `renameList`,
   `setListAiEnabled`. Существующие права не унифицировались намеренно:
