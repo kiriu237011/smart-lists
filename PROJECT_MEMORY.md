@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для AI insights)
+**Последнее обновление:** 2026-08-14 (scoped DB для attachments)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -91,6 +91,18 @@ Smart Lists — локализованное веб-приложение для 
   квоту; конкурентный DB-тест закрепляет точный лимит 15/сутки. По прежнему
   контракту сбой сервиса расходует уже зарезервированную попытку. Переходный
   allowlist прямых Prisma-импортов сократился с 13 до 7.
+- Шестой группой перенесены attachment actions. `requestUpload` сохраняет
+  list row-lock, quota checks, stale cleanup и создание `PENDING` внутри
+  `withSpaceDb`; `HeadObject`, presigned POST/GET и S3 delete выполняются
+  после закрытия DB-фазы. Confirm использует второй scoped state transition,
+  delete атомарно собирает S3/realtime payload и удаляет строку. Получатели
+  realtime передаются напрямую в `notifyUsers`, поэтому `after()` не читает
+  tenant-таблицы. Fail-soft восстановление stale metadata использует отдельный
+  `withSpaceDb`. Allowlist прямых Prisma-импортов сократился с 13 до 6.
+- Attachment quota `MAX_FILES_PER_USER` и очистка собственных stale
+  `PENDING` глобальны между пространствами. Cross-space DB-тесты это
+  фиксируют. До RLS enforcement требуется узкий DB-helper для aggregate и
+  cleanup/restore; расширять обычные Attachment policies нельзя.
 - Остальные production tenant-мутации и специальные потоки ещё не перенесены,
   а RLS выключен. Поэтому текущую изоляцию по-прежнему обеспечивают прикладные
   проверки; DB-level security posture на этом подэтапе не изменился.
@@ -891,6 +903,15 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: шестой consumer-группой scoped API выбран полный attachment
+  flow. Two-phase `PENDING → S3 → UPLOADED` сохранён, а отдельное admin-
+  соединение в DB-тестах доказывает commit до presign/HeadObject/delete.
+  Подмена чужого `spaceId` fail-closed для request/confirm/delete/download,
+  S3 при этом не вызывается. Realtime recipients вычисляются в транзакции и
+  уходят в `after()` без повторного Prisma-чтения. Выявлен enforcement-blocker:
+  user file quota и stale cleanup пересекают пространства; до RLS им нужен
+  узкий helper. Direct import allowlist сокращён с 7 до 6; RLS и live-среды не
+  менялись.
 - 2026-08-14: пятой consumer-группой scoped API выбран AI insight flow.
   Tenant-контекст списка собирается одной короткой `withSpaceDb`-транзакцией,
   а атомарный `UserDailyUsage.upsert` и компенсация превышения выполняются

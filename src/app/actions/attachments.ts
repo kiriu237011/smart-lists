@@ -19,11 +19,14 @@
 "use server";
 
 import { auth } from "@/auth";
-import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { logger, hashId } from "@/lib/logger";
-import { notifyListMembers } from "@/lib/notify";
+import { notifyUsers } from "@/lib/notify";
+import {
+  DatabaseContextError,
+  withSpaceDb,
+} from "@/lib/scoped-db";
 import { listInSpaceWhere } from "@/lib/spaces";
 import {
   requestUploadSchema,
@@ -54,6 +57,12 @@ import {
 } from "@/lib/s3";
 import type { FileCategory } from "@/generated/prisma/client";
 import { consumeMutationBudget } from "@/lib/usage";
+
+function isMissingSpace(error: unknown): boolean {
+  return (
+    error instanceof DatabaseContextError && error.code === "SPACE_NOT_FOUND"
+  );
+}
 
 /** Результат запроса на загрузку: данные для прямого POST в S3. */
 interface RequestUploadResult {
@@ -129,7 +138,7 @@ export async function requestUpload(input: {
     // Лочим строку List (SELECT ... FOR UPDATE): параллельные запросы на тот же
     // список выстраиваются в очередь и видят актуальный COUNT, а не одинаковый
     // устаревший. Тот же приём, что у UserDailyUsage.
-    const txResult = await prisma.$transaction(async (tx) => {
+    const txResult = await withSpaceDb(userId, spaceId, async (tx) => {
       // Лок + проверка существования списка
       const locked = await tx.$queryRaw<
         { id: string }[]
@@ -229,6 +238,11 @@ export async function requestUpload(input: {
         attachmentId: attachment.id,
         staleAttachments,
       };
+    }).catch((error) => {
+      if (isMissingSpace(error)) {
+        return { error: "listNotFound" as const };
+      }
+      throw error;
     });
 
     if ("error" in txResult) {
@@ -250,12 +264,14 @@ export async function requestUpload(input: {
           // временный сбой S3 превращал бы объект в навсегда неучитываемый:
           // ключ уже невозможно было бы снова найти по базе.
           try {
-            await prisma.attachment.createMany({
-              data: txResult.staleAttachments.map((attachment) => ({
-                ...attachment,
-                status: "PENDING" as const,
-              })),
-              skipDuplicates: true,
+            await withSpaceDb(userId, spaceId, (tx) => {
+              return tx.attachment.createMany({
+                data: txResult.staleAttachments.map((attachment) => ({
+                  ...attachment,
+                  status: "PENDING" as const,
+                })),
+                skipDuplicates: true,
+              });
             });
           } catch (restoreError) {
             logger.error(
@@ -343,15 +359,24 @@ export async function confirmUpload(input: {
 
     // Membership-проверка + берём только PENDING-строку (идемпотентность:
     // повторный confirm на уже UPLOADED ничего не найдёт и не навредит).
-    const attachment = await prisma.attachment.findFirst({
-      where: {
-        id: result.data.attachmentId,
-        status: "PENDING",
-        list: {
-          ...listInSpaceWhere(userId, result.data.spaceId),
-        },
+    const attachment = await withSpaceDb(
+      userId,
+      result.data.spaceId,
+      (tx) => {
+        return tx.attachment.findFirst({
+          where: {
+            id: result.data.attachmentId,
+            status: "PENDING",
+            list: {
+              ...listInSpaceWhere(userId, result.data.spaceId),
+            },
+          },
+          select: { id: true, key: true, listId: true },
+        });
       },
-      select: { id: true, key: true, listId: true },
+    ).catch((error) => {
+      if (isMissingSpace(error)) return null;
+      throw error;
     });
     if (!attachment) {
       logger.info(
@@ -366,6 +391,7 @@ export async function confirmUpload(input: {
     }
 
     // HeadObject — доказательство факта загрузки и реальный размер/тип.
+    // Сеть вызывается после закрытия scoped DB-транзакции.
     const head = await headObject(attachment.key);
     if (!head) {
       // Файла в S3 нет (клиент соврал или загрузка сорвалась) — оставляем
@@ -431,21 +457,52 @@ export async function confirmUpload(input: {
 
     // status = UPLOADED + реальный размер. updateMany c status=PENDING в where
     // делает переход атомарным и идемпотентным.
-    const updated = await prisma.attachment.updateMany({
-      where: {
-        id: attachment.id,
-        status: "PENDING",
-        list: listInSpaceWhere(userId, result.data.spaceId),
+    const confirmation = await withSpaceDb(
+      userId,
+      result.data.spaceId,
+      async (tx) => {
+        const list = await tx.list.findFirst({
+          where: {
+            id: attachment.listId,
+            ...listInSpaceWhere(userId, result.data.spaceId),
+          },
+          select: {
+            ownerId: true,
+            shares: { select: { userId: true } },
+          },
+        });
+        if (!list) return null;
+
+        const updated = await tx.attachment.updateMany({
+          where: {
+            id: attachment.id,
+            status: "PENDING",
+            list: listInSpaceWhere(userId, result.data.spaceId),
+          },
+          data: { status: "UPLOADED", size: head.contentLength },
+        });
+        if (updated.count === 0) return null;
+
+        return {
+          recipientIds: [
+            ...new Set([
+              list.ownerId,
+              ...list.shares.map((share) => share.userId),
+            ]),
+          ],
+        };
       },
-      data: { status: "UPLOADED", size: head.contentLength },
+    ).catch((error) => {
+      if (isMissingSpace(error)) return null;
+      throw error;
     });
-    if (updated.count === 0) {
+    if (!confirmation) {
       return { success: false, error: "attachmentNotFound" };
     }
 
     revalidatePath("/", "layout");
-    // Уведомление после ответа (after), без эха вкладке автора (socketId)
-    after(() => notifyListMembers(attachment.listId, result.data.socketId));
+    // Получатели вычислены до commit; after не обращается к tenant-таблицам.
+    after(() => notifyUsers(confirmation.recipientIds, result.data.socketId));
     logger.info(
       {
         uid: hashId(userId),
@@ -491,49 +548,79 @@ export async function deleteAttachment(input: {
       return { success: false, error: "validationError" };
     }
 
-    // Membership-проверка + забираем key/listId до удаления строки.
-    const attachment = await prisma.attachment.findFirst({
-      where: {
-        id: result.data.attachmentId,
-        list: {
-          ...listInSpaceWhere(userId, result.data.spaceId),
-        },
-      },
-      select: { id: true, key: true, listId: true },
-    });
-    if (!attachment) {
-      return { success: false, error: "attachmentNotFound" };
-    }
+    // Membership, payload для post-commit эффектов и удаление строки образуют
+    // одну scoped-транзакцию. Ни S3, ни Pusher внутри неё не вызываются.
+    const deletion = await withSpaceDb(
+      userId,
+      result.data.spaceId,
+      async (tx) => {
+        const attachment = await tx.attachment.findFirst({
+          where: {
+            id: result.data.attachmentId,
+            list: {
+              ...listInSpaceWhere(userId, result.data.spaceId),
+            },
+          },
+          select: {
+            id: true,
+            key: true,
+            listId: true,
+            list: {
+              select: {
+                ownerId: true,
+                shares: { select: { userId: true } },
+              },
+            },
+          },
+        });
+        if (!attachment) return null;
 
-    // Сначала БД — UI сразу чист.
-    const deleted = await prisma.attachment.deleteMany({
-      where: {
-        id: attachment.id,
-        list: listInSpaceWhere(userId, result.data.spaceId),
+        const deleted = await tx.attachment.deleteMany({
+          where: {
+            id: attachment.id,
+            list: listInSpaceWhere(userId, result.data.spaceId),
+          },
+        });
+        if (deleted.count === 0) return null;
+
+        return {
+          id: attachment.id,
+          key: attachment.key,
+          listId: attachment.listId,
+          recipientIds: [
+            ...new Set([
+              attachment.list.ownerId,
+              ...attachment.list.shares.map((share) => share.userId),
+            ]),
+          ],
+        };
       },
+    ).catch((error) => {
+      if (isMissingSpace(error)) return null;
+      throw error;
     });
-    if (deleted.count === 0) {
+    if (!deletion) {
       return { success: false, error: "attachmentNotFound" };
     }
 
     // Потом S3 — best-effort: сбой логируем, но не валим операцию.
     try {
-      await deleteObject(attachment.key);
+      await deleteObject(deletion.key);
     } catch (s3Error) {
       logger.error(
-        { error: s3Error, key: attachment.key, action: "deleteAttachment" },
+        { error: s3Error, key: deletion.key, action: "deleteAttachment" },
         "Не удалось удалить объект из S3 (осиротевший файл)",
       );
     }
 
     revalidatePath("/", "layout");
-    // Уведомление после ответа (after), без эха вкладке автора (socketId)
-    after(() => notifyListMembers(attachment.listId, result.data.socketId));
+    // Получатели вычислены до commit; after не обращается к tenant-таблицам.
+    after(() => notifyUsers(deletion.recipientIds, result.data.socketId));
     logger.info(
       {
         uid: hashId(userId),
-        listId: attachment.listId,
-        attachmentId: attachment.id,
+        listId: deletion.listId,
+        attachmentId: deletion.id,
         action: "deleteAttachment",
       },
       "Вложение удалено",
@@ -573,20 +660,30 @@ export async function getAttachmentUrl(input: {
     }
 
     // Membership + только UPLOADED (PENDING-файла в S3 может ещё не быть).
-    const attachment = await prisma.attachment.findFirst({
-      where: {
-        id: result.data.attachmentId,
-        status: "UPLOADED",
-        list: {
-          ...listInSpaceWhere(userId, result.data.spaceId),
-        },
+    const attachment = await withSpaceDb(
+      userId,
+      result.data.spaceId,
+      (tx) => {
+        return tx.attachment.findFirst({
+          where: {
+            id: result.data.attachmentId,
+            status: "UPLOADED",
+            list: {
+              ...listInSpaceWhere(userId, result.data.spaceId),
+            },
+          },
+          select: { key: true, name: true },
+        });
       },
-      select: { key: true, name: true },
+    ).catch((error) => {
+      if (isMissingSpace(error)) return null;
+      throw error;
     });
     if (!attachment) {
       return { success: false, error: "attachmentNotFound" };
     }
 
+    // Presigned GET создаётся только после закрытия DB-транзакции.
     const url = await getDownloadUrl(
       attachment.key,
       attachment.name,
