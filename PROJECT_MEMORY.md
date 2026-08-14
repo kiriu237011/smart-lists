@@ -68,8 +68,12 @@ Smart Lists — локализованное веб-приложение для 
   пространство, rollback и отсутствие утечки контекста между транзакциями.
   Статический переходный allowlist не допускает новых прямых импортов
   глобального Prisma Client.
-- Foundation ещё не подключён к production tenant-потокам, а RLS выключен.
-  Поэтому текущую изоляцию по-прежнему обеспечивают прикладные проверки;
+- Первой consumer-группой перенесён `src/lib/spaces.ts`: создание
+  default-space и lookup используют user-контекст, а проверка доступа к списку
+  — подтверждённый space-контекст. Переходный allowlist прямых Prisma-импортов
+  сократился с 13 до 12.
+- Остальные production tenant-потоки ещё не перенесены, а RLS выключен. Поэтому
+  текущую изоляцию по-прежнему обеспечивают прикладные проверки; DB-level
   security posture на этом подэтапе не изменился.
 
 ### Авторизация
@@ -868,6 +872,13 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: первой consumer-группой scoped API выбран `src/lib/spaces.ts`.
+  Группа центральная, но небольшая: в ней нет сетевых вызовов и собственных
+  внешних транзакций. `ensureSpaceState`/`getUserSpace` работают через
+  `withUserDb`, `canAccessListInSpace` — через `withSpaceDb` и возвращает
+  одинаковый `false` для чужого, отсутствующего и некорректного пространства.
+  DB-тест закрепляет ownership и placement shared-list; прямой import allowlist
+  сокращён с 13 до 12. RLS не включался, Preview/Production не менялись.
 - 2026-08-14: реализован только foundation scoped transaction context без
   изменения Preview/Production и без включения RLS. `withUserDb`/
   `withSpaceDb` fail-closed валидируют идентификаторы, устанавливают и

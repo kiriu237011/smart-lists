@@ -1,7 +1,11 @@
 import "server-only";
 
 import type { Prisma } from "@/generated/prisma/client";
-import prisma from "@/lib/db";
+import {
+  DatabaseContextError,
+  withSpaceDb,
+  withUserDb,
+} from "@/lib/scoped-db";
 
 export const LAST_SPACE_COOKIE = "smart-lists-space";
 export const MAX_CUSTOM_SPACES = 5;
@@ -20,10 +24,12 @@ export function normalizeSpaceName(name: string): string {
 export async function ensureSpaceState(userId: string) {
   const spaceId = defaultSpaceId(userId);
 
-  await prisma.space.upsert({
-    where: { id: spaceId },
-    create: { id: spaceId, userId, isDefault: true },
-    update: {},
+  await withUserDb(userId, (tx) => {
+    return tx.space.upsert({
+      where: { id: spaceId },
+      create: { id: spaceId, userId, isDefault: true },
+      update: {},
+    });
   });
 
   return spaceId;
@@ -31,8 +37,10 @@ export async function ensureSpaceState(userId: string) {
 
 /** Возвращает пространство только если оно принадлежит пользователю. */
 export async function getUserSpace(userId: string, spaceId: string) {
-  return prisma.space.findFirst({
-    where: { id: spaceId, userId },
+  return withUserDb(userId, (tx) => {
+    return tx.space.findFirst({
+      where: { id: spaceId, userId },
+    });
   });
 }
 
@@ -55,10 +63,33 @@ export async function canAccessListInSpace(
   spaceId: string,
   listId: string,
 ): Promise<boolean> {
+  if (
+    typeof spaceId !== "string" ||
+    spaceId.trim() === "" ||
+    spaceId.includes("\0")
+  ) {
+    return false;
+  }
+
   await ensureSpaceState(userId);
-  const list = await prisma.list.findFirst({
-    where: { id: listId, ...listInSpaceWhere(userId, spaceId) },
-    select: { id: true },
-  });
-  return Boolean(list);
+
+  try {
+    return await withSpaceDb(userId, spaceId, async (tx) => {
+      const list = await tx.list.findFirst({
+        where: { id: listId, ...listInSpaceWhere(userId, spaceId) },
+        select: { id: true },
+      });
+      return Boolean(list);
+    });
+  } catch (error) {
+    // spaceId недоверенный. Не раскрываем разницу между чужим и отсутствующим
+    // пространством, но не маскируем сбой установки самого DB-контекста.
+    if (
+      error instanceof DatabaseContextError &&
+      error.code === "SPACE_NOT_FOUND"
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }

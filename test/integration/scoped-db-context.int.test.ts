@@ -4,7 +4,8 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { PrismaClient } from "@/generated/prisma/client";
 import type { ScopedTransaction } from "@/lib/scoped-db";
 import { createScopedDatabase } from "@/lib/scoped-db";
-import { makeUser } from "./factories";
+import { canAccessListInSpace, getUserSpace } from "@/lib/spaces";
+import { makeList, makeSpace, makeUser, shareList } from "./factories";
 
 const singleConnectionPrisma = new PrismaClient({
   adapter: new PrismaPg({
@@ -114,5 +115,36 @@ describe("scoped transaction context", () => {
         NULLIF(current_setting('app.space_id', true), '') AS "spaceId"
     `;
     expect(outside).toEqual({ userId: null, spaceId: null });
+  });
+
+  it("space helpers сохраняют ownership и привязку share к пространству", async () => {
+    const owner = await makeUser();
+    const recipient = await makeUser();
+    const ownerSpace = await makeSpace(owner.id, "Проект");
+    const list = await makeList(owner.id, ownerSpace.id);
+
+    expect(await getUserSpace(owner.id, ownerSpace.id)).toMatchObject({
+      id: ownerSpace.id,
+      userId: owner.id,
+    });
+    expect(await getUserSpace(recipient.id, ownerSpace.id)).toBeNull();
+    expect(
+      await canAccessListInSpace(owner.id, ownerSpace.id, list.id),
+    ).toBe(true);
+    expect(
+      await canAccessListInSpace(recipient.id, ownerSpace.id, list.id),
+    ).toBe(false);
+
+    await shareList(list.id, recipient.id);
+    expect(
+      await canAccessListInSpace(
+        recipient.id,
+        recipient.defaultSpaceId,
+        list.id,
+      ),
+    ).toBe(true);
+    expect(
+      await canAccessListInSpace(recipient.id, "\0", list.id),
+    ).toBe(false);
   });
 });
