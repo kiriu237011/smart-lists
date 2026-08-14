@@ -160,6 +160,8 @@ export default function MoveItemModal({
       <li key={list.id}>
         <button
           type="button"
+          data-testid="move-item-target"
+          data-list-id={list.id}
           disabled={isSource}
           onClick={() => onSelect(list.id, copyMode ? "copy" : "move")}
           className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
@@ -201,6 +203,7 @@ export default function MoveItemModal({
       onClick={onClose}
     >
       <div
+        data-testid="move-item-modal"
         className="flex max-h-[70vh] w-full max-w-sm flex-col rounded-xl bg-white p-4 shadow-lg dark:border dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-2xl dark:shadow-black/70"
         role="dialog"
         aria-modal="true"
@@ -213,6 +216,7 @@ export default function MoveItemModal({
           {openSection && sections.length > 1 && (
             <button
               type="button"
+              data-testid="move-item-back"
               onClick={() => setSelectedGroupId(null)}
               aria-label={t("back")}
               className="-ml-1 shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
@@ -281,6 +285,8 @@ export default function MoveItemModal({
                     <li key={section.id}>
                       <button
                         type="button"
+                        data-testid="move-item-group"
+                        data-group-id={section.id}
                         onClick={() => setSelectedGroupId(section.id)}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-gray-800 transition-colors hover:bg-gray-100 dark:text-zinc-100 dark:hover:bg-zinc-700"
                       >
@@ -316,6 +322,7 @@ export default function MoveItemModal({
             <label className="mt-2 flex cursor-pointer items-center gap-2 border-t border-gray-100 pt-2.5 text-xs text-gray-500 dark:border-zinc-700 dark:text-zinc-400">
               <input
                 type="checkbox"
+                data-testid="move-item-copy"
                 checked={copyMode}
                 onChange={(e) => setCopyMode(e.target.checked)}
                 className="h-3.5 w-3.5 accent-gray-900 dark:accent-white"
