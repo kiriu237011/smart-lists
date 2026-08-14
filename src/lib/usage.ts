@@ -20,8 +20,8 @@
  * создаёт нагрузку, но ограниченную и предсказуемую.
  */
 
-import prisma from "@/lib/db";
 import { logger, hashId } from "@/lib/logger";
+import { withUserDb } from "@/lib/scoped-db";
 
 /**
  * Потолок мутаций на пользователя в сутки.
@@ -68,8 +68,10 @@ async function pruneOwnUsage(userId: string, today: Date): Promise<void> {
     today.getTime() - USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  const { count } = await prisma.userDailyUsage.deleteMany({
-    where: { userId, date: { lt: threshold } },
+  const { count } = await withUserDb(userId, (tx) => {
+    return tx.userDailyUsage.deleteMany({
+      where: { userId, date: { lt: threshold } },
+    });
   });
 
   if (count > 0) {
@@ -97,11 +99,13 @@ async function pruneOwnUsage(userId: string, today: Date): Promise<void> {
 export async function consumeMutationBudget(userId: string): Promise<boolean> {
   const today = usageDate();
 
-  const usage = await prisma.userDailyUsage.upsert({
-    where: { userId_date: { userId, date: today } },
-    update: { mutations: { increment: 1 } },
-    create: { userId, date: today, mutations: 1 },
-    select: { mutations: true, insights: true },
+  const usage = await withUserDb(userId, (tx) => {
+    return tx.userDailyUsage.upsert({
+      where: { userId_date: { userId, date: today } },
+      update: { mutations: { increment: 1 } },
+      create: { userId, date: today, mutations: 1 },
+      select: { mutations: true, insights: true },
+    });
   });
 
   // Ряд создан этим вызовом: за сегодня учтено ровно одно событие, и оно наше.
@@ -115,11 +119,12 @@ export async function consumeMutationBudget(userId: string): Promise<boolean> {
   }
 
   if (usage.mutations > DAILY_MUTATION_LIMIT) {
-    await prisma.userDailyUsage
-      .update({
+    await withUserDb(userId, (tx) => {
+      return tx.userDailyUsage.update({
         where: { userId_date: { userId, date: today } },
         data: { mutations: { decrement: 1 } },
-      })
+      });
+    })
       .catch((error) => {
         // Счётчик останется завышенным на единицу до конца суток; завтра
         // будет создан новый ряд по новому ключу, и перекос исчезнет сам.

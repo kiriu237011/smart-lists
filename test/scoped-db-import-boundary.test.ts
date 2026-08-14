@@ -39,7 +39,6 @@ describe("граница scoped DB API", () => {
       "src/lib/app-settings.ts",
       "src/lib/notify.ts",
       "src/lib/scoped-db.ts",
-      "src/lib/usage.ts",
     ]);
   });
 });
