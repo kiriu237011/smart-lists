@@ -3,7 +3,7 @@
 **Статус:** этапы 2a–2c завершены; foundation scoped Prisma API, `spaces`,
 server read-path, user quota, space mutations и AI insights локально проверены,
 attachment flow, ListGroup lifecycle/membership, List lifecycle, sharing
-lifecycle и note mutations локально проверены, RLS выключен
+lifecycle, note mutations и item lifecycle локально проверены, RLS выключен
 **Дата:** 2026-08-14
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -478,6 +478,15 @@ Optimistic concurrency по `noteVersion`, editor-доступ и нормали
 заметки сохранены. Реальные DB-тесты проверяют параллельную гонку одной версии,
 cross-space отказ и отсутствие tenant-чтения из `after()`. Per-action guard
 расширен до шестнадцати функций; общий allowlist остаётся 6.
+Двенадцатой группой переведён item lifecycle: `addItem`, `deleteItem`,
+`toggleItem` и `renameItem`. Проверка editor-доступа, limit/position/create,
+каскад подпунктов, пересчёт денормализованной отметки родителя и запись
+выполняются в одной `withSpaceDb`-транзакции. Получатели realtime собираются
+до commit; `after()` не читает tenant-таблицы. DB-тесты закрепляют cross-space
+fail-closed для всех четырёх Actions и прежнюю семантику подпунктов.
+Per-action guard расширен до двадцати функций и теперь также запрещает
+перенесённым Actions возвращать `notifyListMembers`/`notifyListsMembers`; общий
+direct-import allowlist остаётся 6.
 Пока остальные tenant-потоки не переведены и RLS выключен, это ещё не
 завершённый контроль изоляции строк.
 
@@ -545,10 +554,11 @@ RLS-политика `Space` может остаться строго `userId = 
 
 `after()` не должен повторно обращаться к tenant-таблицам через Prisma:
 контекст транзакции к этому моменту уже закрыт. Attachment, List lifecycle,
-sharing и note Actions уже вычисляют получателей внутри авторизованной
-транзакции и передают в фоновую задачу минимальный набор идентификаторов.
-Оставшиеся item Actions с `notifyListMembers` должны перейти на тот же контракт
-до enforcement.
+sharing, note Actions и item lifecycle уже вычисляют получателей внутри
+авторизованной транзакции и передают в фоновую задачу минимальный набор
+идентификаторов. Оставшиеся `moveItem`/`moveItemToList` с
+`notifyListMembers`/`notifyListsMembers` должны перейти на тот же контракт до
+enforcement.
 
 ### Очистка вложений
 
@@ -588,9 +598,9 @@ AI-сервиса расходует зарезервированную попы
 4. **Scoped Prisma API — в работе.** Foundation `withUserDb`/`withSpaceDb`,
    space helpers, основной server read-path, user quota, space mutations и DB-
    фазы AI insights, attachments, ListGroup lifecycle/membership, List
-   lifecycle, sharing lifecycle и note mutations реализованы и локально
-   проверены; далее перенести остальные tenant-мутации и специальные потоки,
-   сохранив поведение и тесты.
+   lifecycle, sharing lifecycle, note mutations и item lifecycle реализованы и
+   локально проверены; далее перенести остальные tenant-мутации и специальные
+   потоки, сохранив поведение и тесты.
 5. **DB-объекты без enforcement.** Добавить helper-функции, column controls и
    политики миграцией, но пока не включать RLS для runtime-трафика.
 6. **Enforcement.** Сначала integration DB, затем dev/preview и только после

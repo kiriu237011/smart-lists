@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (scoped DB для note mutations)
+**Последнее обновление:** 2026-08-14 (scoped DB для item lifecycle)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -145,6 +145,12 @@ Smart Lists — локализованное веб-приложение для 
   fail-closed привязаны к выбранному пространству, а `after()` вызывает
   `notifyUsers` без tenant-чтения. Общий allowlist остаётся 6, per-action guard
   защищает 16 функций.
+- Двенадцатой группой перенесён item lifecycle: `addItem`, `deleteItem`,
+  `toggleItem` и `renameItem`. Access checks, limit/position/create, каскад
+  подпунктов и пересчёт parent completion cache выполняются внутри
+  `withSpaceDb`. Все четыре Action передают заранее собранные owner/editor ID в
+  `notifyUsers` после commit. Общий allowlist остаётся 6; guard защищает 20
+  функций и запрещает им как global Prisma, так и post-commit tenant lookup.
 - Остальные production tenant-мутации и специальные потоки ещё не перенесены,
   а RLS выключен. Поэтому текущую изоляцию по-прежнему обеспечивают прикладные
   проверки; DB-level security posture на этом подэтапе не изменился.
@@ -948,6 +954,19 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-14: шестым подэтапом большого `src/app/actions/index.ts` выбран item
+  lifecycle: `addItem`, `deleteItem`, `toggleItem` и `renameItem` переведены на
+  `withSpaceDb`. `syncParentCompletion` принимает transaction client; вложенные
+  batch-транзакции распрямлены, а проверка доступа, мутация и parent cache
+  атомарны. Права editor, лимиты, позиции, одноуровневая вложенность, каскад и
+  void-контракт delete/toggle не менялись. Зелёные: lint, typecheck, 304 unit,
+  115 целевых DB, полный integration 241 passed / 3 skipped, production build
+  и 20 item/sub-item/sharing E2E. При 6 локальных Playwright workers
+  воспроизводимо исчерпывался общий pool `max: 5`; бизнес-flow прошёл 6/6
+  последовательно и 20/20 при двух workers. Поэтому локальный лимит Playwright
+  приведён к уже действовавшему CI-лимиту 2, production pool не менялся.
+  Allowlist остаётся 6, per-action guard расширен с 16 до 20 Actions. RLS и
+  live-среды не менялись.
 - 2026-08-14: пятым подэтапом большого `src/app/actions/index.ts` выбраны
   note mutations. `updateItemNote` и `updateListNote` переведены на
   `withSpaceDb` без изменения editor-доступа, нормализации `null` и optimistic

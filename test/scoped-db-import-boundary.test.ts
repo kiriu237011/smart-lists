@@ -65,6 +65,10 @@ describe("граница scoped DB API", () => {
       "leaveSharedList",
       "updateItemNote",
       "updateListNote",
+      "addItem",
+      "deleteItem",
+      "toggleItem",
+      "renameItem",
     ]) {
       const marker = `export async function ${actionName}(`;
       const start = source.indexOf(marker);
@@ -78,6 +82,10 @@ describe("граница scoped DB API", () => {
       expect(action, `${actionName} не должен использовать global prisma`).not.toMatch(
         /\bprisma\./,
       );
+      expect(
+        action,
+        `${actionName} не должен читать tenant-таблицы из realtime after`,
+      ).not.toMatch(/\bnotifyLists?Members\(/);
     }
   });
 });

@@ -9,11 +9,25 @@
  * — здесь она вызывается детерминированно равными позициями соседей.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { addItem, deleteItem, moveItem, moveItemToList } from "@/app/actions";
-import { prisma, setSessionUser } from "./setup";
-import { formData, makeItem, makeList, makeUser, shareList } from "./factories";
+import {
+  addItem,
+  deleteItem,
+  moveItem,
+  moveItemToList,
+  renameItem,
+  toggleItem,
+} from "@/app/actions";
+import { flushAfter, prisma, setSessionUser } from "./setup";
+import {
+  formData,
+  makeItem,
+  makeList,
+  makeSpace,
+  makeUser,
+  shareList,
+} from "./factories";
 
 /** Названия записей списка в порядке отображения (position, затем createdAt, id). */
 async function order(listId: string): Promise<string[]> {
@@ -51,6 +65,126 @@ describe("addItem — позиция", () => {
       orderBy: { position: "asc" },
     });
     expect(items[1].position).toBeGreaterThan(items[0].position);
+  });
+});
+
+describe("item lifecycle — scoped DB и realtime", () => {
+  it("add/rename/toggle/delete уведомляют owner и editor без tenant-read в after", async () => {
+    const owner = await makeUser();
+    const editor = await makeUser();
+    const list = await makeList(owner.id, owner.defaultSpaceId);
+    await shareList(list.id, editor.id);
+    setSessionUser(editor.id);
+    const { notifyListMembers, notifyUsers } = await import("@/lib/notify");
+
+    async function expectRefresh(action: () => Promise<unknown>) {
+      vi.mocked(notifyUsers).mockClear();
+      vi.mocked(notifyListMembers).mockClear();
+
+      await action();
+
+      expect(vi.mocked(notifyUsers)).not.toHaveBeenCalled();
+      await flushAfter();
+      expect(vi.mocked(notifyUsers)).toHaveBeenCalledOnce();
+      expect(vi.mocked(notifyUsers)).toHaveBeenCalledWith(
+        [owner.id, editor.id],
+        "123.456",
+      );
+      expect(vi.mocked(notifyListMembers)).not.toHaveBeenCalled();
+    }
+
+    await expectRefresh(() =>
+      addItem(
+        formData({
+          itemName: "Молоко",
+          listId: list.id,
+          spaceId: editor.defaultSpaceId,
+          socketId: "123.456",
+        }),
+      ),
+    );
+    const item = await prisma.item.findFirstOrThrow({
+      where: { listId: list.id, name: "Молоко" },
+    });
+
+    await expectRefresh(() =>
+      renameItem(
+        formData({
+          itemId: item.id,
+          itemName: "Молоко 2л",
+          spaceId: editor.defaultSpaceId,
+          socketId: "123.456",
+        }),
+      ),
+    );
+    await expectRefresh(() =>
+      toggleItem(
+        formData({
+          itemId: item.id,
+          isCompleted: "false",
+          spaceId: editor.defaultSpaceId,
+          socketId: "123.456",
+        }),
+      ),
+    );
+    await expectRefresh(() =>
+      deleteItem(
+        formData({
+          itemId: item.id,
+          spaceId: editor.defaultSpaceId,
+          socketId: "123.456",
+        }),
+      ),
+    );
+
+    expect(await prisma.item.findUnique({ where: { id: item.id } })).toBeNull();
+  });
+
+  it("add/rename/toggle/delete fail-closed через другое пространство владельца", async () => {
+    const owner = await makeUser();
+    const otherSpace = await makeSpace(owner.id, "Другое");
+    const list = await makeList(owner.id, owner.defaultSpaceId);
+    const item = await makeItem(list.id, {
+      name: "Исходное",
+      isCompleted: false,
+    });
+    setSessionUser(owner.id);
+
+    const addResult = await addItem(
+      formData({
+        itemName: "Лишнее",
+        listId: list.id,
+        spaceId: otherSpace.id,
+      }),
+    );
+    const renameResult = await renameItem(
+      formData({
+        itemId: item.id,
+        itemName: "Подмена",
+        spaceId: otherSpace.id,
+      }),
+    );
+    await toggleItem(
+      formData({
+        itemId: item.id,
+        isCompleted: "false",
+        spaceId: otherSpace.id,
+      }),
+    );
+    await deleteItem(formData({ itemId: item.id, spaceId: otherSpace.id }));
+
+    expect(addResult).toEqual({ success: false, error: "Список не найден" });
+    expect(renameResult).toEqual({
+      success: false,
+      error: "Запись не найдена",
+    });
+    expect(await prisma.item.findMany({ where: { listId: list.id } })).toEqual([
+      expect.objectContaining({
+        id: item.id,
+        name: "Исходное",
+        isCompleted: false,
+      }),
+    ]);
   });
 });
 
