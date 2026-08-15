@@ -13,7 +13,7 @@
  */
 
 import { z } from "zod";
-import { MAX_FILE_SIZE } from "@/lib/attachments";
+import { MAX_FILE_SIZE, sanitizeFileName } from "@/lib/attachments";
 import { MAX_NOTE_LENGTH } from "@/lib/notes";
 
 // ---------------------------------------------------------------------------
@@ -270,8 +270,18 @@ export const requestUploadSchema = z.object({
   listId: z.string().min(1),
   /** Пространство, в контексте которого проверяется доступ к списку. */
   spaceId: z.string().min(1).max(100),
-  /** Оригинальное имя файла (для показа). Ограничиваем длину. */
-  fileName: z.string().min(1).max(255, "Слишком длинное имя файла"),
+  /**
+   * Оригинальное имя файла (для показа). Ограничиваем длину и чистим от
+   * управляющих, bidi- и невидимых символов: имя показывается другим участникам
+   * списка и попадает в `Content-Disposition`, поэтому подмена расширения через
+   * `U+202E` вводила бы в заблуждение и в UI, и в диалоге сохранения.
+   * `transform` идёт после `max`, а очистка имя только укорачивает.
+   */
+  fileName: z
+    .string()
+    .min(1)
+    .max(255, "Слишком длинное имя файла")
+    .transform(sanitizeFileName),
   /** Заявленный MIME-тип. Разрешённость проверяется отдельно по белому списку. */
   contentType: z.string().min(1),
   /** Заявленный размер в байтах. Потолок дублирует S3-policy. */

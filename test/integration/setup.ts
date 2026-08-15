@@ -80,6 +80,13 @@ vi.mock("@/lib/s3", async (importOriginal) => {
     // По умолчанию файла в S3 «нет»: тест успешного confirm задаёт метаданные
     // через mockResolvedValueOnce, а по умолчанию проверяется отказ.
     headObject: vi.fn(async () => null),
+    // По умолчанию содержимое соответствует типу — иначе каждый тест успешного
+    // confirm пришлось бы дополнять сигнатурой. Отказ по содержимому проверяет
+    // отдельный тест, подменяя значение через mockResolvedValueOnce.
+    // Сигнатура PNG: тесты грузят image/png.
+    getObjectPrefix: vi.fn(
+      async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    ),
     getDownloadUrl: vi.fn(async () => "https://s3.test/download"),
     deleteObject: vi.fn(async () => {}),
     deleteObjects: vi.fn(async () => {}),
