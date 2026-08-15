@@ -46,6 +46,7 @@ import {
 } from "@/components/lists/Notes";
 import { buildItemTree } from "@/lib/item-tree";
 import { DROP_TARGET_ATTR } from "@/lib/item-drop";
+import { menuAnchorFor, sameMenuAnchor, type MenuAnchor } from "@/lib/menu-anchor";
 import { ArrowDown, ArrowUp, Sparkles } from "lucide-react";
 import toast from "react-hot-toast";
 import { setListAiEnabled } from "@/app/actions";
@@ -171,16 +172,6 @@ export type ListCardProps = {
   canMoveLater?: boolean;
   onMoveInGroup?: (listId: string, direction: "earlier" | "later") => void;
 };
-
-/** Зазор между кнопкой и её меню. */
-const MENU_GAP = 4;
-
-/**
- * Отступ от края окна, ниже которого меню считается не поместившимся.
- * Больше зазора у кнопки: меню, прижатое к самому краю экрана, выглядит
- * обрезанным даже когда влезло целиком.
- */
-const MENU_EDGE_GAP = 12;
 
 /**
  * Мемоизированная карточка одного списка.
@@ -319,22 +310,10 @@ const ListCard = memo(function ListCard({
 
   const actionsMenuPanelRef = useRef<HTMLDivElement>(null);
 
-  /**
-   * Координаты открытого меню действий в координатах окна.
-   *
-   * Меню позиционируется `fixed`, а не `absolute`: изначально — чтобы не влиять
-   * на раскладку карточек (в прежней `columns`-раскладке абсолютный потомок
-   * участвовал в балансировке колонок), а теперь ещё и затем, чтобы уметь
-   * раскрываться вверх, не завися от переполнения карточки.
-   *
-   * Задаётся либо `top`, либо `bottom` — вторая координата остаётся `undefined`,
-   * и React её не выставляет.
-   */
-  const [actionsMenuAnchor, setActionsMenuAnchor] = useState<{
-    right: number;
-    top?: number;
-    bottom?: number;
-  } | null>(null);
+  /** Координаты открытого меню действий в координатах окна. */
+  const [actionsMenuAnchor, setActionsMenuAnchor] = useState<MenuAnchor | null>(
+    null,
+  );
 
   const togglePanel = (panel: "ai" | "share" | "files") => {
     setIsListNoteOpen(false);
@@ -347,30 +326,12 @@ const ListCard = memo(function ListCard({
     setIsListNoteOpen((current) => !current);
   };
 
-  /**
-   * Координаты меню от его кнопки, выровненные по её правому краю.
-   *
-   * Если снизу не хватает места, меню раскрывается вверх. Вверх — только когда
-   * оно там действительно помещается: у карточки внизу короткого экрана может не
-   * хватать места ни снизу, ни сверху, и переворот сделал бы хуже, уведя меню за
-   * верхнюю границу окна.
-   *
-   * Высота меню известна лишь после отрисовки, поэтому при первом открытии её
-   * ещё нет и меню раскрывается вниз. Поправляет это layout-эффект ниже —
-   * до того, как браузер нарисует кадр.
-   */
-  const anchorFor = useCallback((button: HTMLButtonElement) => {
-    const rect = button.getBoundingClientRect();
-    const right = window.innerWidth - rect.right;
-    const menuHeight = actionsMenuPanelRef.current?.offsetHeight ?? 0;
-    const spaceBelow = window.innerHeight - rect.bottom - MENU_EDGE_GAP;
-    const spaceAbove = rect.top - MENU_EDGE_GAP;
-
-    if (menuHeight > spaceBelow && menuHeight <= spaceAbove) {
-      return { right, bottom: window.innerHeight - rect.top + MENU_GAP };
-    }
-    return { right, top: rect.bottom + MENU_GAP };
-  }, []);
+  /** Координаты меню от его кнопки. Механика — в `src/lib/menu-anchor.ts`. */
+  const anchorFor = useCallback(
+    (button: HTMLButtonElement) =>
+      menuAnchorFor(button, actionsMenuPanelRef.current?.offsetHeight ?? 0),
+    [],
+  );
 
   /**
    * Пересчёт координат меню: сначала по факту отрисовки — тогда становится
@@ -390,12 +351,7 @@ const ListCard = memo(function ListCard({
       // Возврат прежнего объекта отменяет лишний ререндер: перерисовка карточки
       // стоит дорого, а координаты чаще всего не меняются.
       setActionsMenuAnchor((current) =>
-        current &&
-        current.right === next.right &&
-        current.top === next.top &&
-        current.bottom === next.bottom
-          ? current
-          : next,
+        sameMenuAnchor(current, next) ? current : next,
       );
     };
 

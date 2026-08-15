@@ -28,12 +28,18 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useOptimistic,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { Reorder, useDragControls, type DragControls } from "framer-motion";
+import {
+  menuAnchorFor,
+  sameMenuAnchor,
+  type MenuAnchor,
+} from "@/lib/menu-anchor";
 import { beginDrag, endDrag } from "@/lib/drag-gate";
 import {
   captureDropTargets,
@@ -274,6 +280,7 @@ function DraggableItemRow({
   className,
   testId = "item",
   isDragActive,
+  isGestureArmed,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -285,6 +292,11 @@ function DraggableItemRow({
   testId?: string;
   /** Идёт ли перетаскивание хоть какой-нибудь записи в этом списке. */
   isDragActive: boolean;
+  /**
+   * Прижата ли ручка строки в этом списке: жест вот-вот начнётся или уже идёт.
+   * Ровно на это время строке выдаются границы жеста — см. `dragConstraints`.
+   */
+  isGestureArmed: boolean;
   onDragStart: () => void;
   /**
    * Кадр жеста. Нужен только верхнему уровню — по координатам указателя
@@ -354,7 +366,26 @@ function DraggableItemRow({
       // Строка не покидает свой список: дальше её место всё равно не задаётся
       // порядком, а при переносе в другую карточку уехавшая через полстраницы
       // строка только мешает понять, куда ляжет запись.
-      dragConstraints={constraintsRef}
+      //
+      // Границы выдаются ТОЛЬКО на время жеста, и это не оптимизация, а
+      // обязательное условие. Получив `dragConstraints` в виде ref, framer
+      // вешает ResizeObserver на строку и на контейнер и при каждом изменении
+      // их размеров вызывает `scalePositionWithinConstraints`: она сохраняет
+      // «прогресс» строки внутри границ, пересчитывая под новый размер, и
+      // пишет результат прямо в x/y строки. Для покоящейся строки прогресс
+      // ненулевой, поэтому после любого изменения высоты списка — раскрылась
+      // заметка, заметка ушла в режим редактирования, раскрылся блок
+      // подпунктов — строки получали inline `translateY` на десяток пикселей.
+      // Он не снимался никогда, и следствий у него два: строки съезжают и
+      // налезают друг на друга, а меню записи перестаёт открываться на своём
+      // месте — элемент с трансформом становится содержащим блоком даже для
+      // `position: fixed` потомков, и меню уезжает вместе со строкой.
+      //
+      // Во время жеста высоты не меняются, поэтому там наблюдателю нечего
+      // ловить. Вне жеста пропа нет — и `scalePositionWithinConstraints`
+      // выходит на первой же проверке, даже если наблюдатель остался висеть
+      // с прошлого жеста.
+      dragConstraints={isGestureArmed ? constraintsRef : undefined}
       // Мягкий край вместо жёсткого упора. Доля мала намеренно: она берётся от
       // всего перелёта, а он при переносе в другой список измеряется сотнями
       // пикселей — на прежних 0.12 строка заметно выползала бы из карточки.
@@ -639,6 +670,60 @@ export default function SmartList({
   const [openItemActionsId, setOpenItemActionsId] = useState<string | null>(null);
   const itemActionsMenuRef = useRef<HTMLDivElement>(null);
   const itemActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const itemActionsPanelRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Координаты открытого меню записи в координатах окна.
+   *
+   * Меню закреплено `fixed`, как и меню списка, и по той же паре причин —
+   * они разобраны в `src/lib/menu-anchor.ts`. Для меню записи важнее первая:
+   * строка списка на время layout-анимации получает inline-трансформ, а он
+   * создаёт собственный контекст наложения, из которого `absolute`-меню уже не
+   * всплывает над следующими строками.
+   */
+  const [itemActionsAnchor, setItemActionsAnchor] = useState<MenuAnchor | null>(
+    null,
+  );
+
+  /** Открывает меню записи, запоминая координаты её кнопки. */
+  const openItemActions = (itemId: string, button: HTMLButtonElement) => {
+    // Координаты берём из самой кнопки: на момент клика меню ещё не
+    // отрисовано, измерять по нему нечего.
+    setItemActionsAnchor(menuAnchorFor(button, 0));
+    setOpenItemActionsId(itemId);
+  };
+
+  /**
+   * Пересчёт координат меню: сначала по факту отрисовки — тогда становится
+   * известна его высота и решается вопрос переворота, — затем при прокрутке и
+   * изменении размера окна, иначе закреплённое меню отрывается от своей кнопки.
+   *
+   * Слушатель прокрутки с capture: карточка может лежать в прокручиваемом
+   * контейнере, а не только в окне.
+   */
+  useLayoutEffect(() => {
+    if (!openItemActionsId) return;
+
+    const reposition = () => {
+      const button = itemActionsButtonRef.current;
+      if (!button) return;
+      const next = menuAnchorFor(
+        button,
+        itemActionsPanelRef.current?.offsetHeight ?? 0,
+      );
+      setItemActionsAnchor((current) =>
+        sameMenuAnchor(current, next) ? current : next,
+      );
+    };
+
+    reposition();
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [openItemActionsId]);
 
   /** Защита от двойного вызова rename (Enter → blur). */
   const processingItemRenameRef = useRef(false);
@@ -1081,6 +1166,36 @@ export default function SmartList({
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
 
   /**
+   * Прижата ли ручка строки: жест ещё не начался, но вот-вот начнётся.
+   *
+   * Взвод существует ради `dragConstraints` (см. `DraggableItemRow`): границы
+   * жеста нельзя держать выданными постоянно, а к началу жеста они уже должны
+   * быть на месте. Нажатие на ручку даёт нужную перерисовку заранее — framer
+   * разрешает границы не в момент нажатия, а когда указатель сдвинулся на
+   * порог жеста.
+   *
+   * Раскладку взвод не меняет: он лишь возвращает пропу прежнее значение.
+   */
+  const [isDragArmed, setIsDragArmed] = useState(false);
+
+  // Нажатие на ручку могло не перейти в жест — обычный клик по ней взвод бы не
+  // снял. Если жест идёт, границы нужны до его конца: снимет их `handleDragEnd`.
+  useEffect(() => {
+    if (!isDragArmed) return;
+
+    const disarm = () => {
+      if (draggingItemId === null) setIsDragArmed(false);
+    };
+
+    window.addEventListener("pointerup", disarm);
+    window.addEventListener("pointercancel", disarm);
+    return () => {
+      window.removeEventListener("pointerup", disarm);
+      window.removeEventListener("pointercancel", disarm);
+    };
+  }, [isDragArmed, draggingItemId]);
+
+  /**
    * Снимок карточек-целей на время жеста. null — цели не нужны: жест идёт на
    * уровне подпунктов либо в пространстве нет других списков.
    */
@@ -1110,9 +1225,17 @@ export default function SmartList({
    * framer-motion через inline `transform`, и CSS-переход по всем свойствам
    * начинал бы его догонять — строка дёргалась бы и отставала от курсора.
    *
-   * Во время жеста строка получает непрозрачный фон: в тёмной теме обычный фон
-   * строки прозрачный, и без этого сквозь «поднятую» запись просвечивали бы
-   * соседние — ровно то ощущение, что ничего не перетаскивается.
+   * Во время жеста строка получает свой фон и тень: в тёмной теме без этого
+   * сквозь «поднятую» запись просвечивали бы соседние — ровно то ощущение, что
+   * ничего не перетаскивается.
+   *
+   * Фон непрозрачный и в покое, а не только под курсором. Вне жеста строки на
+   * один кадр накладываются друг на друга — framer удерживает соседей на старом
+   * месте, пока доигрывает layout-анимацию (см. `DraggableItemRow`). В тёмной
+   * теме строка была прозрачной, и на этом кадре два названия просвечивали
+   * друг сквозь друга, превращаясь в нечитаемую кашу; с непрозрачным фоном они
+   * просто перекрываются. Цвет совпадает с фоном карточки, поэтому в покое
+   * ничего не меняется.
    */
   const rowClassName = (item: Item, isCompleted: boolean) => {
     const base = "py-2 px-1 transition-colors duration-200";
@@ -1121,8 +1244,8 @@ export default function SmartList({
     }
     return `${base} ${
       isCompleted
-        ? "bg-gray-100 dark:bg-transparent"
-        : "bg-gray-50 dark:bg-transparent"
+        ? "bg-gray-100 dark:bg-zinc-900"
+        : "bg-gray-50 dark:bg-zinc-900"
     }`;
   };
 
@@ -1198,6 +1321,7 @@ export default function SmartList({
   const handleDragEnd = (level: string | null, item: Item, siblings: Item[]) => {
     endDrag();
     setDraggingItemId(null);
+    setIsDragArmed(false);
 
     const dropTargetId = dropTargetIdRef.current;
     dropTargetsRef.current = null;
@@ -1354,7 +1478,11 @@ export default function SmartList({
                 data-testid="item-drag-handle"
                 disabled={isPending}
                 onPointerDown={(event) => {
-                  if (!isPending) dragControls.start(event);
+                  if (isPending) return;
+                  // Взвод до старта жеста: границы должны быть выданы раньше,
+                  // чем framer начнёт их разрешать.
+                  setIsDragArmed(true);
+                  dragControls.start(event);
                 }}
                 className="-ml-1 flex h-6 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded text-gray-400 transition-colors hover:text-gray-600 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-600 dark:hover:text-zinc-300"
               >
@@ -1614,12 +1742,14 @@ export default function SmartList({
                     data-testid="item-menu-trigger"
                     disabled={isPending}
                     title={isPending ? t("saving") : undefined}
-                    onClick={() => {
+                    onClick={(event) => {
                       setEditingItemId(null);
                       setOpenNoteItemId(null);
-                      setOpenItemActionsId((current) =>
-                        current === item.id ? null : item.id,
-                      );
+                      if (openItemActionsId === item.id) {
+                        setOpenItemActionsId(null);
+                        return;
+                      }
+                      openItemActions(item.id, event.currentTarget);
                     }}
                     aria-label={t("ariaItemActions", { name: item.name })}
                     aria-haspopup="menu"
@@ -1644,12 +1774,18 @@ export default function SmartList({
                     </svg>
                   </button>
 
-                  {openItemActionsId === item.id && (
+                  {openItemActionsId === item.id && itemActionsAnchor && (
                     <div
+                      ref={itemActionsPanelRef}
                       id={`item-actions-${item.id}`}
                       role="menu"
                       data-testid="item-menu"
-                      className="absolute right-0 top-full z-30 mt-1 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
+                      style={{
+                        top: itemActionsAnchor.top,
+                        bottom: itemActionsAnchor.bottom,
+                        right: itemActionsAnchor.right,
+                      }}
+                      className="fixed z-40 min-w-48 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/60"
                     >
                       {/* Перемещение доступно только у невыполненных
                           записей: выполненные нумерации не имеют и
@@ -1946,6 +2082,7 @@ export default function SmartList({
                     testId="sub-item"
                     className={rowClassName(subItem, subItem.isCompleted)}
                     isDragActive={draggingItemId !== null}
+                    isGestureArmed={isDragArmed || draggingItemId !== null}
                     onDragStart={() =>
                       handleDragStart(node.item.id, subItem, activeSubItems)
                     }
@@ -2063,6 +2200,7 @@ export default function SmartList({
                   item={item}
                   className={rowClassName(item, node.isCompleted)}
                   isDragActive={draggingItemId !== null}
+                  isGestureArmed={isDragArmed || draggingItemId !== null}
                   onDragStart={() =>
                     handleDragStart(null, item, activeVisibleItems)
                   }
