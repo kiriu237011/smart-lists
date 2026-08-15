@@ -7,7 +7,8 @@
  *                         выдача presigned POST. Байты идут НЕ через нас.
  *   2. клиент           — POST файла напрямую в S3 (см. AttachmentUploader).
  *   3. `confirmUpload`  — HeadObject подтверждает факт + реальный размер,
- *                         статус становится UPLOADED.
+ *                         сигнатура подтверждает содержимое, статус
+ *                         становится UPLOADED.
  *
  * Безопасность (как в остальных actions):
  *   - membership-проверка по сессии на каждое действие (защита от IDOR);
@@ -31,17 +32,21 @@ import {
   getAttachmentUrlSchema,
 } from "@/lib/validations";
 import {
+  MAGIC_BYTES_PREFIX_LENGTH,
   MAX_FILE_SIZE,
   MAX_FILES_PER_LIST,
   MAX_FILES_PER_USER,
   STALE_MINUTES,
   getCategory,
+  hasMagicBytes,
   isAllowedType,
+  matchesMagicBytes,
 } from "@/lib/attachments";
 import {
   buildAttachmentKey,
   createUploadPost,
   headObject,
+  getObjectPrefix,
   getDownloadUrl,
   deleteObject,
   deleteObjects,
@@ -349,17 +354,37 @@ export async function confirmUpload(input: {
       select: { id: true, key: true, listId: true },
     });
     if (!attachment) {
+      logger.info(
+        {
+          uid: hashId(userId),
+          attachmentId: result.data.attachmentId,
+          action: "confirmUpload",
+        },
+        "PENDING-строка не найдена: нет доступа, чужое пространство или уже подтверждено",
+      );
       return { success: false, error: "attachmentNotFound" };
     }
 
     // HeadObject — доказательство факта загрузки и реальный размер/тип.
     const head = await headObject(attachment.key);
     if (!head) {
-      // Файла в S3 нет (клиент соврал или загрузка сорвалась) — оставляем PENDING.
+      // Файла в S3 нет (клиент соврал или загрузка сорвалась) — оставляем
+      // PENDING. Причину отказа печатает сам headObject: без неё сорванная
+      // загрузка и отсутствие прав выглядели в логе одинаково — то есть никак.
+      logger.warn(
+        {
+          uid: hashId(userId),
+          attachmentId: attachment.id,
+          action: "confirmUpload",
+        },
+        "Объект не найден в S3 — подтверждать нечего",
+      );
       return { success: false, error: "uploadNotFound" };
     }
 
-    // Валидация ФАКТИЧЕСКИХ размера и типа (не заявленных клиентом).
+    // Размер здесь фактический — его считает сам S3. Тип фактическим НЕ
+    // является: `HeadObject` возвращает ярлык, который клиент положил в форму
+    // presigned POST, а policy лишь сверила его с разрешённым значением.
     if (
       head.contentLength <= 0 ||
       head.contentLength > MAX_FILE_SIZE ||
@@ -376,6 +401,32 @@ export async function confirmUpload(input: {
         "Фактический файл не прошёл валидацию",
       );
       return { success: false, error: "invalidFileType" };
+    }
+
+    // Содержимое: сверяем начало файла с сигнатурой заявленного типа. Это
+    // единственная проверка, которая смотрит на байты, а не на метаданные, —
+    // без неё под ярлыком image/png хранится что угодно. Для типов без
+    // сигнатуры (text/plain) в S3 не ходим: проверять нечем.
+    if (hasMagicBytes(head.contentType)) {
+      const prefix = await getObjectPrefix(
+        attachment.key,
+        MAGIC_BYTES_PREFIX_LENGTH,
+      );
+      // null — прочитать не удалось; трактуем как отказ (fail-closed), строка
+      // остаётся PENDING и попадёт под ленивую уборку.
+      if (!prefix || !matchesMagicBytes(head.contentType, prefix)) {
+        logger.warn(
+          {
+            uid: hashId(userId),
+            attachmentId: attachment.id,
+            contentType: head.contentType,
+            read: prefix !== null,
+            action: "confirmUpload",
+          },
+          "Содержимое файла не соответствует сигнатуре заявленного типа",
+        );
+        return { success: false, error: "invalidFileType" };
+      }
     }
 
     // status = UPLOADED + реальный размер. updateMany c status=PENDING в where
@@ -511,6 +562,9 @@ export async function getAttachmentUrl(input: {
     if (!session?.user?.id) {
       return { success: false, error: "unauthorized" };
     }
+    // Суточный бюджет здесь намеренно не списывается: это единственное действие
+    // модуля, которое ничего не меняет. Подпись считается локально, в AWS
+    // вызов не идёт, а раздать уже скачанные байты можно и без новой ссылки.
     const userId = session.user.id;
 
     const result = getAttachmentUrlSchema.safeParse(input);

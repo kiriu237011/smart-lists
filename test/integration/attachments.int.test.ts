@@ -69,6 +69,28 @@ describe("requestUpload", () => {
     expect(row.key).toMatch(new RegExp(`^lists/${list.id}/.+\\.png$`));
   });
 
+  it("сохраняет очищенное имя файла, а не присланное клиентом", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    setSessionUser(user.id);
+
+    const result = await requestUpload({
+      listId: list.id,
+      spaceId: user.defaultSpaceId,
+      // RIGHT-TO-LEFT OVERRIDE показал бы это имя как "фотоgnp.exe" наоборот —
+      // другим участникам списка расширение выглядело бы картинкой.
+      fileName: "фото\u202Egnp.exe",
+      contentType: "image/png",
+      size: 1000,
+    });
+
+    expect(result.success).toBe(true);
+    const row = await prisma.attachment.findUniqueOrThrow({
+      where: { id: result.upload!.attachmentId },
+    });
+    expect(row.name).toBe("фотоgnp.exe");
+  });
+
   it("отклоняет неразрешённый тип файла", async () => {
     const user = await makeUser();
     const list = await makeList(user.id, user.defaultSpaceId);
@@ -332,6 +354,75 @@ describe("confirmUpload", () => {
     expect(
       (await prisma.attachment.findUniqueOrThrow({ where: { id: row.id } })).status,
     ).toBe("PENDING");
+  });
+
+  it("отбивает содержимое, не совпавшее с сигнатурой заявленного типа", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    const row = await pending(user.id, list.id);
+    setSessionUser(user.id);
+    const { headObject, getObjectPrefix } = await import("@/lib/s3");
+    // Метаданные безупречны: S3 подтверждает разрешённый тип и валидный размер.
+    vi.mocked(headObject).mockResolvedValueOnce({
+      contentLength: 100,
+      contentType: "image/png",
+    });
+    // А в байтах — заголовок исполняемого файла Windows (MZ).
+    vi.mocked(getObjectPrefix).mockResolvedValueOnce(
+      new Uint8Array([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]),
+    );
+
+    const result = await confirmUpload({
+      attachmentId: row.id,
+      spaceId: user.defaultSpaceId,
+    });
+
+    expect(result).toEqual({ success: false, error: "invalidFileType" });
+    expect(
+      (await prisma.attachment.findUniqueOrThrow({ where: { id: row.id } })).status,
+    ).toBe("PENDING");
+  });
+
+  it("отказывает, когда прочитать содержимое не удалось (fail-closed)", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    const row = await pending(user.id, list.id);
+    setSessionUser(user.id);
+    const { headObject, getObjectPrefix } = await import("@/lib/s3");
+    vi.mocked(headObject).mockResolvedValueOnce({
+      contentLength: 100,
+      contentType: "image/png",
+    });
+    vi.mocked(getObjectPrefix).mockResolvedValueOnce(null);
+
+    const result = await confirmUpload({
+      attachmentId: row.id,
+      spaceId: user.defaultSpaceId,
+    });
+
+    // Непрочитанное содержимое — не повод считать файл проверенным.
+    expect(result).toEqual({ success: false, error: "invalidFileType" });
+  });
+
+  it("не читает содержимое у типа без сигнатуры", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    const row = await pending(user.id, list.id);
+    setSessionUser(user.id);
+    const { headObject, getObjectPrefix } = await import("@/lib/s3");
+    vi.mocked(headObject).mockResolvedValueOnce({
+      contentLength: 100,
+      contentType: "text/plain",
+    });
+
+    const result = await confirmUpload({
+      attachmentId: row.id,
+      spaceId: user.defaultSpaceId,
+    });
+
+    // У text/plain сигнатуры нет — ходить в S3 за байтами незачем.
+    expect(result).toEqual({ success: true });
+    expect(vi.mocked(getObjectPrefix)).not.toHaveBeenCalled();
   });
 
   it("идемпотентен: повторный confirm на UPLOADED не находит PENDING", async () => {
