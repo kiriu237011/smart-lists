@@ -23,6 +23,14 @@
     "hint": "Danh sách chỉ được lưu trong trình duyệt này",
     "exit": "Thoát"
   },
+  "Common": {
+    "save": "Lưu",
+    "cancel": "Hủy",
+    "scrollToTop": "Lên đầu trang",
+    "themeDark": "Giao diện tối",
+    "themeLight": "Giao diện sáng",
+    "showEmail": "Hiện email: {email}"
+  },
   "Home": {
     "greeting": "{name}",
     "signOut": "Đăng xuất",
@@ -45,6 +53,7 @@
     "ariaRename": "Đổi tên danh sách {title}",
     "ariaDelete": "Xóa danh sách {title}",
     "ariaListActions": "Thao tác cho danh sách {title}",
+    "listActions": "Thao tác danh sách",
     "deleteListAction": "Xóa danh sách",
     "aiDisableAction": "Tắt AI cho danh sách này",
     "aiEnableAction": "Bật AI cho danh sách này",
@@ -109,6 +118,7 @@
     "newGroupPlaceholder": "Tên...",
     "ariaCreateGroup": "Tạo nhóm",
     "ariaDeleteGroup": "Xóa nhóm {name}",
+    "deleteGroup": "Xóa nhóm",
     "ariaDragGroup": "Sắp xếp lại nhóm {name}, vị trí {position} trên {count}",
     "dragInstructions": "Để nhấc một nhóm, nhấn Space hoặc Enter. Di chuyển nhóm bằng các phím mũi tên. Nhấn lại Space hoặc Enter để thả, hoặc Escape để hủy.",
     "dragStart": "Đã nhấc nhóm {name}.",
@@ -124,6 +134,7 @@
     "ariaRename": "Đổi tên ghi chú {name}",
     "ariaDelete": "Xóa ghi chú {name}",
     "ariaItemActions": "Thao tác cho mục {name}",
+    "itemActions": "Thao tác mục",
     "moveUp": "Di chuyển lên",
     "moveDown": "Di chuyển xuống",
     "deleteItemAction": "Xóa mục",
@@ -134,6 +145,8 @@
     "subItemsLabel": "Mục con của {name}",
     "closeSubItemInput": "Đóng ô thêm mục con",
     "ariaSubItemsToggle": "Hiện hoặc ẩn mục con của {name}",
+    "collapseSubItems": "Thu gọn mục con",
+    "expandSubItems": "Mở rộng mục con",
     "ariaSubItemsCounter": "Mục con đã hoàn thành: {done} trên {total}",
     "moveToList": {
       "groupsTitle": "Chọn nhóm",
@@ -242,6 +255,7 @@
     "quotaReached": "Đã đạt giới hạn tệp trong danh sách ({max})",
     "ariaView": "Mở tệp {name}",
     "ariaDelete": "Xóa tệp {name}",
+    "deleteFile": "Xóa tệp",
     "deleteModal": {
       "title": "Xóa tệp đính kèm?",
       "body": "Bạn có chắc muốn xóa tệp «{name}»?",

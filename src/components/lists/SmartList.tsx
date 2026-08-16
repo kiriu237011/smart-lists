@@ -54,6 +54,7 @@ import { useListsDirectory } from "@/components/providers/ListsDirectoryProvider
 import toast from "react-hot-toast";
 import { useTranslations } from "next-intl";
 import Highlight from "@/components/ui/Highlight";
+import Tooltip from "@/components/ui/Tooltip";
 import MoveItemModal from "@/components/lists/MoveItemModal";
 import {
   DeleteNoteModal,
@@ -476,6 +477,7 @@ export default function SmartList({
 }: SmartListProps) {
   const t = useTranslations("SmartList");
   const notesT = useTranslations("Notes");
+  const commonT = useTranslations("Common");
 
   /**
    * Сообщение об отказе при добавлении записи.
@@ -1649,25 +1651,27 @@ export default function SmartList({
             {!isPending && editingItemId === item.id ? (
               <>
                 {/* Кнопка сохранения при редактировании */}
-                <button
-                  type="button"
-                  aria-label="Сохранить"
-                  onMouseDown={() => { skipItemBlurRef.current = true; }}
-                  onClick={() => void handleConfirmItemRename(item)}
-                  className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition"
-                >
-                  ✓
-                </button>
+                <Tooltip label={commonT("save")}>
+                  <button
+                    type="button"
+                    onMouseDown={() => { skipItemBlurRef.current = true; }}
+                    onClick={() => void handleConfirmItemRename(item)}
+                    className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition"
+                  >
+                    ✓
+                  </button>
+                </Tooltip>
                 {/* Кнопка отмены при редактировании */}
-                <button
-                  type="button"
-                  aria-label="Отменить"
-                  onMouseDown={() => { skipItemBlurRef.current = true; }}
-                  onClick={() => setEditingItemId(null)}
-                  className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
-                >
-                  ✗
-                </button>
+                <Tooltip label={commonT("cancel")}>
+                  <button
+                    type="button"
+                    onMouseDown={() => { skipItemBlurRef.current = true; }}
+                    onClick={() => setEditingItemId(null)}
+                    className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
+                  >
+                    ✗
+                  </button>
+                </Tooltip>
               </>
             ) : (
               <>
@@ -1696,83 +1700,98 @@ export default function SmartList({
                         {context.block.done} / {context.block.total}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      data-testid="sub-items-toggle"
-                      disabled={isPending}
-                      onClick={context.block.onToggle}
-                      aria-label={t("ariaSubItemsToggle", { name: item.name })}
-                      aria-expanded={!context.block.isCollapsed}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                    <Tooltip
+                      label={
+                        context.block.isCollapsed
+                          ? t("expandSubItems")
+                          : t("collapseSubItems")
+                      }
                     >
-                      <CollapseChevron isCollapsed={context.block.isCollapsed} />
-                    </button>
+                      <button
+                        type="button"
+                        data-testid="sub-items-toggle"
+                        disabled={isPending}
+                        onClick={context.block.onToggle}
+                        aria-label={t("ariaSubItemsToggle", { name: item.name })}
+                        aria-expanded={!context.block.isCollapsed}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      >
+                        <CollapseChevron isCollapsed={context.block.isCollapsed} />
+                      </button>
+                    </Tooltip>
                   </>
                 )}
 
                 {/* Заполненная заметка остаётся доступна отдельной кнопкой. */}
                 {item.note && (
-                  <button
-                    type="button"
-                    data-testid="item-note-toggle"
-                    disabled={isPending}
-                    onClick={() => {
-                      setEditingItemId(null);
-                      setOpenItemActionsId(null);
-                      setOpenNoteItemId((current) =>
-                        current === item.id ? null : item.id,
-                      );
-                    }}
-                    aria-label={notesT("itemNote")}
-                    title={notesT("itemNote")}
-                    aria-expanded={openNoteItemId === item.id}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded text-indigo-500 transition-colors hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
-                  >
-                    <NoteIcon filled />
-                  </button>
+                  <Tooltip label={notesT("itemNote")}>
+                    <button
+                      type="button"
+                      data-testid="item-note-toggle"
+                      disabled={isPending}
+                      onClick={() => {
+                        setEditingItemId(null);
+                        setOpenItemActionsId(null);
+                        setOpenNoteItemId((current) =>
+                          current === item.id ? null : item.id,
+                        );
+                      }}
+                      aria-expanded={openNoteItemId === item.id}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded text-indigo-500 transition-colors hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+                    >
+                      <NoteIcon filled />
+                    </button>
+                  </Tooltip>
                 )}
                 {/* Меню действий записи: безопасное место для удаления и будущих команд. */}
                 <div
                   ref={openItemActionsId === item.id ? itemActionsMenuRef : undefined}
                   className="relative"
                 >
-                  <button
-                    ref={openItemActionsId === item.id ? itemActionsButtonRef : undefined}
-                    type="button"
-                    data-testid="item-menu-trigger"
-                    disabled={isPending}
-                    title={isPending ? t("saving") : undefined}
-                    onClick={(event) => {
-                      setEditingItemId(null);
-                      setOpenNoteItemId(null);
-                      if (openItemActionsId === item.id) {
-                        setOpenItemActionsId(null);
-                        return;
-                      }
-                      openItemActions(item.id, event.currentTarget);
-                    }}
-                    aria-label={t("ariaItemActions", { name: item.name })}
-                    aria-haspopup="menu"
-                    aria-expanded={openItemActionsId === item.id}
-                    aria-controls={`item-actions-${item.id}`}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded transition-colors ${
-                      openItemActionsId === item.id
-                        ? "bg-gray-100 text-gray-900 dark:bg-zinc-800 dark:text-white"
-                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                    } disabled:cursor-not-allowed disabled:text-gray-300 dark:disabled:text-zinc-700`}
+                  {/* Свой `aria-label` подробнее подсказки: скринридеру нужно
+                      название записи, а в подсказке оно рядом и так. */}
+                  <Tooltip
+                    label={t("itemActions")}
+                    disabled={openItemActionsId === item.id}
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="18"
-                      height="18"
-                      fill="currentColor"
-                      aria-hidden
+                    <button
+                      ref={openItemActionsId === item.id ? itemActionsButtonRef : undefined}
+                      type="button"
+                      data-testid="item-menu-trigger"
+                      disabled={isPending}
+                      title={isPending ? t("saving") : undefined}
+                      onClick={(event) => {
+                        setEditingItemId(null);
+                        setOpenNoteItemId(null);
+                        if (openItemActionsId === item.id) {
+                          setOpenItemActionsId(null);
+                          return;
+                        }
+                        openItemActions(item.id, event.currentTarget);
+                      }}
+                      aria-label={t("ariaItemActions", { name: item.name })}
+                      aria-haspopup="menu"
+                      aria-expanded={openItemActionsId === item.id}
+                      aria-controls={`item-actions-${item.id}`}
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded transition-colors ${
+                        openItemActionsId === item.id
+                          ? "bg-gray-100 text-gray-900 dark:bg-zinc-800 dark:text-white"
+                          : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      } disabled:cursor-not-allowed disabled:text-gray-300 dark:disabled:text-zinc-700`}
                     >
-                      <circle cx="12" cy="5" r="1.75" />
-                      <circle cx="12" cy="12" r="1.75" />
-                      <circle cx="12" cy="19" r="1.75" />
-                    </svg>
-                  </button>
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                        aria-hidden
+                      >
+                        <circle cx="12" cy="5" r="1.75" />
+                        <circle cx="12" cy="12" r="1.75" />
+                        <circle cx="12" cy="19" r="1.75" />
+                      </svg>
+                    </button>
+                  </Tooltip>
 
                   {openItemActionsId === item.id && itemActionsAnchor && (
                     <div
@@ -2152,15 +2171,16 @@ export default function SmartList({
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
                   </button>
-                  <button
-                    type="button"
-                    data-testid="add-sub-item-close"
-                    aria-label={t("closeSubItemInput")}
-                    onClick={() => setAddSubItemParentId(null)}
-                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-                  >
-                    ✗
-                  </button>
+                  <Tooltip label={t("closeSubItemInput")}>
+                    <button
+                      type="button"
+                      data-testid="add-sub-item-close"
+                      onClick={() => setAddSubItemParentId(null)}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                    >
+                      ✗
+                    </button>
+                  </Tooltip>
                 </form>
               </li>
             )}

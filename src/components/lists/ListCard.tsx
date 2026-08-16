@@ -33,6 +33,7 @@ import { useListsApi } from "@/components/providers/ListsApiProvider";
 import SmartList from "@/components/lists/SmartList";
 import CollapseChevron from "@/components/ui/CollapseChevron";
 import Highlight from "@/components/ui/Highlight";
+import Tooltip from "@/components/ui/Tooltip";
 import ShareListForm, { ShareListButton } from "@/components/lists/ShareListForm";
 import AiInsight, { AiInsightButton } from "@/components/lists/AiInsight";
 import Attachments, { AttachmentsButton } from "@/components/lists/Attachments";
@@ -277,6 +278,7 @@ const ListCard = memo(function ListCard({
 }: ListCardProps) {
   const t = useTranslations("ListsContainer");
   const notesT = useTranslations("Notes");
+  const commonT = useTranslations("Common");
 
   // Гостевой режим: шаринг, AI-инсайты и вложения требуют аккаунта/сервера —
   // соответствующий блок кнопок не рендерится вовсе
@@ -551,24 +553,26 @@ const ListCard = memo(function ListCard({
           {/* Шеврон — основной способ свернуть карточку. Клик по заголовку
               занят переименованием, поэтому нужна отдельная кнопка. */}
           {!isTemp && !isEditing && (
-            <button
-              type="button"
-              data-testid="list-collapse-toggle"
-              onClick={handleToggleCollapse}
-              aria-label={isBodyHidden ? t("expandAction") : t("collapseAction")}
-              title={isBodyHidden ? t("expandAction") : t("collapseAction")}
-              aria-expanded={!isBodyHidden}
-              aria-controls={bodyId}
-              /* Зона нажатия расширена невидимым `::after`, а не размером самой
-                 кнопки: 24px пальцем не поймать, но растить видимую кнопку
-                 незачем — рядом иконки того же масштаба. Прямоугольник растёт
-                 во все стороны, однако вправо его перекрывает заголовок, идущий
-                 дальше в потоке: тап по названию должен по-прежнему открывать
-                 переименование, а не сворачивать список. */
-              className="relative inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-gray-500 transition-colors after:absolute after:-inset-2.5 after:content-[''] hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+            <Tooltip
+              label={isBodyHidden ? t("expandAction") : t("collapseAction")}
             >
-              <CollapseChevron isCollapsed={isBodyHidden} />
-            </button>
+              <button
+                type="button"
+                data-testid="list-collapse-toggle"
+                onClick={handleToggleCollapse}
+                aria-expanded={!isBodyHidden}
+                aria-controls={bodyId}
+                /* Зона нажатия расширена невидимым `::after`, а не размером самой
+                   кнопки: 24px пальцем не поймать, но растить видимую кнопку
+                   незачем — рядом иконки того же масштаба. Прямоугольник растёт
+                   во все стороны, однако вправо его перекрывает заголовок, идущий
+                   дальше в потоке: тап по названию должен по-прежнему открывать
+                   переименование, а не сворачивать список. */
+                className="relative inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-gray-500 transition-colors after:absolute after:-inset-2.5 after:content-[''] hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+              >
+                <CollapseChevron isCollapsed={isBodyHidden} />
+              </button>
+            </Tooltip>
           )}
 
           {isEditing ? (
@@ -652,60 +656,71 @@ const ListCard = memo(function ListCard({
 
             {isOwner && isEditing ? (
                 <>
-                  <button
-                    type="button"
-                    aria-label="Сохранить"
-                    onMouseDown={() => { skipBlurRef.current = true; }}
-                    onClick={() => void handleConfirmRename()}
-                    className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition"
-                  >
-                    ✓
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Отменить"
-                    onMouseDown={() => { skipBlurRef.current = true; }}
-                    onClick={() => setIsEditing(false)}
-                    className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
-                  >
-                    ✗
-                  </button>
+                  <Tooltip label={commonT("save")}>
+                    <button
+                      type="button"
+                      onMouseDown={() => { skipBlurRef.current = true; }}
+                      onClick={() => void handleConfirmRename()}
+                      className="hidden sm:inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition"
+                    >
+                      ✓
+                    </button>
+                  </Tooltip>
+                  <Tooltip label={commonT("cancel")}>
+                    <button
+                      type="button"
+                      onMouseDown={() => { skipBlurRef.current = true; }}
+                      onClick={() => setIsEditing(false)}
+                      className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
+                    >
+                      ✗
+                    </button>
+                  </Tooltip>
                 </>
               ) : (
                 <div ref={actionsMenuRef} className="relative">
-                  <button
-                    ref={actionsMenuButtonRef}
-                    type="button"
-                    data-testid="list-menu-trigger"
-                    aria-label={t("ariaListActions", { title: list.title })}
-                    aria-haspopup="menu"
-                    aria-expanded={isActionsMenuOpen}
-                    aria-controls={`list-actions-${list.id}`}
-                    onClick={(event) => {
-                      setIsListNoteOpen(false);
-                      // Координаты берём из самой кнопки: на момент клика меню
-                      // ещё не отрисовано, измерять по нему нечего.
-                      setActionsMenuAnchor(anchorFor(event.currentTarget));
-                      setIsActionsMenuOpen((current) => !current);
-                    }}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                      isActionsMenuOpen
-                        ? "bg-gray-100 text-gray-900 dark:bg-zinc-800 dark:text-white"
-                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white"
-                    }`}
+                  {/* Свой `aria-label` подробнее подсказки: скринридер читает
+                      кнопку вне контекста карточки, и название списка ему
+                      нужно, а в подсказке оно рядом и так. Пока меню открыто,
+                      подсказка не нужна — его пункты уже на экране. */}
+                  <Tooltip
+                    label={t("listActions")}
+                    disabled={isActionsMenuOpen}
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="18"
-                      height="18"
-                      fill="currentColor"
-                      aria-hidden
+                    <button
+                      ref={actionsMenuButtonRef}
+                      type="button"
+                      data-testid="list-menu-trigger"
+                      aria-label={t("ariaListActions", { title: list.title })}
+                      aria-haspopup="menu"
+                      aria-expanded={isActionsMenuOpen}
+                      aria-controls={`list-actions-${list.id}`}
+                      onClick={(event) => {
+                        setIsListNoteOpen(false);
+                        // Координаты берём из самой кнопки: на момент клика меню
+                        // ещё не отрисовано, измерять по нему нечего.
+                        setActionsMenuAnchor(anchorFor(event.currentTarget));
+                        setIsActionsMenuOpen((current) => !current);
+                      }}
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                        isActionsMenuOpen
+                          ? "bg-gray-100 text-gray-900 dark:bg-zinc-800 dark:text-white"
+                          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white"
+                      }`}
                     >
-                      <circle cx="12" cy="5" r="1.75" />
-                      <circle cx="12" cy="12" r="1.75" />
-                      <circle cx="12" cy="19" r="1.75" />
-                    </svg>
-                  </button>
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                        aria-hidden
+                      >
+                        <circle cx="12" cy="5" r="1.75" />
+                        <circle cx="12" cy="12" r="1.75" />
+                        <circle cx="12" cy="19" r="1.75" />
+                      </svg>
+                    </button>
+                  </Tooltip>
 
                   {isActionsMenuOpen && actionsMenuAnchor && (
                     <div
@@ -1014,41 +1029,42 @@ const ListCard = memo(function ListCard({
         {!isTemp && (
           <div className="mt-3 pt-3 border-t border-gray-100 dark:border-zinc-700 flex items-center justify-between">
             <div className="relative" ref={groupMenuRef}>
-              <button
-                type="button"
-                data-testid="list-group-trigger"
-                onClick={() => setIsGroupMenuOpen((prev) => !prev)}
-                className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
-                aria-label={t("ariaGroupMenu")}
-              >
-                {list.groups.length > 0 ? (
-                  /* Бейджи групп — список состоит в группе */
-                  <span className="flex items-center gap-1 flex-wrap">
-                    {list.groups.map((g) => (
-                      <span
-                        key={g.id}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-                      >
-                        {g.name}
+              <Tooltip label={t("ariaGroupMenu")} disabled={isGroupMenuOpen}>
+                <button
+                  type="button"
+                  data-testid="list-group-trigger"
+                  onClick={() => setIsGroupMenuOpen((prev) => !prev)}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors"
+                >
+                  {list.groups.length > 0 ? (
+                    /* Бейджи групп — список состоит в группе */
+                    <span className="flex items-center gap-1 flex-wrap">
+                      {list.groups.map((g) => (
+                        <span
+                          key={g.id}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                        >
+                          {g.name}
+                        </span>
+                      ))}
+                      {/* Кнопка добавления в ещё одну группу — тот же стиль что "+" в GroupFilter */}
+                      <span className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors text-sm leading-none">
+                        +
                       </span>
-                    ))}
-                    {/* Кнопка добавления в ещё одну группу — тот же стиль что "+" в GroupFilter */}
-                    <span className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors text-sm leading-none">
-                      +
                     </span>
-                  </span>
-                ) : (
-                  /* Иконка папки с плюсом — группа не назначена */
-                  <>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                      <line x1="12" y1="11" x2="12" y2="17" />
-                      <line x1="9" y1="14" x2="15" y2="14" />
-                    </svg>
-                    {t("noGroup")}
-                  </>
-                )}
-              </button>
+                  ) : (
+                    /* Иконка папки с плюсом — группа не назначена */
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                        <line x1="12" y1="11" x2="12" y2="17" />
+                        <line x1="9" y1="14" x2="15" y2="14" />
+                      </svg>
+                      {t("noGroup")}
+                    </>
+                  )}
+                </button>
+              </Tooltip>
 
               {/* Дропдаун со списком групп */}
               {isGroupMenuOpen && (

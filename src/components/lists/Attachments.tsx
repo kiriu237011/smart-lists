@@ -21,6 +21,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import Tooltip from "@/components/ui/Tooltip";
 import type { Attachment } from "@/components/lists/ListCard";
 import {
   ACCEPT_ATTRIBUTE,
@@ -344,14 +345,16 @@ export default function Attachments({
                 </button>
 
                 {/* Удаление — доступно любому участнику списка */}
-                <button
-                  type="button"
-                  onClick={() => setFileToDelete(file)}
-                  aria-label={t("ariaDelete", { name: file.name })}
-                  className="text-red-500 dark:text-red-400/50 hover:text-red-700 dark:hover:text-red-400 text-xs font-bold px-1.5 py-1 shrink-0"
-                >
-                  ✕
-                </button>
+                <Tooltip label={t("deleteFile")}>
+                  <button
+                    type="button"
+                    onClick={() => setFileToDelete(file)}
+                    aria-label={t("ariaDelete", { name: file.name })}
+                    className="text-red-500 dark:text-red-400/50 hover:text-red-700 dark:hover:text-red-400 text-xs font-bold px-1.5 py-1 shrink-0"
+                  >
+                    ✕
+                  </button>
+                </Tooltip>
               </li>
             );
           })}
@@ -375,6 +378,9 @@ export default function Attachments({
           if (file) void handleFileSelected(file);
         }}
       />
+      {/* Здесь остаётся нативный `title`, а не общая подсказка: она нужна
+          ровно у выключенной кнопки, а выключенная кнопка pointer-событий не
+          получает — `Tooltip` о наведении на неё не узнал бы вовсе. */}
       <button
         type="button"
         onClick={() => inputRef.current?.click()}

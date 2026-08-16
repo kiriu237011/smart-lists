@@ -27,6 +27,7 @@ import {
   useListsDirectory,
   type ListDirectoryEntry,
 } from "@/components/providers/ListsDirectoryProvider";
+import Tooltip from "@/components/ui/Tooltip";
 
 /** ID секции списков, не входящих ни в одну группу. */
 const NO_GROUP = "__none__";
@@ -214,27 +215,29 @@ export default function MoveItemModal({
           {/* Стрелка назад появляется только там, где есть куда возвращаться:
               при единственной секции первый шаг пропущен. */}
           {openSection && sections.length > 1 && (
-            <button
-              type="button"
-              data-testid="move-item-back"
-              onClick={() => setSelectedGroupId(null)}
-              aria-label={t("back")}
-              className="-ml-1 shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
-            >
-              ‹
-            </button>
+            <Tooltip label={t("back")}>
+              <button
+                type="button"
+                data-testid="move-item-back"
+                onClick={() => setSelectedGroupId(null)}
+                className="-ml-1 shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
+              >
+                ‹
+              </button>
+            </Tooltip>
           )}
           <h3 id="move-item-title" className="min-w-0 truncate text-sm font-semibold">
             {openSection ? openSection.name : t("groupsTitle")}
           </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("close")}
-            className="-mr-1 ml-auto shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
-          >
-            ✕
-          </button>
+          <Tooltip label={t("close")}>
+            <button
+              type="button"
+              onClick={onClose}
+              className="-mr-1 ml-auto shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
+            >
+              ✕
+            </button>
+          </Tooltip>
         </div>
 
         {!hasOtherLists ? (

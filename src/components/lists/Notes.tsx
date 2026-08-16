@@ -34,6 +34,7 @@ import toast from "react-hot-toast";
 import { useListsApi, type NoteActionResult } from "@/components/providers/ListsApiProvider";
 import Highlight from "@/components/ui/Highlight";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import Tooltip from "@/components/ui/Tooltip";
 import { getNoteExcerpt, MAX_NOTE_LENGTH, normalizeNote } from "@/lib/notes";
 
 /** Высота свёрнутой заметки в режиме чтения, px. Дальше текст обрезается. */
@@ -169,21 +170,21 @@ export function ListNoteButton({
   const label = note ? t("listNote") : t("addListNote");
 
   return (
-    <button
-      type="button"
-      data-testid="list-note-toggle"
-      onClick={onToggle}
-      aria-label={label}
-      title={label}
-      aria-expanded={isOpen}
-      className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-        isOpen || note
-          ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-300 dark:hover:bg-indigo-950/80"
-          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white"
-      }`}
-    >
-      <NoteIcon filled={Boolean(note)} size={16} />
-    </button>
+    <Tooltip label={label}>
+      <button
+        type="button"
+        data-testid="list-note-toggle"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+          isOpen || note
+            ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-300 dark:hover:bg-indigo-950/80"
+            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-white"
+        }`}
+      >
+        <NoteIcon filled={Boolean(note)} size={16} />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -429,15 +430,16 @@ function NoteModal({
             <NoteIcon filled size={16} />
           </span>
           <h3 className="min-w-0 truncate text-sm font-semibold">{title}</h3>
-          <button
-            type="button"
-            data-testid="note-dialog-close"
-            onClick={onClose}
-            aria-label={t("close")}
-            className="-mr-1 ml-auto shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
-          >
-            ✕
-          </button>
+          <Tooltip label={t("close")}>
+            <button
+              type="button"
+              data-testid="note-dialog-close"
+              onClick={onClose}
+              className="-mr-1 ml-auto shrink-0 rounded p-1 text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
+            >
+              ✕
+            </button>
+          </Tooltip>
         </div>
         {children}
       </div>
@@ -576,10 +578,12 @@ export function NoteEditor({
         {/* Подсказка к хоткею. Показывается только при точном указателе:
             на тач-устройстве клавиш Ctrl и Cmd нет. Текст короткий, потому что
             во встроенном редакторе узкой карточки рядом стоят обе кнопки;
-            полная формулировка остаётся в `title`. */}
+            полная формулировка живёт в подсказке кнопки сохранения. Своей у
+            этой строки нет намеренно: `Tooltip` подписывает элемент через
+            `aria-label`, а у неинтерактивного `span` такой подписи быть не
+            должно — ARIA её там игнорирует. */}
         <span
           data-testid="note-save-shortcut"
-          title={t("saveShortcut")}
           className="mr-auto hidden select-none text-[11px] text-gray-400 pointer-fine:inline dark:text-zinc-500"
         >
           {t("saveShortcutKeys")}
@@ -593,16 +597,17 @@ export function NoteEditor({
         >
           {t("cancel")}
         </button>
-        <button
-          type="button"
-          data-testid="note-save"
-          onClick={() => void save(state.baseVersion)}
-          disabled={!canSave}
-          title={t("saveShortcut")}
-          className={`disabled:cursor-not-allowed disabled:opacity-50 ${PRIMARY_BUTTON_CLASS}`}
-        >
-          {isSaving ? t("saving") : t("save")}
-        </button>
+        <Tooltip label={t("saveShortcut")} labelsTrigger={false}>
+          <button
+            type="button"
+            data-testid="note-save"
+            onClick={() => void save(state.baseVersion)}
+            disabled={!canSave}
+            className={`disabled:cursor-not-allowed disabled:opacity-50 ${PRIMARY_BUTTON_CLASS}`}
+          >
+            {isSaving ? t("saving") : t("save")}
+          </button>
+        </Tooltip>
       </div>
     </div>
   );
