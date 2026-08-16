@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { type ListGroup } from "@/components/lists/ListCard";
+import Tooltip from "@/components/ui/Tooltip";
 import {
   getWrappedSortTransforms,
   type WrappedSortLayout,
@@ -141,6 +142,7 @@ export default function GroupFilter({
   listDropTargetGroupId,
 }: GroupFilterProps) {
   const t = useTranslations("GroupFilter");
+  const commonT = useTranslations("Common");
   const filterRef = useRef<HTMLDivElement>(null);
   const sortingLayoutRef = useRef<WrappedSortLayout | null>(null);
 
@@ -369,24 +371,26 @@ export default function GroupFilter({
 
                         {editingGroupId !== group.id &&
                           activeGroupId === group.id && (
-                            <button
-                              type="button"
-                              disabled={isReordering}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteGroup(group.id);
-                              }}
-                              aria-label={t("ariaDeleteGroup", {
-                                name: group.name,
-                              })}
-                              className={`absolute right-1.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                                isDragging
-                                  ? "text-white/70 hover:text-white dark:text-zinc-100/70 dark:hover:text-zinc-100"
-                                  : "text-white/70 hover:text-white dark:text-zinc-900/60 dark:hover:text-zinc-900 dark:peer-hover/drag:text-zinc-100/70 dark:peer-hover/drag:hover:text-zinc-100"
-                              }`}
-                            >
-                              ✕
-                            </button>
+                            <Tooltip label={t("deleteGroup")}>
+                              <button
+                                type="button"
+                                disabled={isReordering}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteGroup(group.id);
+                                }}
+                                aria-label={t("ariaDeleteGroup", {
+                                  name: group.name,
+                                })}
+                                className={`absolute right-1.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                  isDragging
+                                    ? "text-white/70 hover:text-white dark:text-zinc-100/70 dark:hover:text-zinc-100"
+                                    : "text-white/70 hover:text-white dark:text-zinc-900/60 dark:hover:text-zinc-900 dark:peer-hover/drag:text-zinc-100/70 dark:peer-hover/drag:hover:text-zinc-100"
+                                }`}
+                              >
+                                ✕
+                              </button>
+                            </Tooltip>
                           )}
                       </>
                     )}
@@ -427,38 +431,43 @@ export default function GroupFilter({
             disabled={isSubmitting || isReordering}
             className="px-3 py-1 rounded-full text-sm border border-gray-400 dark:border-zinc-500 bg-white dark:bg-zinc-800 outline-none w-32 placeholder:text-gray-400"
           />
-          <button
-            type="button"
-            data-testid="group-create-submit"
-            onClick={() => void handleCreateSubmit()}
-            disabled={isSubmitting || isReordering || !newGroupName.trim()}
-            className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition disabled:opacity-40"
-          >
-            ✓
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setIsCreating(false);
-              setNewGroupName("");
-            }}
-            className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
-          >
-            ✗
-          </button>
+          <Tooltip label={commonT("save")}>
+            <button
+              type="button"
+              data-testid="group-create-submit"
+              onClick={() => void handleCreateSubmit()}
+              disabled={isSubmitting || isReordering || !newGroupName.trim()}
+              className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-green-600 dark:text-green-500 hover:bg-green-50 dark:hover:bg-zinc-700 transition disabled:opacity-40"
+            >
+              ✓
+            </button>
+          </Tooltip>
+          <Tooltip label={commonT("cancel")}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsCreating(false);
+                setNewGroupName("");
+              }}
+              className="inline-flex items-center justify-center w-6 h-6 rounded text-sm text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-700 hover:text-gray-600 dark:hover:text-zinc-300 transition"
+            >
+              ✗
+            </button>
+          </Tooltip>
         </div>
       ) : !isMobileEdit ? (
         /* Кнопка "+" для создания новой группы */
-        <button
-          type="button"
-          data-testid="group-create-open"
-          disabled={isReordering}
-          onClick={() => setIsCreating(true)}
-          aria-label={t("ariaCreateGroup")}
-          className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors text-base leading-none disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          +
-        </button>
+        <Tooltip label={t("ariaCreateGroup")}>
+          <button
+            type="button"
+            data-testid="group-create-open"
+            disabled={isReordering}
+            onClick={() => setIsCreating(true)}
+            className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300 transition-colors text-base leading-none disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            +
+          </button>
+        </Tooltip>
       ) : null}
     </div>
   );

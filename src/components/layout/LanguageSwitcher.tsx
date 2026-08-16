@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useTransition, useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { routing, type Locale } from "@/i18n/routing";
+import Tooltip from "@/components/ui/Tooltip";
 
 /** Метки и флаги для каждой локали */
 const LOCALE_LABELS: Record<
@@ -134,34 +135,35 @@ export default function LanguageSwitcher() {
 
       <div ref={containerRef} className="relative">
         {/* Свёрнутая таблетка: только активный язык */}
-        <button
-          type="button"
-          data-testid="locale-trigger"
-          onClick={() => setIsOpen((prev) => !prev)}
-          aria-expanded={isOpen}
-          aria-haspopup="listbox"
-          title={active.title}
-          className={`flex items-center gap-2 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-full pl-3 pr-2.5 py-2 text-sm font-semibold text-gray-600 dark:text-zinc-300 hover:bg-gray-200/70 dark:hover:bg-zinc-700/70 transition-all duration-200 cursor-pointer ${
-            isPending ? "opacity-60 pointer-events-none" : ""
-          }`}
-        >
-          <Flag code={active.flagCode} size={18} />
-          <span>{locale.toUpperCase()}</span>
-          {/* Шеврон: поворачивается при раскрытии */}
-          <svg
-            className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${
-              isOpen ? "rotate-180" : ""
+        <Tooltip label={active.title} disabled={isOpen}>
+          <button
+            type="button"
+            data-testid="locale-trigger"
+            onClick={() => setIsOpen((prev) => !prev)}
+            aria-expanded={isOpen}
+            aria-haspopup="listbox"
+            className={`flex items-center gap-2 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-full pl-3 pr-2.5 py-2 text-sm font-semibold text-gray-600 dark:text-zinc-300 hover:bg-gray-200/70 dark:hover:bg-zinc-700/70 transition-all duration-200 cursor-pointer ${
+              isPending ? "opacity-60 pointer-events-none" : ""
             }`}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
           >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </button>
+            <Flag code={active.flagCode} size={18} />
+            <span>{locale.toUpperCase()}</span>
+            {/* Шеврон: поворачивается при раскрытии */}
+            <svg
+              className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${
+                isOpen ? "rotate-180" : ""
+              }`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </Tooltip>
 
         {/* Выпадающий список всех языков */}
         <AnimatePresence>
