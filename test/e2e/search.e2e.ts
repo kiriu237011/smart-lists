@@ -11,10 +11,22 @@ import { expect, test } from "./fixtures";
 import { makeItems, makeList } from "./factories";
 import { listCard, localStorageItem, openSpace, visible } from "./helpers";
 
-/** Готовит два списка: один совпадает по названию, второй — по записи и заметке. */
+/**
+ * Готовит два списка: один совпадает по названию и по заметке записи, второй —
+ * по записи и по заметке самого списка.
+ *
+ * Заметки заведены на обоих уровнях намеренно: поиск смотрит и в `list.note`,
+ * и в `item.note` — это две разные ветки фильтра с разным видимым результатом.
+ * Совпадение по заметке списка оставляет все его записи, совпадение по заметке
+ * записи сужает карточку до неё одной.
+ */
 async function seed(db: Parameters<typeof makeList>[0], userId: string, spaceId: string) {
   const groceries = await makeList(db, userId, spaceId, { title: "Продукты" });
-  await makeItems(db, groceries.id, ["Молоко", "Хлеб"]);
+  const [, bread] = await makeItems(db, groceries.id, ["Молоко", "Хлеб"]);
+  await db.item.update({
+    where: { id: bread.id },
+    data: { note: "Взять в пекарне у дома" },
+  });
 
   const trip = await makeList(db, userId, spaceId, { title: "Поездка" });
   await makeItems(db, trip.id, ["Палатка", "Спальник"]);
@@ -46,7 +58,7 @@ test("поиск находит по названию записи и подсв
   await expect(card.locator("mark")).toHaveText(["Палатка"]);
 });
 
-test("поиск находит по тексту заметки", async ({ page, user, db }) => {
+test("поиск находит по тексту заметки списка", async ({ page, user, db }) => {
   const { trip } = await seed(db, user.id, user.defaultSpaceId);
   await openSpace(page, user);
 
@@ -57,6 +69,27 @@ test("поиск находит по тексту заметки", async ({ page
   await expect(listCard(page, trip.id)).toBeVisible();
   // Фрагмент заметки виден прямо в карточке, без раскрытия панели.
   await expect(listCard(page, trip.id)).toContainText("дорогу");
+  // Заметка относится к списку целиком, поэтому записи не сужаются: совпало не
+  // что-то одно в нём, а он сам.
+  await expect(listCard(page, trip.id).getByTestId("item-name")).toHaveText([
+    "Палатка",
+    "Спальник",
+  ]);
+});
+
+test("поиск находит по тексту заметки записи", async ({ page, user, db }) => {
+  // Соседняя ветка фильтра: совпадение внутри записи, а не в списке. Отличима
+  // от предыдущей только результатом — карточка обязана сузиться до одной
+  // записи, иначе заметка записи молча работала бы как заметка списка.
+  const { groceries } = await seed(db, user.id, user.defaultSpaceId);
+  await openSpace(page, user);
+
+  await visible(page, "tab-search").click();
+  await visible(page, "search-input").fill("пекарне");
+
+  await expect(visible(page, "search-results")).toHaveText("Search results: 1 of 2");
+  const card = listCard(page, groceries.id);
+  await expect(card.getByTestId("item-name")).toHaveText(["Хлеб"]);
 });
 
 test("поиск по названию списка оставляет все его записи", async ({

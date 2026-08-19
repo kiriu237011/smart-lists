@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MAX_FILE_SIZE } from "@/lib/attachments";
+import { FALLBACK_FILE_NAME, MAX_FILE_SIZE } from "@/lib/attachments";
 import { MAX_NOTE_LENGTH } from "@/lib/notes";
 import {
   createItemSchema,
@@ -274,6 +274,35 @@ describe("requestUploadSchema", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("чистит имя файла от bidi-подмены расширения", () => {
+    // Санитизация живёт в схеме, а не в Action: так очищенное имя получает
+    // любой будущий вызывающий, а не только requestUpload.
+    const result = requestUploadSchema.safeParse({
+      listId: "list_1",
+      spaceId: "space_1",
+      fileName: "отчёт\u202Egnp.exe",
+      contentType: "image/png",
+      size: 1,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.fileName).toBe("отчётgnp.exe");
+  });
+
+  it("заменяет имя из одних невидимых символов на запасное", () => {
+    const result = requestUploadSchema.safeParse({
+      listId: "list_1",
+      spaceId: "space_1",
+      fileName: "\u202E\u200B",
+      contentType: "image/png",
+      size: 1,
+    });
+
+    // min(1) такую строку пропускал, и в UI имя рендерилось пустым.
+    expect(result.success).toBe(true);
+    expect(result.data?.fileName).toBe(FALLBACK_FILE_NAME);
   });
 
   it("отбивает файл больше лимита", () => {

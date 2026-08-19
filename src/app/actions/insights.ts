@@ -29,6 +29,8 @@ import { listInSpaceWhere } from "@/lib/spaces";
 import { getCloudRunIdToken } from "@/lib/gcp-auth";
 import { logger, hashId } from "@/lib/logger";
 import {
+  MAX_INSIGHT_GROUP_NAME_LENGTH,
+  MAX_INSIGHT_GROUPS,
   MAX_INSIGHT_ITEM_NOTES,
   MAX_INSIGHT_ITEM_NOTES_CHARS,
   MAX_INSIGHT_ITEMS,
@@ -122,7 +124,7 @@ export async function getListInsight(
   // Пункты и подпункты выбираются раздельно. Общая выборка «первые 50 записей»
   // после появления подпунктов означала бы разное для разных списков: один
   // длинный блок вытеснил бы из контекста половину списка.
-  const [topLevelItems, subItemRows, noteCandidates, totalItemNotes] =
+  const [topLevelItems, subItemRows, noteCandidates, totalItemNotes, groupRows] =
     await Promise.all([
       prisma.item.findMany({
         where: { listId, parentId: null },
@@ -160,7 +162,24 @@ export async function getListInsight(
         },
       }),
       prisma.item.count({ where: { listId, note: { not: null } } }),
+      // Только группы вызывающего. Группы персональные: один и тот же
+      // расшаренный список другой участник мог положить в свою группу с любым
+      // названием, и без фильтра по `userId` его личная организация уехала бы
+      // в контекст, а оттуда — в инсайт, который читает не он.
+      prisma.listGroup.findMany({
+        where: { userId: session.user.id, spaceId, listMemberships: { some: { listId } } },
+        // Тот же порядок, что видит пользователь в боковой панели.
+        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+        take: MAX_INSIGHT_GROUPS,
+        select: { name: true },
+      }),
     ]);
+
+  // Пустое имя схемой не создать, но строка из старых данных отбраковала бы
+  // весь запрос: у сервиса на элементе стоит min_length=1.
+  const groups = groupRows
+    .map((group) => group.name.slice(0, MAX_INSIGHT_GROUP_NAME_LENGTH).trim())
+    .filter((name) => name.length > 0);
 
   // Символьный бюджет заметок общий на оба уровня: для модели заметка
   // подпункта ничем не отличается от заметки пункта.
@@ -309,6 +328,9 @@ export async function getListInsight(
       },
       body: JSON.stringify({
         title: list.title.slice(0, 200),
+        // Группы вызывающего: для модели это единственный внешний признак типа
+        // списка — «Работа» и «Поход» задают разбор лучше, чем сам заголовок.
+        groups,
         list_note: list.note?.slice(0, MAX_NOTE_LENGTH) ?? null,
         // `items` сохраняет прежний смысл — записи верхнего уровня, — поэтому
         // сервис, ничего не знающий о подпунктах, продолжает работать как

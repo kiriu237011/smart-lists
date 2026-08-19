@@ -20,6 +20,7 @@ import {
   rememberSpace,
   renameSpace,
 } from "@/app/actions/spaces";
+import Tooltip from "@/components/ui/Tooltip";
 
 export type SpaceOption = {
   id: string;
@@ -281,9 +282,11 @@ export default function SpaceSwitcher({
                 >
                   {t("save")}
                 </button>
-                <button type="button" onClick={() => setMode("idle")} aria-label={t("cancel")}>
-                  <X size={18} />
-                </button>
+                <Tooltip label={t("cancel")}>
+                  <button type="button" onClick={() => setMode("idle")}>
+                    <X size={18} />
+                  </button>
+                </Tooltip>
               </div>
             </div>
           ) : mode === "delete" && current && impact ? (

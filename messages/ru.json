@@ -23,6 +23,14 @@
     "hint": "Списки хранятся только в этом браузере",
     "exit": "Выйти"
   },
+  "Common": {
+    "save": "Сохранить",
+    "cancel": "Отменить",
+    "scrollToTop": "Наверх",
+    "themeDark": "Тёмная тема",
+    "themeLight": "Светлая тема",
+    "showEmail": "Показать email: {email}"
+  },
   "Home": {
     "greeting": "{name}",
     "signOut": "Выйти",
@@ -45,6 +53,7 @@
     "ariaRename": "Переименовать список {title}",
     "ariaDelete": "Удалить список {title}",
     "ariaListActions": "Действия со списком {title}",
+    "listActions": "Действия со списком",
     "deleteListAction": "Удалить список",
     "aiDisableAction": "Отключить AI для списка",
     "aiEnableAction": "Включить AI для списка",
@@ -109,6 +118,7 @@
     "newGroupPlaceholder": "Название...",
     "ariaCreateGroup": "Создать группу",
     "ariaDeleteGroup": "Удалить группу {name}",
+    "deleteGroup": "Удалить группу",
     "ariaDragGroup": "Изменить положение группы {name}, позиция {position} из {count}",
     "dragInstructions": "Чтобы поднять группу, нажмите пробел или Enter. Перемещайте её клавишами со стрелками. Для завершения снова нажмите пробел или Enter, для отмены — Escape.",
     "dragStart": "Группа {name} поднята.",
@@ -124,6 +134,7 @@
     "ariaRename": "Переименовать запись {name}",
     "ariaDelete": "Удалить запись {name}",
     "ariaItemActions": "Действия с записью {name}",
+    "itemActions": "Действия с записью",
     "moveUp": "Переместить выше",
     "moveDown": "Переместить ниже",
     "deleteItemAction": "Удалить запись",
@@ -134,6 +145,8 @@
     "subItemsLabel": "Подпункты записи {name}",
     "closeSubItemInput": "Закрыть добавление подпункта",
     "ariaSubItemsToggle": "Показать или скрыть подпункты записи {name}",
+    "collapseSubItems": "Свернуть подпункты",
+    "expandSubItems": "Развернуть подпункты",
     "ariaSubItemsCounter": "Выполнено подпунктов: {done} из {total}",
     "moveToList": {
       "groupsTitle": "Выберите группу",
@@ -210,7 +223,7 @@
     "analyzing": "Анализирую...",
     "error": "Не удалось получить инсайт",
     "rateLimitError": "Лимит в день исчерпан. Попробуйте завтра.",
-    "privacyNotice": "Содержимое списка, включая заметки всех участников, отправляется в Anthropic для анализа. Отключить может любой участник — в меню списка.",
+    "privacyNotice": "Название списка, его записи, заметки всех участников, названия ваших групп и ваш вопрос отправляются в Anthropic для анализа. Отключить может любой участник — в меню списка.",
     "disabledError": "AI отключён для этого списка",
     "notesContext": "Передано заметок пунктов: {included}; пропущено: {omitted}."
   },
@@ -242,6 +255,7 @@
     "quotaReached": "Достигнут лимит файлов в списке ({max})",
     "ariaView": "Открыть файл {name}",
     "ariaDelete": "Удалить файл {name}",
+    "deleteFile": "Удалить файл",
     "deleteModal": {
       "title": "Удалить вложение?",
       "body": "Вы действительно хотите удалить файл «{name}»?",

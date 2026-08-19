@@ -27,6 +27,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
 import { getExtension } from "@/lib/attachments";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Конфигурация из env
@@ -132,6 +133,34 @@ export interface ObjectHead {
 }
 
 /**
+ * Достаёт из ошибки AWS SDK то, что можно безопасно залогировать.
+ *
+ * Нужно потому, что «объекта нет» и «нет прав / не тот бакет / не тот регион»
+ * снаружи выглядят одинаково — как null. Без кода ошибки отказ загрузки
+ * неотличим от неверной конфигурации, и в логе остаётся пустое место.
+ * Ни ключей, ни подписей в этих полях нет.
+ */
+function describeS3Error(error: unknown): {
+  errorName: string;
+  httpStatus?: number;
+} {
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as {
+      name?: unknown;
+      $metadata?: { httpStatusCode?: unknown };
+    };
+    return {
+      errorName: typeof candidate.name === "string" ? candidate.name : "Unknown",
+      httpStatus:
+        typeof candidate.$metadata?.httpStatusCode === "number"
+          ? candidate.$metadata.httpStatusCode
+          : undefined,
+    };
+  }
+  return { errorName: "Unknown" };
+}
+
+/**
  * Запрашивает метаданные объекта (HeadObject).
  * Используется на confirm: подтверждение клиента — это его слово, а HeadObject
  * даёт факт наличия и честный размер.
@@ -147,8 +176,50 @@ export async function headObject(key: string): Promise<ObjectHead | null> {
       contentLength: res.ContentLength ?? 0,
       contentType: res.ContentType ?? "",
     };
-  } catch {
-    // Объект не найден (404) или иная ошибка — для вызывающего это «не залилось».
+  } catch (error) {
+    // Для вызывающего это «не залилось», но 404 и 403 означают совершенно
+    // разное: первое — сорванную загрузку, второе — сломанную конфигурацию.
+    // Молчаливый null делал эти случаи неразличимыми в логе.
+    logger.warn(
+      { ...describeS3Error(error), key, action: "headObject" },
+      "HeadObject не вернул метаданные объекта",
+    );
+    return null;
+  }
+}
+
+/**
+ * Читает первые `length` байт объекта (Range-запрос) — для проверки сигнатуры.
+ *
+ * Отдельный вызов, а не расширение `headObject`: HeadObject тела не возвращает
+ * в принципе. Запрашиваем именно диапазон, а не объект целиком — платить
+ * трафиком за 10 MB ради 16 байт незачем.
+ *
+ * @returns префикс или null, если объекта нет либо запрос упал. Для
+ *          вызывающего null означает «проверить не удалось», то есть отказ.
+ */
+export async function getObjectPrefix(
+  key: string,
+  length: number,
+): Promise<Uint8Array | null> {
+  try {
+    const res = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: BUCKET,
+        Key: key,
+        Range: `bytes=0-${length - 1}`,
+      }),
+    );
+    if (!res.Body) return null;
+    return await res.Body.transformToByteArray();
+  } catch (error) {
+    // Нет объекта, пустой объект (416 на Range), нет права s3:GetObject или
+    // сетевая ошибка. Отличать их обязательно: отказ по содержимому и отказ
+    // по правам приводят к одному и тому же ответу пользователю.
+    logger.warn(
+      { ...describeS3Error(error), key, action: "getObjectPrefix" },
+      "Не удалось прочитать префикс объекта для проверки сигнатуры",
+    );
     return null;
   }
 }
@@ -170,8 +241,15 @@ export function getDownloadUrl(
   fileName: string,
   download = false,
 ): Promise<string> {
-  // encodeURIComponent защищает заголовок от спецсимволов/юникода в имени файла.
-  const disposition = `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+  // encodeURIComponent защищает заголовок от спецсимволов и юникода в имени
+  // (в том числе от CR/LF), но оставляет `!'()*`, которых нет в `attr-char`
+  // RFC 5987. Апостроф особенно неудачен: на нём парсер режет charset и
+  // language, так что `it's.txt` давал формально невалидный заголовок.
+  const encodedName = encodeURIComponent(fileName).replace(
+    /['()*!]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  const disposition = `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodedName}`;
   const command = new GetObjectCommand({
     Bucket: BUCKET,
     Key: key,

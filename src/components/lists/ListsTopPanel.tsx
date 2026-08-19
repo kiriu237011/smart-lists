@@ -17,6 +17,7 @@ import React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import CollapseChevron from "@/components/ui/CollapseChevron";
+import Tooltip from "@/components/ui/Tooltip";
 
 /** Пропсы компонента `ListsTopPanel`. */
 type ListsTopPanelProps = {
@@ -143,18 +144,18 @@ export default function ListsTopPanel({
             остаются на своих местах, а её позиция не зависит от их числа.
             Зона нажатия расширена невидимым `::after` — сама кнопка размером с
             соседние иконки, но пальцем 28px не поймать. */}
-        <button
-          type="button"
-          data-testid="top-panel-toggle"
-          onClick={onToggleCollapse}
-          aria-label={collapseLabel}
-          title={collapseLabel}
-          aria-expanded={!isCollapsed}
-          aria-controls={PANEL_BODY_ID}
-          className="relative ml-auto inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-gray-500 transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
-        >
-          <CollapseChevron isCollapsed={isCollapsed} />
-        </button>
+        <Tooltip label={collapseLabel}>
+          <button
+            type="button"
+            data-testid="top-panel-toggle"
+            onClick={onToggleCollapse}
+            aria-expanded={!isCollapsed}
+            aria-controls={PANEL_BODY_ID}
+            className="relative ml-auto inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-gray-500 transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-gray-100 hover:text-gray-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
+          >
+            <CollapseChevron isCollapsed={isCollapsed} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Содержимое вкладки. В свёрнутом виде размонтируется, а не прячется

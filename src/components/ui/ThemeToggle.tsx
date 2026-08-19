@@ -3,8 +3,12 @@
 import * as React from "react";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useTranslations } from "next-intl";
+
+import Tooltip from "@/components/ui/Tooltip";
 
 export function ThemeToggle() {
+  const t = useTranslations("Common");
   // resolvedTheme содержит фактическую тему ("light"/"dark"), в отличие от theme,
   // который при defaultTheme="system" может быть равен "system" и ломать переключение.
   const { resolvedTheme, setTheme } = useTheme();
@@ -21,18 +25,22 @@ export function ThemeToggle() {
   }
 
   const isDark = resolvedTheme === "dark";
+  // Подпись называет тему, в которую переключит нажатие, а не текущую: иконка
+  // показывает состояние, а подсказка — результат действия.
+  const label = isDark ? t("themeLight") : t("themeDark");
 
   return (
-    <button
-      onClick={() => setTheme(isDark ? "light" : "dark")}
-      className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
-      aria-label="Toggle theme"
-    >
-      {isDark ? (
-        <Moon className="w-6 h-6 text-gray-200" />
-      ) : (
-        <Sun className="w-6 h-6 text-gray-700" />
-      )}
-    </button>
+    <Tooltip label={label}>
+      <button
+        onClick={() => setTheme(isDark ? "light" : "dark")}
+        className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+      >
+        {isDark ? (
+          <Moon className="w-6 h-6 text-gray-200" />
+        ) : (
+          <Sun className="w-6 h-6 text-gray-700" />
+        )}
+      </button>
+    </Tooltip>
   );
 }

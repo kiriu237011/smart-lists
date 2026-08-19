@@ -123,6 +123,11 @@ jobs:
     # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
 
+    # Здоровый прогон укладывается в 3 минуты. Потолок нужен не ради экономии,
+    # а чтобы зависший шаг падал сам: без него job ждёт отмены руками, а
+    # production migration ждёт его через `needs` и не получает отказа.
+    timeout-minutes: 15
+
     services:
       postgres:
         image: postgres:17
@@ -157,10 +162,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `--with-deps` объединяет два разных по надёжности действия: загрузку
+      # браузера с CDN Playwright и установку системных пакетов через apt.
+      # Зеркало Ubuntu в раннере периодически не отвечает, и тогда apt висит
+      # молча — 2026-08-19 так были потеряны два прогона подряд. Поэтому шаги
+      # разделены, и сеть apt больше не решает судьбу e2e.
+      #
+      # На образе ubuntu-24.04 из `--with-deps` реально доставляются только
+      # девять шрифтовых пакетов (`fonts-*`, `xfonts-*`): все библиотеки,
+      # нужные самому Chromium, в образе уже стоят. Скриншотных сравнений в
+      # E2E нет, тексты читаются из DOM, поэтому недостающий шрифт результат
+      # не меняет — шаг сделан необязательным осознанно.
+      - name: Install browser system dependencies
+        continue-on-error: true
+        timeout-minutes: 5
+        run: npx playwright install-deps chromium
+
       # Только Chromium: остальные браузеры проект не поддерживает отдельно,
       # а каждый добавляет минуты к прогону.
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: E2E tests
         run: npm run test:e2e

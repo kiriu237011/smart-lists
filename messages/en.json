@@ -23,6 +23,14 @@
     "hint": "Lists are stored only in this browser",
     "exit": "Exit"
   },
+  "Common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "scrollToTop": "Back to top",
+    "themeDark": "Dark theme",
+    "themeLight": "Light theme",
+    "showEmail": "Show email: {email}"
+  },
   "Home": {
     "greeting": "{name}",
     "signOut": "Sign out",
@@ -45,6 +53,7 @@
     "ariaRename": "Rename list {title}",
     "ariaDelete": "Delete list {title}",
     "ariaListActions": "Actions for list {title}",
+    "listActions": "List actions",
     "deleteListAction": "Delete list",
     "aiDisableAction": "Turn off AI for this list",
     "aiEnableAction": "Turn on AI for this list",
@@ -109,6 +118,7 @@
     "newGroupPlaceholder": "Name...",
     "ariaCreateGroup": "Create group",
     "ariaDeleteGroup": "Delete group {name}",
+    "deleteGroup": "Delete group",
     "ariaDragGroup": "Reorder group {name}, position {position} of {count}",
     "dragInstructions": "To pick up a group, press Space or Enter. Move it with the arrow keys. Press Space or Enter again to drop it, or Escape to cancel.",
     "dragStart": "Picked up group {name}.",
@@ -124,6 +134,7 @@
     "ariaRename": "Rename item {name}",
     "ariaDelete": "Delete item {name}",
     "ariaItemActions": "Actions for item {name}",
+    "itemActions": "Item actions",
     "moveUp": "Move up",
     "moveDown": "Move down",
     "deleteItemAction": "Delete item",
@@ -134,6 +145,8 @@
     "subItemsLabel": "Sub-items of {name}",
     "closeSubItemInput": "Close sub-item input",
     "ariaSubItemsToggle": "Show or hide sub-items of {name}",
+    "collapseSubItems": "Collapse sub-items",
+    "expandSubItems": "Expand sub-items",
     "ariaSubItemsCounter": "Sub-items completed: {done} of {total}",
     "moveToList": {
       "groupsTitle": "Select a group",
@@ -210,7 +223,7 @@
     "analyzing": "Analyzing...",
     "error": "Failed to get the insight",
     "rateLimitError": "Daily limit reached. Try again tomorrow.",
-    "privacyNotice": "The list content, including notes of everyone sharing it, is sent to Anthropic for analysis. Any member can turn this off in the list menu.",
+    "privacyNotice": "The list title, its items, notes of everyone sharing it, your group names and your question are sent to Anthropic for analysis. Any member can turn this off in the list menu.",
     "disabledError": "AI is turned off for this list",
     "notesContext": "Item notes sent: {included}; omitted: {omitted}."
   },
@@ -242,6 +255,7 @@
     "quotaReached": "File limit for this list reached ({max})",
     "ariaView": "Open file {name}",
     "ariaDelete": "Delete file {name}",
+    "deleteFile": "Delete file",
     "deleteModal": {
       "title": "Delete attachment?",
       "body": "Are you sure you want to delete the file \"{name}\"?",

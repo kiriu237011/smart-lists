@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 
 type AvatarButtonProps = {
   /** Первая буква имени / email для отображения в кружке */
@@ -16,6 +17,7 @@ type AvatarButtonProps = {
  * popup отображается только на экранах < 480 px.
  */
 export default function AvatarButton({ initial, email }: AvatarButtonProps) {
+  const t = useTranslations("Common");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -40,7 +42,7 @@ export default function AvatarButton({ initial, email }: AvatarButtonProps) {
       {/* Кружок с буквой — кликабелен только на мобильных (< 480px) */}
       <button
         type="button"
-        aria-label={`Показать email: ${email}`}
+        aria-label={t("showEmail", { email })}
         onClick={() => setOpen((prev) => !prev)}
         className="[@media(min-width:480px)]:cursor-default w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 font-semibold text-xs sm:text-base flex items-center justify-center uppercase focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
       >
