@@ -53,9 +53,13 @@ jobs:
           node-version: 24
           cache: npm
 
-      # postinstall выполняет `prisma generate` — без него не соберутся типы.
+      # --ignore-scripts: install-хуки зависимостей — главный вектор supply
+      # chain в npm. Они исполняются от самого факта установки, без единого
+      # импорта, и именно так доставлялась полезная нагрузка в axios 1.14.1
+      # (март 2026). Флаг гасит и наш собственный postinstall, поэтому
+      # `prisma generate` вызывается явно — без него не соберутся типы.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts && npx prisma generate
 
       - name: Lint
         run: npm run lint
@@ -109,8 +113,9 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Без install-хуков зависимостей — см. комментарий в job `checks`.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts && npx prisma generate
 
       - name: Integration tests under separated database roles
         run: npm run test:integration:roles
@@ -159,8 +164,9 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Без install-хуков зависимостей — см. комментарий в job `checks`.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts && npx prisma generate
 
       # `--with-deps` объединяет два разных по надёжности действия: загрузку
       # браузера с CDN Playwright и установку системных пакетов через apt.
@@ -268,10 +274,11 @@ jobs:
           node-version: 24
           cache: npm
 
-      # postinstall запускает prisma generate без доступа к БД. DIRECT_URL
-      # намеренно появляется только в guard и migration steps ниже.
+      # Без install-хуков зависимостей — см. комментарий в job `checks`.
+      # DIRECT_URL намеренно появляется только в guard и migration steps ниже,
+      # поэтому установка зависимостей идёт без доступа к боевой БД.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts && npx prisma generate
 
       - name: Verify database target
         env:
