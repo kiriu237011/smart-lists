@@ -59,6 +59,13 @@ describe("sync-preview workflow", () => {
     expect(installStep).not.toContain("DIRECT_URL");
   });
 
+  it("ограничивает job по времени, чтобы зависший раннер не держал лок", () => {
+    // Лок `concurrency` освобождается только вместе с job, поэтому дефолтные
+    // шесть часов останавливают не один прогон, а всю очередь синхронизации.
+    expect(workflow).toContain("concurrency:");
+    expect(workflow).toMatch(/^ {4}timeout-minutes: \d+$/m);
+  });
+
   it.each([
     "src/auth.ts",
     "src/app/api/auth",
