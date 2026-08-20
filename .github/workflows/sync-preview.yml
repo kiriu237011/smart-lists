@@ -24,6 +24,12 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     environment: preview
+    # Job держит лок `concurrency`, поэтому его зависание останавливает не один
+    # прогон, а всю дальнейшую синхронизацию proxy. 08-20 раннер потерял связь
+    # с сервером на шаге установки: job висел 45 минут, пока GitHub сам не счёл
+    # раннер потерянным, и всё это время следующая синхронизация ждала в очереди.
+    # Дефолтный потолок здесь — 6 часов, поэтому границу задаём явно.
+    timeout-minutes: 15
     # workflow_run выдаёт write-token и после PR-прогона, поэтому одного фильтра
     # branches недостаточно: принимаем только успешный push именно в main.
     if: >-
@@ -105,9 +111,13 @@ jobs:
           node-version: 24
           cache: npm
 
+      # `--ignore-scripts` обязателен именно здесь: это единственный job с
+      # write-token и боевым `DIRECT_URL`, а install-хуки исполняются от самого
+      # факта установки. `prisma generate` не вызывается — сгенерированный
+      # клиент не нужен ни `verify-release-database.mjs`, ни `migrate deploy`.
       - name: Install dependencies for Preview migration
         if: steps.merge.outputs.changed == 'true' && vars.ENABLE_PREVIEW_MIGRATION == 'true'
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Verify Preview database target
         if: steps.merge.outputs.changed == 'true' && vars.ENABLE_PREVIEW_MIGRATION == 'true'
