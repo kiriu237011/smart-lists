@@ -1,0 +1,57 @@
+name: Configure Preview Tenant RLS
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Exact Preview rollout transition
+        required: true
+        type: choice
+        options:
+          - enable-usage-canary
+          - rollback-usage-canary
+
+# Этот workflow намеренно не принимает Environment или произвольную группу:
+# один опубликованный main может изменить только первый canary в Preview.
+permissions:
+  contents: read
+
+# Общий с Sync Preview Proxy лок исключает одновременную Preview-миграцию.
+concurrency:
+  group: preview-database-change
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Install не получает DB secret и не исполняет lifecycle hooks.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify Preview database target
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+        run: node scripts/verify-release-database.mjs
+
+      - name: Apply exact Preview enforcement transition
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+          ENFORCEMENT_OPERATION: ${{ inputs.operation }}
+        run: >-
+          npm run db:configure-tenant-enforcement --
+          --apply
+          --operation="${ENFORCEMENT_OPERATION}"

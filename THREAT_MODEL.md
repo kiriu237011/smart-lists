@@ -27,8 +27,8 @@ audit Preview `32446720820`
   внешней инфраструктуры, отсутствие tenant-RLS и приватность
   свободного текста, отправляемого в Anthropic;
 - полный deployment-time разбор не выполнен: границы GitHub Actions рассмотрены
-  для бэкапов, автоматической синхронизации Preview OAuth proxy и пути образа
-  AI-сервиса до Cloud Run.
+  для бэкапов, автоматической синхронизации Preview OAuth proxy, Preview tenant-
+  enforcement и пути образа AI-сервиса до Cloud Run.
 
 **Независимая сверка 2026-08-11.** До чтения этого документа оба репозитория
 были заново проверены по OWASP Top 10:2025 и ASVS 5.0.0, включая потоки
@@ -195,6 +195,7 @@ FastAPI к базе не обращается: весь контекст соб�
 | TB7 | **пользователь A ↔ пользователь B** | `listInSpaceWhere`, вмерженный в Prisma `where` |
 | TB8 | GitHub Actions → S3 / прод | OIDC, `sub` привязан к `main`, роль только `s3:PutObject` |
 | TB9 | GitHub Actions → ветка `preview` → Vercel Preview | отдельный workflow без секретов; только успешный `push`-CI на `main`; merge ровно проверенного SHA; явный push только в `preview` |
+| TB10 | GitHub Actions → Neon Preview enforcement | только `main`, жёсткий Environment `preview`, exact-host guard, именованные однотабличные enable/rollback операции, полный catalog/role contract, транзакция и общий lock с Preview migration |
 
 **TB7 не изображена на диаграмме и не может быть.** Классический DFD рисует потоки между компонентами, а IDOR живёт внутри одного потока — между двумя запросами разных людей по одному ребру. Поэтому к DFD прилагается реестр активов ниже: без него целый класс угроз проваливается сквозь схему.
 
@@ -334,6 +335,17 @@ NOREPLICATION NOBYPASSRLS`, повышенной исходящей membership �
 совпали с контрактом. В catalog ровно 31 policy и 8 ожидаемых disabled guards;
 на 15 таблицах `rls_enabled=false`, `rls_forced=false`. Аудит закрыл
 инвентаризационный gate, но не является enforcement и не меняет оценку риска.
+
+**Первый write-gate подготовлен локально 2026-08-21.** Workflow не принимает
+Environment, таблицу или произвольный SQL: из `main` он может выбрать только
+enable/rollback `UserDailyUsage` в Environment `preview`. Configurator до
+изменения повторяет exact-host и operational-role проверки, сверяет полный
+catalog, принимает только полностью disabled либо точный usage-canary и меняет
+RLS вместе с column guard одной транзакцией под advisory lock. Общий
+`preview-database-change` lock исключает гонку с migration workflow. Реальная
+PostgreSQL 17 проверка доказала идемпотентность, отказ на частичном состоянии и
+полный rollback. Новый credential или внешний сервис не появились. Пока код не
+опубликован и workflow не применён в Preview, live-оценка риска не повышается.
 
 **GitHub Environments проверены 2026-08-12.** `Production` и `Preview`
 ограничены branch policy `main`; API подтверждает наличие в каждой двух
@@ -902,7 +914,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | ~~2.2~~ | ~~Versioning на бакете вложений~~ | Mitigate | ✅ **Сделано 2026-08-10** на обоих бакетах вложений. Lifecycle отличается от бэкапного одной строкой, и это существенно: у бэкапов `Expiration` текущих версий нужен, у пользовательских файлов он означал бы пропажу по расписанию — поэтому здесь ограничены только noncurrent-версии, 30 дней. Проверено учением на dev: удаление ключом приложения, delete marker, восстановление |
 | ~~2.3~~ | ~~Проверка `AllowedEmail` в `session` callback~~ | Mitigate | ✅ **Сделано 2026-08-10.** Проверка **и** очистка `Session`: одного отказа мало, cookie осталась бы валидной. Покрыто интеграционно (обе функции против живой БД) и E2E (отозванный пользователь оказывается на экране входа) |
 | ~~2.4~~ | ~~Строка в UI о передаче данных; флаг `aiEnabled` на списке~~ | Mitigate | ✅ **Сделано 2026-08-10, оба средства.** Строка закрывает осведомлённость, флаг — субъектность; одно другого не заменяет. Выключить может любой участник: владельческая проверка оставила бы человека, чьи данные уходят, без средств. Запрет проверяется в Action, а не только скрытием кнопки |
-| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Release, runtime, operational roles/backup, scoped ordinary tenant data plane и DB-объекты без enforcement завершены; код интегрирован с `main@e15d883`.** Глобальная quota и cross-space stale-cleanup проходят через две fail-closed owner-функции: DB-generated token, fixed `search_path`, повторная user/space/list проверка, минимальный `{token,key}`, точечный runtime EXECUTE и отсутствие PUBLIC/backup EXECUTE. `CLEANUP_PENDING` сохраняет metadata до результата S3; failure возвращает только свои токены, success/finalize безопасно повторяется. Приватная выборка AI-групп выполняется внутри `withSpaceDb`, а magic-bytes проверка вложений сохранена. Локально зелёные: 368 unit, 287 restricted-role integration, build и 118 E2E; main CI и обе live migrations успешны. Preview catalog audit `32446720820` совпал с контрактом. Policies/guards применены, но выключены, поэтому runtime пока сохраняет table-wide DML. Следующий шаг — первая малая группа tenant-RLS только в Preview |
+| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Release, runtime, operational roles/backup, scoped ordinary tenant data plane и DB-объекты без enforcement завершены; код интегрирован с `main@e15d883`.** Глобальная quota и cross-space stale-cleanup проходят через две fail-closed owner-функции: DB-generated token, fixed `search_path`, повторная user/space/list проверка, минимальный `{token,key}`, точечный runtime EXECUTE и отсутствие PUBLIC/backup EXECUTE. `CLEANUP_PENDING` сохраняет metadata до результата S3; failure возвращает только свои токены, success/finalize безопасно повторяется. Приватная выборка AI-групп выполняется внутри `withSpaceDb`, а magic-bytes проверка вложений сохранена. Локально зелёные: 389 unit, 287 restricted-role integration, build и 118 E2E; main CI и обе live migrations успешны. Preview catalog audit `32446720820` совпал с контрактом. Для первого `UserDailyUsage` canary локально готовы fail-closed Preview workflow, идемпотентный apply и rollback; policies/guards в live всё ещё выключены, поэтому runtime пока сохраняет table-wide DML. Следующий шаг — опубликовать механизм и после post-merge gate отдельно включить canary только в Preview |
 | ~~2.6~~ | ~~`USER` в `Dockerfile` сервиса~~ | Mitigate | ✅ **Сделано 2026-08-09.** `USER appuser`, uid 10001. Документ снова вправе считать это контролем — но не более чем сужением ущерба внутри контейнера (A25) |
 | ~~2.7~~ | ~~`openapi_url=None` при `debug=false`~~ | Mitigate | ✅ **Сделано 2026-08-09.** Схема больше не зависит от того, открыт сервис или нет |
 | ~~2.8~~ | ~~Включить Force TLS в приложении Pusher~~ | Mitigate | ✅ **Сделано 2026-08-09** в обоих приложениях, prod и dev. Гарантия перенесена с дефолта `pusher-js` на сервис |
@@ -947,7 +959,7 @@ design и release cutover; каждый следующий этап меняет
 | Квота на юзера (20 файлов) без row-lock | Косметический перебор на 1–2 файла, не cost abuse | Переход на квоту по сумме байт |
 | Ветку `production` можно удалить | Защита веток недоступна на `free_v3`. Компенсация не теоретическая: дампы защищены versioning и проверены на восстановимость 08-09 | Переход на платный тариф Neon — включить защиту сразу |
 | Токен `neonctl` на рабочей машине | Даёт ровно то же, что уже даёт браузерная сессия на том же ПК; удобство перевешивает при одном владельце | Появление второго человека за этой машиной; см. A12 |
-| Runtime credential до RLS имеет table-wide DML в разрешённых таблицах | DDL/ownership уже отозваны в обеих средах, но единая runtime-роль технически может читать и менять чужие строки там, где DML разрешён. Основным live-контролем остаются `listInSpaceWhere` и ownership-проверки приложения. Scoped data plane, общая access-функция, policies и column guards применены в обеих БД; Alice/Bob-тесты под restricted runtime прошли. Preview live audit `32446720820` подтвердил точный catalog, но пока RLS выключен, эти объекты не ограничивают direct table DML | **Mitigation in progress:** отдельными группами включить и проверить enforcement в Preview; Production только после полного go/no-go. Немедленный пересмотр при втором человеке с доступом к Vercel, снятии whitelist или появлении прямого SQL-пути из недоверенного ввода |
+| Runtime credential до RLS имеет table-wide DML в разрешённых таблицах | DDL/ownership уже отозваны в обеих средах, но единая runtime-роль технически может читать и менять чужие строки там, где DML разрешён. Основным live-контролем остаются `listInSpaceWhere` и ownership-проверки приложения. Scoped data plane, общая access-функция, policies и column guards применены в обеих БД; Alice/Bob-тесты под restricted runtime прошли. Preview live audit `32446720820` подтвердил точный catalog, а локальный `UserDailyUsage` configurator — точный apply/rollback и отказ на частичном состоянии. Пока RLS в live выключен, эти объекты не ограничивают direct table DML | **Mitigation in progress:** опубликовать подготовленный workflow, затем отдельно включить и проверить `UserDailyUsage` в Preview; Production только после полного go/no-go. Немедленный пересмотр при втором человеке с доступом к Vercel, снятии whitelist или появлении прямого SQL-пути из недоверенного ввода |
 | Исполнение кода в контейнере сервиса даёт доступ к Anthropic | A25. Токен живёт 10 минут, наружу не выносится и ограничен одним workspace. Альтернатива — вернуть статический ключ, то есть заменить трудную и короткую угрозу на лёгкую и бессрочную | Появление в сервисе пути, исполняющего пользовательский ввод; расширение прав федеративного токена за пределы одного workspace |
 | Непрерывное сканирование образов выключено | Artifact Registry Container Scanning — платная функция ($0.26 за образ), и включать её на частном приложении сейчас нечем оправдать. Компенсация: собственные зависимости чисты (0 открытых алертов Dependabot, 0 critical/high в `requirements.txt`), а grype в `deploy.yml` показывает дельту на каждой выкладке. Чего не хватает — видимости CVE, опубликованной **после** сборки: между выкладками об образе не знает никто | Выход в свет; рост интервала между выкладками; появление critical/high в собственных зависимостях |
 | Immutable tags в Artifact Registry не включены | Выкладка идёт по digest (A48), поэтому перезапись тега не может подменить работающее — единственный вектор закрыт другим способом. Immutable tags защищали бы только человеческую трассировку «SHA-тег → образ», а ценой был бы запрет на повторный запуск выкладки для того же коммита: сборка не байт-в-байт воспроизводима, и повторный push дал бы конфликт тега | Появление второго обладателя `artifactregistry.writer`; отказ от выкладки по digest |

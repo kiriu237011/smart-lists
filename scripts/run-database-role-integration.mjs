@@ -253,6 +253,44 @@ async function proveUnexpectedOwnerMemberRejected(
   }
 }
 
+async function proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl) {
+  const enforcementEnv = {
+    ...baseEnv,
+    DIRECT_URL: migratorDatabaseUrl,
+  };
+  const enableArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=enable-usage-canary",
+  ];
+  const rollbackArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=rollback-usage-canary",
+  ];
+
+  run(process.execPath, enableArgs, enforcementEnv);
+  run(process.execPath, enableArgs, enforcementEnv);
+
+  const client = new Client({ connectionString: migratorDatabaseUrl });
+  await client.connect();
+  try {
+    await client.query('ALTER TABLE public."Space" ENABLE ROW LEVEL SECURITY');
+    runExpectFailure(
+      process.execPath,
+      rollbackArgs,
+      enforcementEnv,
+      "не соответствует известному rollout-профилю",
+    );
+  } finally {
+    await client.query('ALTER TABLE public."Space" DISABLE ROW LEVEL SECURITY');
+    await client.end();
+  }
+
+  run(process.execPath, rollbackArgs, enforcementEnv);
+  run(process.execPath, rollbackArgs, enforcementEnv);
+}
+
 async function main() {
   assertLocalTestTarget();
   await createLocalOperationalAdmin(password());
@@ -331,6 +369,10 @@ async function main() {
     DIRECT_URL: migratorDatabaseUrl,
   });
 
+  // Первый rollout-гейт должен менять только usage-canary, быть
+  // идемпотентным, отвергать частичное состояние и полностью откатываться.
+  await proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl);
+
   run(
     process.execPath,
     [
@@ -386,6 +428,7 @@ async function main() {
     mode: "database-role-integration-passed",
     migrationsAsMigrator: "no-op",
     runtimeIntegration: "passed",
+    tenantEnforcementConfigurator: "passed",
     unexpectedOwnerMember: "rejected",
     backupRestore: "passed",
   }, null, 2));
