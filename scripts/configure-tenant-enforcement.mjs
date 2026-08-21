@@ -54,6 +54,8 @@ const GUARD_NAME = "app_tenant_update_columns_guard";
 const USAGE_POLICY_PREDICATE =
   '("userId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text))';
 const LIST_ACCESS_PREDICATE = "(app_list_access(id) IS NOT NULL)";
+const LIST_SELECT_PREDICATE =
+  '((("ownerId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND ("spaceId" = NULLIF(current_setting(\'app.space_id\'::text, true), \'\'::text))) OR (app_list_access(id) IS NOT NULL))';
 const ITEM_ACCESS_PREDICATE =
   '(app_list_access("listId") IS NOT NULL)';
 
@@ -68,7 +70,7 @@ const POLICY_PREDICATES = {
     DELETE: { qual: USAGE_POLICY_PREDICATE, withCheck: null },
   },
   List: {
-    SELECT: { qual: LIST_ACCESS_PREDICATE, withCheck: null },
+    SELECT: { qual: LIST_SELECT_PREDICATE, withCheck: null },
     INSERT: {
       qual: null,
       withCheck:
