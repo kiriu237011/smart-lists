@@ -9,6 +9,7 @@
     "db:audit-privileges": "node scripts/audit-database-privileges.mjs",
     "db:configure-operational-roles": "node scripts/configure-operational-roles.mjs",
     "db:configure-runtime-role": "node scripts/configure-runtime-role.mjs",
+    "db:configure-tenant-enforcement": "node scripts/configure-tenant-enforcement.mjs",
     "migrate:deploy": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",

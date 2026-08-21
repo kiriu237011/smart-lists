@@ -12,7 +12,7 @@ on:
 
 # Два успешных CI подряд не должны одновременно создавать merge-коммиты.
 concurrency:
-  group: sync-preview-proxy
+  group: preview-database-change
   cancel-in-progress: false
 
 # Это единственный обычный workflow с правом записи в репозиторий. Реальные

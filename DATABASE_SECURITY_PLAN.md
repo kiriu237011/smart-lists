@@ -1,8 +1,10 @@
 # План усиления доступа к PostgreSQL
 
 **Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
-guard объекты первого tenant-контура реализованы и локально проверены под
-restricted runtime, но RLS и guard-триггеры выключены; live-среды не менялись
+guard объекты первого tenant-контура применены в Preview и Production,
+проверены локально и прошли live catalog audit в Preview; Preview-only
+configurator первого `UserDailyUsage` canary готов и проверен локально, но live
+RLS и guard-триггеры ещё выключены
 **Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -110,6 +112,14 @@ database/schema/relation/type/routine ownership, эффективные прав
 RLS/policy catalog и состояние guard-триггеров. Connection string и строки
 данных не выводятся. Источник
 выбирается в порядке `AUDIT_DATABASE_URL`, `DIRECT_URL`, `DATABASE_URL`.
+
+`.github/workflows/audit-database.yml` запускает этот аудит вручную только с
+`main` для выбранного Environment `preview` или `Production`. Job имеет только
+`contents: read`; dependency install не получает DB secret и не исполняет
+install-hooks. Перед `BEGIN READ ONLY` тот же release guard сравнивает exact
+direct hostname с `EXPECTED_DATABASE_HOST`, а `AUDIT_ROLE=smartlists_runtime`
+выводит именно runtime attributes и ACL. Environment branch policy остаётся
+вторым независимым ограничением запуска.
 
 `npm run db:configure-runtime-role` по умолчанию показывает план. Реальное
 изменение требует аргумента `-- --apply` и трёх env-переменных:
@@ -550,6 +560,40 @@ owner/editor/stranger, защищённые колонки, перенос Item 
 После теста RLS/guards снова выключены; это доказательство policy-механики, а
 не разрешение на live enforcement.
 
+**Live apply 2026-08-21:** merge `e15d883` применил три накопленные additive-
+миграции в Production через CI run `32443454219` и в Preview через Sync Preview
+Proxy run `32443735539`. Оба target guard подтвердили direct endpoint; Prisma
+сообщил об успешном применении `20260821000000_add_tenant_rls_policies` вместе
+с двумя attachment maintenance migrations. Первая Production-попытка получила
+`P1001` до установления соединения с Neon; повтор той же job прошёл успешно.
+Это меняет live catalog, но не runtime enforcement: миграция не содержит
+`ENABLE/FORCE RLS`, а все восемь guard-триггеров созданы disabled.
+
+**Preview catalog gate 2026-08-21:** ручной workflow run `32446720820` от
+`main@613ea662` прошёл exact-host guard и `BEGIN READ ONLY`. Аудит подтвердил
+direct endpoint, безопасные атрибуты `smartlists_runtime`, отсутствие у неё
+membership в повышенной роли, DDL и доступа к migration metadata, точное
+совпадение DML-матрицы, 15 таблиц, 3 enum, 4 routines, 31 policy и 8 disabled
+guards. На всех таблицах `rls_enabled=false` и `rls_forced=false`. Это закрывает
+gate инвентаризации, но не повышает live security status: следующий отдельный
+шаг — подготовить и включить первую малую связанную группу enforcement только
+в Preview с заранее подготовленным откатом и отрицательной проверкой.
+
+**Первый enforcement-canary подготовлен локально 2026-08-21:** выбрана только
+`UserDailyUsage`, потому что её policy зависит от одного `app.user_id` и не
+затрагивает sharing/space-граф. Новый fail-closed configurator принимает ровно
+`enable-usage-canary` или `rollback-usage-canary`, до DDL сверяет direct
+endpoint, migrator/owner boundary, runtime ACL и полный catalog, а RLS и
+column guard меняет одной транзакцией под advisory lock. Частичное или
+неизвестное состояние отклоняется. Workflow жёстко привязан к `main` и GitHub
+Environment `preview`, не принимает имя Environment или таблицы и разделяет
+concurrency lock с Preview migration. Локальный PostgreSQL 17 подтвердил
+enable/повторный enable, fail-closed отказ на частичном профиле,
+rollback/повторный rollback и возврат к полностью disabled состоянию; полный
+restricted-role suite сохранил 287 зелёных DB-тестов и backup/restore. Это
+готовый механизм отката, а не live-контроль: workflow ещё не опубликован и в
+Preview не запускался.
+
 ## Модели вне первого RLS-контура
 
 | Таблицы | Решение первого цикла |
@@ -643,12 +687,17 @@ AI-сервиса расходует зарезервированную попы
    фазы AI insights, attachments, ListGroup lifecycle/membership, List
    lifecycle, sharing lifecycle, note/item lifecycle и movement реализованы и
    локально проверены.
-5. **DB-объекты без enforcement — локально завершены.** Attachment helpers,
-   общая access-функция, policies, disabled column guards, exact catalog
-   contract и отрицательные Alice/Bob тесты готовы; live RLS не включён.
-6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
-   полного go/no-go — production. Таблицы включаются небольшими связанными
-   группами, а не одним большим переключателем.
+5. **DB-объекты без enforcement — применены и проверены 2026-08-21.** Attachment helpers,
+   общая access-функция, policies и disabled column guards находятся в Preview
+   и Production; exact catalog contract и отрицательные Alice/Bob тесты
+   зелёные. Preview live catalog audit `32446720820` совпал с контрактом. Live
+   RLS не включён.
+6. **Enforcement — локальный gate первого canary готов.** Configurator и
+   Preview-only workflow для `UserDailyUsage` прошли integration DB; следующий
+   отдельный шаг — публикация, post-merge CI и только затем ручной apply в
+   Preview. Production остаётся вне этого workflow и потребует полного
+   Preview go/no-go. Таблицы включаются небольшими связанными группами, а не
+   одним большим переключателем.
 7. **Проверка после включения.** Аудит атрибутов ролей, policy catalog,
    отрицательные cross-user тесты, метрики ошибок и повторный threat impact-
    check.

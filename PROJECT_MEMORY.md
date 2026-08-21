@@ -2,9 +2,9 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-21 (первый tenant policy-контур и disabled
-column guards реализованы и локально проверены под restricted runtime; live-
-среды, RLS и guard enforcement не менялись)
+**Последнее обновление:** 2026-08-21 (первый tenant policy-контур применён в
+Preview и Production и прошёл read-only live audit в Preview; RLS и guard
+enforcement не включены)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -50,7 +50,8 @@ Smart Lists — локализованное веб-приложение для 
 - `next.config.ts` — next-intl и security headers;
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
 - `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
-  синхронизация Preview OAuth proxy и ежедневный бэкап БД в S3;
+  ручной read-only аудит catalog, синхронизация Preview OAuth proxy и ежедневный
+  бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
 - `DATABASE_SECURITY_PLAN.md` — staged-план Postgres least privilege и
@@ -74,6 +75,26 @@ Smart Lists — локализованное веб-приложение для 
   tenant-таблицах и восемь update guards. RLS остаётся disabled, как и triggers:
   включение — отдельный Preview/Production gate. Exact policy/trigger/routine
   inventory закреплён в role configurators и выводится read-only аудитом.
+- 2026-08-21 миграция применена release-контурами в Preview и Production.
+  Это только подготовка catalog: RLS и восемь guard-триггеров остались
+  выключены, поэтому прикладное поведение и текущая изоляция не изменились.
+- Повторяемый live-аудит выполняется вручную workflow
+  `.github/workflows/audit-database.yml`: только `main`, выбранный GitHub
+  Environment, exact-host guard и `BEGIN READ ONLY`. Dependency install не
+  получает secret; вывод содержит catalog и runtime ACL, но не строки данных
+  или connection URL.
+- Preview run `32446720820` от `main@613ea662` подтвердил direct endpoint,
+  безопасные атрибуты и точный ACL runtime-роли, 15 таблиц, 3 enum, 4 routines,
+  31 policy, 8 disabled guards и отсутствие `ENABLE/FORCE RLS`. Catalog gate
+  закрыт; это не включило DB-изоляцию строк.
+- Первый Preview-only enforcement-canary подготовлен для одной таблицы
+  `UserDailyUsage`. Fail-closed configurator принимает только именованные
+  enable/rollback операции, сверяет direct endpoint, operational-role boundary,
+  ACL и полный catalog, меняет RLS вместе с guard одной транзакцией и отвергает
+  частичные профили. Workflow жёстко использует Environment `preview`, только
+  `main` и общий с Preview migration concurrency lock. Локальная PostgreSQL 17
+  проверка доказала идемпотентные enable/rollback и возврат к disabled; live
+  Preview ещё не менялся.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -174,11 +195,11 @@ Smart Lists — локализованное веб-приложение для 
   `src/app/actions/index.ts` удалён, allowlist сократился с 6 до 5 файлов, а
   per-action guard защищает 22 функции.
 - Обычный production tenant data plane теперь использует scoped API, а
-  специальный глобальный attachment-поток локально переведён на fail-closed
-  helper. До RLS enforcement остаются policies и отрицательные проверки самих
-  policies. RLS пока выключен, поэтому live-изоляцию по-прежнему обеспечивают
-  прикладные проверки; helper закрывает blocker, но сам по себе ещё не
-  превращает scoped GUC в DB-level изоляцию строк.
+  специальный глобальный attachment-поток переведён на fail-closed helper.
+  Policies и column guards уже находятся в обеих live-БД, но RLS и triggers
+  выключены. Поэтому live-изоляцию по-прежнему обеспечивают прикладные
+  проверки; read-only catalog gate Preview пройден, следующий шаг — первая
+  малая enforcement-группа только в Preview.
 
 ### Авторизация
 
@@ -982,6 +1003,15 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-21: PR №103 слит в `main` как `e15d883`. Production CI run
+  `32443454219` и Preview sync run `32443735539` прошли target guards и
+  применили attachment maintenance плюс tenant policy migration. Первая
+  Production-попытка завершилась `P1001` до соединения с Neon; безопасный retry
+  той же job успешен. В обеих БД теперь есть helper, 31 policy и восемь disabled
+  guards, но `ENABLE/FORCE RLS` не выполнялся. Security status поэтому не
+  повышен: runtime всё ещё имеет table-wide DML в рамках ACL. Read-only Preview
+  catalog audit `32446720820` от `main@613ea662` подтвердил точный контракт;
+  следующий этап — малые enforcement-группы только в Preview.
 - 2026-08-21: локальная scoped-ветка повторно собрана от `main@f489eec` после
   расхождения историй. В `getListInsight` персональные группы вызывающего
   выбираются внутри подтверждённого `withSpaceDb`; attachment flow одновременно

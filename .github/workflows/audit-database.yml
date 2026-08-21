@@ -1,0 +1,56 @@
+name: Audit Database Catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment and database target
+        required: true
+        type: choice
+        options:
+          - preview
+          - Production
+
+# Audit читает только код проверенного main. Доступ к БД ограничен выбранным
+# GitHub Environment; его branch policy остаётся независимым вторым барьером.
+permissions:
+  contents: read
+
+concurrency:
+  group: database-catalog-audit-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Install-hooks не исполняются, а DB secret этому шагу не передаётся.
+      # Prisma Client не нужен: audit использует только `pg` и системные каталоги.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify database target
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+        run: node scripts/verify-release-database.mjs
+
+      # Скрипт сам открывает BEGIN READ ONLY, не читает строки приложения и не
+      # выводит connection string. AUDIT_ROLE выбирает runtime для ACL/attributes,
+      # хотя подключение выполняется защищённой migrator-ролью Environment.
+      - name: Audit database catalog
+        env:
+          AUDIT_DATABASE_URL: ${{ secrets.DIRECT_URL }}
+          AUDIT_ROLE: smartlists_runtime
+        run: npm run db:audit-privileges
