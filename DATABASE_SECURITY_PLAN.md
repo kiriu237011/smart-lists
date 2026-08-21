@@ -4,7 +4,8 @@
 guard объекты первого tenant-контура применены в Preview и Production,
 проверены локально и прошли live catalog audit в Preview; Preview-only
 `UserDailyUsage` canary включён и проверен в live Preview; Production и
-остальные семь tenant-таблиц Preview пока остаются без enforcement
+остальные семь tenant-таблиц Preview пока остаются без enforcement; следующий
+профиль `List + Item` подготовлен и проверен только локально
 **Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -607,6 +608,20 @@ endpoint `d95cc95b87c7` увидел ровно один `rls_enabled=true` и �
 остались disabled, `relforcerowsecurity=false` везде. Rollback остаётся
 именованной операцией `rollback-usage-canary` того же workflow.
 
+**Профиль `List + Item` подготовлен локально 2026-08-21:** configurator теперь
+разрешает только линейный переход `usage-canary → list-item` и обратный
+`list-item → usage-canary`; перепрыгнуть профиль или передать произвольную
+таблицу нельзя. Перед DDL он дополнительно сверяет точные predicates `List`,
+`Item`, `UserDailyUsage`, атрибуты, ACL и SHA-256 тел `app_list_access` и
+`app_enforce_tenant_update_columns`. Role-suite доказал идемпотентные переходы,
+отказ при подмене helper/policy и частичном catalog, затем полный rollback.
+Отдельный partial-profile тест под restricted runtime проверил нефильтрованные
+чтения и реальные Server Actions: editor может добавить `Item` в расшаренный
+список, но не переименовать чужой `List`, владелец сохраняет rename. Всего
+зелёные 21 integration-файл/289 DB-тестов и backup/restore. Live Preview и
+Production этой подготовкой не менялись; security posture остаётся прежним до
+отдельного apply и postcondition-аудита.
+
 ## Модели вне первого RLS-контура
 
 | Таблицы | Решение первого цикла |
@@ -709,11 +724,12 @@ AI-сервиса расходует зарезервированную попы
 6. **Enforcement — первый Preview canary включён.** `UserDailyUsage` прошёл
    локальный integration gate, post-merge CI, транзакционный live apply,
    пользовательский CRUD smoke и независимый read-only audit. Production
-   остаётся без enforcement. Следующая таблица или связанная группа требует
-   нового design/rollback gate; таблицы не включаются одним переключателем.
+   остаётся без enforcement. Следующий профиль `List + Item` уже прошёл
+   локальный design/rollback gate, но ещё не опубликован и не включён live.
 7. **Проверка после включения — выполнена для первого canary.** Role/catalog
    audit, функциональный smoke и повторный threat impact-check пройдены.
-   Наблюдение за ошибками продолжается до выбора следующей группы.
+   Для `List + Item` те же live-проверки начнутся только после отдельного
+   Preview go/no-go.
 
 Каждая миграция должна быть совместима и со старой, и с новой версией
 приложения. RLS включается только после ухода старых инстансов, которые ещё не

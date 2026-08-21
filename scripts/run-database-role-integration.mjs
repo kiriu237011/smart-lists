@@ -268,17 +268,63 @@ async function proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl) 
     "--apply",
     "--operation=rollback-usage-canary",
   ];
+  const enableListItemArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=enable-list-item",
+  ];
+  const rollbackListItemArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=rollback-list-item",
+  ];
 
   run(process.execPath, enableArgs, enforcementEnv);
   run(process.execPath, enableArgs, enforcementEnv);
+  run(process.execPath, enableListItemArgs, enforcementEnv);
+  run(process.execPath, enableListItemArgs, enforcementEnv);
+
+  runExpectFailure(
+    process.execPath,
+    rollbackArgs,
+    enforcementEnv,
+    "запрещена из профиля list-item",
+  );
 
   const client = new Client({ connectionString: migratorDatabaseUrl });
   await client.connect();
   try {
+    await client.query(
+      'ALTER FUNCTION public.app_list_access(text) VOLATILE',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackListItemArgs,
+      enforcementEnv,
+      "Routine app_list_access(text) не соответствует enforcement contract",
+    );
+    await client.query(
+      'ALTER FUNCTION public.app_list_access(text) STABLE',
+    );
+
+    await client.query(
+      'ALTER POLICY app_item_select ON public."Item" USING (true)',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackListItemArgs,
+      enforcementEnv,
+      "Item SELECT policy predicate не совпадает",
+    );
+    await client.query(
+      'ALTER POLICY app_item_select ON public."Item" ' +
+        'USING (public.app_list_access("listId") IS NOT NULL)',
+    );
+
     await client.query('ALTER TABLE public."Space" ENABLE ROW LEVEL SECURITY');
     runExpectFailure(
       process.execPath,
-      rollbackArgs,
+      rollbackListItemArgs,
       enforcementEnv,
       "не соответствует известному rollout-профилю",
     );
@@ -287,6 +333,8 @@ async function proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl) 
     await client.end();
   }
 
+  run(process.execPath, rollbackListItemArgs, enforcementEnv);
+  run(process.execPath, rollbackListItemArgs, enforcementEnv);
   run(process.execPath, rollbackArgs, enforcementEnv);
   run(process.execPath, rollbackArgs, enforcementEnv);
 }
@@ -369,8 +417,8 @@ async function main() {
     DIRECT_URL: migratorDatabaseUrl,
   });
 
-  // Первый rollout-гейт должен менять только usage-canary, быть
-  // идемпотентным, отвергать частичное состояние и полностью откатываться.
+  // Rollout-гейт проходит disabled -> usage-canary -> list-item и обратно,
+  // идемпотентен и отвергает подменённые helper/policy и частичный профиль.
   await proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl);
 
   run(

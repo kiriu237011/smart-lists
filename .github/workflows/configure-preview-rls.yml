@@ -10,9 +10,12 @@ on:
         options:
           - enable-usage-canary
           - rollback-usage-canary
+          - enable-list-item
+          - rollback-list-item
 
 # Этот workflow намеренно не принимает Environment или произвольную группу:
-# один опубликованный main может изменить только первый canary в Preview.
+# опубликованный main может выполнить только именованный переход между
+# заранее проверенными rollout-профилями Preview.
 permissions:
   contents: read
 
