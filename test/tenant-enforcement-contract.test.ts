@@ -23,7 +23,7 @@ describe("tenant enforcement contract", () => {
     expect(result.stderr).toContain("Неизвестная enforcement operation");
   });
 
-  it("принимает только две именованные операции и явный apply", () => {
+  it("принимает только четыре именованные операции и явный apply", () => {
     expect(
       parseEnforcementArguments([
         "--apply",
@@ -33,6 +33,12 @@ describe("tenant enforcement contract", () => {
     expect(
       parseEnforcementArguments(["--operation=rollback-usage-canary"]),
     ).toEqual({ apply: false, operation: "rollback-usage-canary" });
+    expect(
+      parseEnforcementArguments(["--operation=enable-list-item"]),
+    ).toEqual({ apply: false, operation: "enable-list-item" });
+    expect(
+      parseEnforcementArguments(["--operation=rollback-list-item"]),
+    ).toEqual({ apply: false, operation: "rollback-list-item" });
 
     expect(() => parseEnforcementArguments([])).toThrow("ровно один");
     expect(() =>
@@ -46,11 +52,17 @@ describe("tenant enforcement contract", () => {
     ).toThrow("Неизвестные аргументы");
   });
 
-  it("распознаёт только disabled и однотабличный usage-canary", () => {
+  it("распознаёт только три последовательных rollout-профиля", () => {
     expect(identifyEnforcementProfile([], [])).toBe("disabled");
     expect(
       identifyEnforcementProfile(["UserDailyUsage"], ["UserDailyUsage"]),
     ).toBe("usage-canary");
+    expect(
+      identifyEnforcementProfile(
+        ["Item", "List", "UserDailyUsage"],
+        ["UserDailyUsage", "List", "Item"],
+      ),
+    ).toBe("list-item");
 
     expect(() => identifyEnforcementProfile(["Space"], ["Space"])).toThrow(
       "не соответствует известному rollout-профилю",
@@ -58,9 +70,15 @@ describe("tenant enforcement contract", () => {
     expect(() =>
       identifyEnforcementProfile(["UserDailyUsage"], []),
     ).toThrow("не соответствует известному rollout-профилю");
+    expect(() =>
+      identifyEnforcementProfile(
+        ["UserDailyUsage", "List", "Item"],
+        ["UserDailyUsage", "List"],
+      ),
+    ).toThrow("не соответствует известному rollout-профилю");
   });
 
-  it("делает enable и rollback идемпотентными, не расширяя группу", () => {
+  it("делает линейные enable/rollback идемпотентными, не перепрыгивая профили", () => {
     expect(resolveEnforcementTransition("enable-usage-canary", "disabled"))
       .toEqual({
         targetProfile: "usage-canary",
@@ -75,5 +93,29 @@ describe("tenant enforcement contract", () => {
     ).toEqual({ targetProfile: "disabled", changed: true, tables: [] });
     expect(resolveEnforcementTransition("rollback-usage-canary", "disabled"))
       .toMatchObject({ targetProfile: "disabled", changed: false });
+
+    expect(resolveEnforcementTransition("enable-list-item", "usage-canary"))
+      .toEqual({
+        targetProfile: "list-item",
+        changed: true,
+        tables: ["UserDailyUsage", "List", "Item"],
+      });
+    expect(resolveEnforcementTransition("enable-list-item", "list-item"))
+      .toMatchObject({ targetProfile: "list-item", changed: false });
+    expect(resolveEnforcementTransition("rollback-list-item", "list-item"))
+      .toEqual({
+        targetProfile: "usage-canary",
+        changed: true,
+        tables: ["UserDailyUsage"],
+      });
+    expect(resolveEnforcementTransition("rollback-list-item", "usage-canary"))
+      .toMatchObject({ targetProfile: "usage-canary", changed: false });
+
+    expect(() =>
+      resolveEnforcementTransition("enable-list-item", "disabled"),
+    ).toThrow("запрещена из профиля disabled");
+    expect(() =>
+      resolveEnforcementTransition("rollback-usage-canary", "list-item"),
+    ).toThrow("запрещена из профиля list-item");
   });
 });

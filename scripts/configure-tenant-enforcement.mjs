@@ -35,15 +35,98 @@ export const ENFORCEMENT_OPERATIONS = {
     allowedProfiles: ["usage-canary", "disabled"],
     targetProfile: "disabled",
   },
+  "enable-list-item": {
+    allowedProfiles: ["usage-canary", "list-item"],
+    targetProfile: "list-item",
+  },
+  "rollback-list-item": {
+    allowedProfiles: ["list-item", "usage-canary"],
+    targetProfile: "usage-canary",
+  },
 };
 
 const PROFILE_TABLES = {
   disabled: [],
   "usage-canary": ["UserDailyUsage"],
+  "list-item": ["UserDailyUsage", "List", "Item"],
 };
 const GUARD_NAME = "app_tenant_update_columns_guard";
 const USAGE_POLICY_PREDICATE =
   '("userId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text))';
+const LIST_ACCESS_PREDICATE = "(app_list_access(id) IS NOT NULL)";
+const LIST_SELECT_PREDICATE =
+  '((("ownerId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND ("spaceId" = NULLIF(current_setting(\'app.space_id\'::text, true), \'\'::text))) OR (app_list_access(id) IS NOT NULL))';
+const ITEM_ACCESS_PREDICATE =
+  '(app_list_access("listId") IS NOT NULL)';
+
+const POLICY_PREDICATES = {
+  UserDailyUsage: {
+    SELECT: { qual: USAGE_POLICY_PREDICATE, withCheck: null },
+    INSERT: { qual: null, withCheck: USAGE_POLICY_PREDICATE },
+    UPDATE: {
+      qual: USAGE_POLICY_PREDICATE,
+      withCheck: USAGE_POLICY_PREDICATE,
+    },
+    DELETE: { qual: USAGE_POLICY_PREDICATE, withCheck: null },
+  },
+  List: {
+    SELECT: { qual: LIST_SELECT_PREDICATE, withCheck: null },
+    INSERT: {
+      qual: null,
+      withCheck:
+        '(("ownerId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND ("spaceId" = NULLIF(current_setting(\'app.space_id\'::text, true), \'\'::text)))',
+    },
+    UPDATE: {
+      qual: LIST_ACCESS_PREDICATE,
+      withCheck: LIST_ACCESS_PREDICATE,
+    },
+    DELETE: {
+      qual: "(app_list_access(id) = 'OWNER'::text)",
+      withCheck: null,
+    },
+  },
+  Item: {
+    SELECT: { qual: ITEM_ACCESS_PREDICATE, withCheck: null },
+    INSERT: {
+      qual: null,
+      withCheck:
+        '((app_list_access("listId") IS NOT NULL) AND ("addedById" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)))',
+    },
+    UPDATE: {
+      qual: ITEM_ACCESS_PREDICATE,
+      withCheck: ITEM_ACCESS_PREDICATE,
+    },
+    DELETE: { qual: ITEM_ACCESS_PREDICATE, withCheck: null },
+  },
+};
+
+// Хешируется pg_proc.prosrc, а не форматированный pg_get_functiondef: так
+// контракт не зависит от косметического форматирования конкретной версии
+// PostgreSQL, но отклоняет любое изменение исполняемого тела helper/guard.
+const ROUTINE_CONTRACTS = {
+  "app_enforce_tenant_update_columns()": {
+    language: "plpgsql",
+    securityDefiner: false,
+    volatility: "v",
+    config: ["search_path=pg_catalog"],
+    result: "trigger",
+    sourceSha256:
+      "a21b076c0e869d5b2c88db06bb62f195871da0bdba52972b2248dfd528cd2f50",
+    runtimeExecute: false,
+    publicExecute: false,
+  },
+  "app_list_access(text)": {
+    language: "sql",
+    securityDefiner: true,
+    volatility: "s",
+    config: ["search_path=pg_catalog"],
+    result: "text",
+    sourceSha256:
+      "58881094ae21d97efbfcec950ee2b0a6461a25764f35c7bc2b3a940b25e2723f",
+    runtimeExecute: true,
+    publicExecute: false,
+  },
+};
 
 function sorted(values) {
   return [...values].sort((left, right) => left.localeCompare(right));
@@ -197,16 +280,33 @@ async function queryCatalog(client) {
      ORDER BY relation.relname`,
     [DATABASE_ROLES.runtime, ALL_TABLE_PRIVILEGES],
   );
-  const routines = await client.query(`
+  const routines = await client.query(
+    `
     SELECT CASE routine.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS kind,
            routine.proname AS name,
            pg_get_function_identity_arguments(routine.oid) AS arguments,
-           pg_get_userbyid(routine.proowner) AS owner
+           pg_get_userbyid(routine.proowner) AS owner,
+           language.lanname AS language,
+           routine.prosecdef AS security_definer,
+           routine.provolatile AS volatility,
+           routine.proconfig AS config,
+           pg_get_function_result(routine.oid) AS result,
+           routine.prosrc AS source,
+           has_function_privilege($1, routine.oid, 'EXECUTE') AS runtime_execute,
+           COALESCE((
+             SELECT bool_or(acl.grantee = 0 AND acl.privilege_type = 'EXECUTE')
+             FROM aclexplode(
+               COALESCE(routine.proacl, acldefault('f', routine.proowner))
+             ) AS acl
+           ), false) AS public_execute
     FROM pg_proc routine
     JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+    JOIN pg_language language ON language.oid = routine.prolang
     WHERE namespace.nspname = 'public'
     ORDER BY name, arguments
-  `);
+  `,
+    [DATABASE_ROLES.runtime],
+  );
   const policies = await client.query(`
     SELECT format(
              '%s:%s:%s:%s:%s',
@@ -248,33 +348,52 @@ async function queryCatalog(client) {
   };
 }
 
-function assertUsagePolicies(policies) {
-  const usagePolicies = policies.filter(
-    (policy) => policy.tablename === "UserDailyUsage",
-  );
-  const byCommand = Object.fromEntries(
-    usagePolicies.map((policy) => [policy.cmd, policy]),
-  );
+function assertPolicyPredicates(policies) {
+  for (const [table, commands] of Object.entries(POLICY_PREDICATES)) {
+    const tablePolicies = policies.filter(
+      (policy) => policy.tablename === table,
+    );
+    const byCommand = Object.fromEntries(
+      tablePolicies.map((policy) => [policy.cmd, policy]),
+    );
 
-  for (const command of ["SELECT", "DELETE"]) {
-    if (
-      byCommand[command]?.qual !== USAGE_POLICY_PREDICATE ||
-      byCommand[command]?.with_check !== null
-    ) {
-      throw new Error(`UserDailyUsage ${command} policy predicate не совпадает.`);
+    for (const [command, expected] of Object.entries(commands)) {
+      const actual = byCommand[command];
+      if (
+        actual?.qual !== expected.qual ||
+        actual?.with_check !== expected.withCheck
+      ) {
+        throw new Error(`${table} ${command} policy predicate не совпадает.`);
+      }
     }
   }
-  if (
-    byCommand.INSERT?.qual !== null ||
-    byCommand.INSERT?.with_check !== USAGE_POLICY_PREDICATE
-  ) {
-    throw new Error("UserDailyUsage INSERT policy predicate не совпадает.");
-  }
-  if (
-    byCommand.UPDATE?.qual !== USAGE_POLICY_PREDICATE ||
-    byCommand.UPDATE?.with_check !== USAGE_POLICY_PREDICATE
-  ) {
-    throw new Error("UserDailyUsage UPDATE policy predicate не совпадает.");
+}
+
+function assertRoutineContracts(routines) {
+  const bySignature = Object.fromEntries(
+    routines.map((routine) => [
+      `${routine.name}(${routine.arguments})`,
+      routine,
+    ]),
+  );
+
+  for (const [signature, expected] of Object.entries(ROUTINE_CONTRACTS)) {
+    const actual = bySignature[signature];
+    const sourceSha256 = actual?.source
+      ? createHash("sha256").update(actual.source).digest("hex")
+      : null;
+    if (
+      actual?.language !== expected.language ||
+      actual?.security_definer !== expected.securityDefiner ||
+      actual?.volatility !== expected.volatility ||
+      JSON.stringify(actual?.config ?? []) !== JSON.stringify(expected.config) ||
+      actual?.result !== expected.result ||
+      sourceSha256 !== expected.sourceSha256 ||
+      actual?.runtime_execute !== expected.runtimeExecute ||
+      actual?.public_execute !== expected.publicExecute
+    ) {
+      throw new Error(`Routine ${signature} не соответствует enforcement contract.`);
+    }
   }
 }
 
@@ -354,12 +473,13 @@ function assertCatalog(catalog) {
   if (catalog.routines.some((routine) => routine.owner !== DATABASE_ROLES.owner)) {
     throw new Error("Routine ownership does not match the contract.");
   }
+  assertRoutineContracts(catalog.routines);
   assertSameValues(
     catalog.policies.map((policy) => policy.signature),
     EXPECTED_POLICIES,
     "Policies public",
   );
-  assertUsagePolicies(catalog.policies);
+  assertPolicyPredicates(catalog.policies);
 
   const expectedTriggerDefinitions = EXPECTED_TRIGGERS.map((trigger) =>
     trigger.split(":").slice(0, 3).join(":"),

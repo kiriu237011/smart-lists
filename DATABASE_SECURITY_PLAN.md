@@ -3,14 +3,17 @@
 **Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
 guard объекты первого tenant-контура применены в Preview и Production,
 проверены локально и прошли live catalog audit в Preview; Preview-only
-configurator первого `UserDailyUsage` canary готов и проверен локально, но live
-RLS и guard-триггеры ещё выключены
+`UserDailyUsage` canary включён и проверен в live Preview; Production и
+остальные семь tenant-таблиц Preview пока остаются без enforcement; первый
+apply `List + Item` откатан после регрессии `createList`, исправление проходит
+повторный release gate
 **Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
 матрицу доступа и безопасный порядок внедрения. Текущее состояние приложения
 по-прежнему описывает `THREAT_MODEL.md`: сейчас изоляцию обеспечивают Auth.js,
-`listInSpaceWhere` и проверки Server Actions, а RLS в базе не включён.
+`listInSpaceWhere` и проверки Server Actions; дополнительный RLS-слой работает
+только для `UserDailyUsage` в Preview.
 
 ## Цель и границы
 
@@ -591,8 +594,50 @@ concurrency lock с Preview migration. Локальный PostgreSQL 17 подт
 enable/повторный enable, fail-closed отказ на частичном профиле,
 rollback/повторный rollback и возврат к полностью disabled состоянию; полный
 restricted-role suite сохранил 287 зелёных DB-тестов и backup/restore. Это
-готовый механизм отката, а не live-контроль: workflow ещё не опубликован и в
-Preview не запускался.
+готовый механизм отката; до отдельного live go/no-go контроль не учитывался в
+security posture.
+
+**Preview usage-canary включён 2026-08-21:** PR №107 merged в
+`main@35e8049`, post-merge CI run `32450657827`, Production no-op migration и
+Sync Preview Proxy run `32450869155` прошли успешно. Ручной workflow
+`32451253175` подтвердил переход `disabled → usage-canary`: RLS и column guard
+включены только на `UserDailyUsage`, `FORCE RLS` остался выключен. Пользователь
+прошёл авторизованный CRUD smoke в постоянном Preview deployment; поведение и
+логи без ошибок. Независимый `BEGIN READ ONLY` audit `32452107430` на direct
+endpoint `d95cc95b87c7` увидел ровно один `rls_enabled=true` и один trigger
+`enabled=O`, оба на `UserDailyUsage`; остальные семь tenant-таблиц и guards
+остались disabled, `relforcerowsecurity=false` везде. Rollback остаётся
+именованной операцией `rollback-usage-canary` того же workflow.
+
+**Профиль `List + Item` подготовлен 2026-08-21:** configurator теперь
+разрешает только линейный переход `usage-canary → list-item` и обратный
+`list-item → usage-canary`; перепрыгнуть профиль или передать произвольную
+таблицу нельзя. Перед DDL он дополнительно сверяет точные predicates `List`,
+`Item`, `UserDailyUsage`, атрибуты, ACL и SHA-256 тел `app_list_access` и
+`app_enforce_tenant_update_columns`. Role-suite доказал идемпотентные переходы,
+отказ при подмене helper/policy и частичном catalog, затем полный rollback.
+Отдельный partial-profile тест под restricted runtime проверил нефильтрованные
+чтения и реальные Server Actions: editor может добавить `Item` в расшаренный
+список, но не переименовать чужой `List`, владелец сохраняет rename. Всего
+зелёные 21 integration-файл/289 DB-тестов и backup/restore.
+
+**Первый Preview apply откатан 2026-08-21:** PR №109 merged в
+`main@76dfd2b`; post-merge CI, Production no-op migration, Vercel и Sync Preview
+Proxy прошли. Workflow `32459870529` выполнил `usage-canary → list-item`, а
+read-only audit `32459969470` подтвердил ожидаемые RLS/guards только на
+`UserDailyUsage`, `List`, `Item`. Ручной smoke затем обнаружил отказ создания
+списка: Prisma `INSERT … RETURNING` получил PostgreSQL `42501`, потому что
+`app_list_select` повторно искал ещё не видимую новой команде строку через
+`app_list_access(id)`. Rollback `32460715430` вернул `usage-canary`, аудит
+`32460792514` подтвердил восстановление; Production не менялся.
+
+Исправление не расширяет shared-доступ: новая additive migration
+`20260821010000_fix_list_insert_returning_rls` добавляет в `List SELECT` прямую
+ветку только для `ownerId = app.user_id AND spaceId = app.space_id`, сохраняя
+helper для существующих own/shared строк. Regression test вызывает настоящий
+`createList` под partial profile. Чистый PostgreSQL 17 role-suite применил 22
+миграции и прошёл 21 integration-файл/290 DB-тестов, configurator transitions и
+backup/restore. Live posture остаётся `usage-canary` до нового PR/CI/apply.
 
 ## Модели вне первого RLS-контура
 
@@ -661,8 +706,9 @@ sharing, note, item lifecycle и item movement вычисляют получат
   но до возврата нового build могут временно учитываться старым quota count.
 
 Cross-space, чужой token, S3 rollback, quota-rejection и exact ACL проверены на
-реальной БД. RLS остаётся выключен: helper закрывает специальный data-flow
-blocker, но table-wide DML runtime будет ограничен только будущими policies.
+реальной БД. RLS для `Attachment` остаётся выключен: helper закрывает
+специальный data-flow blocker, но table-wide DML этой таблицы будет ограничен
+только будущим enforcement её policy.
 
 ### Auth.js и квоты
 
@@ -690,17 +736,18 @@ AI-сервиса расходует зарезервированную попы
 5. **DB-объекты без enforcement — применены и проверены 2026-08-21.** Attachment helpers,
    общая access-функция, policies и disabled column guards находятся в Preview
    и Production; exact catalog contract и отрицательные Alice/Bob тесты
-   зелёные. Preview live catalog audit `32446720820` совпал с контрактом. Live
-   RLS не включён.
-6. **Enforcement — локальный gate первого canary готов.** Configurator и
-   Preview-only workflow для `UserDailyUsage` прошли integration DB; следующий
-   отдельный шаг — публикация, post-merge CI и только затем ручной apply в
-   Preview. Production остаётся вне этого workflow и потребует полного
-   Preview go/no-go. Таблицы включаются небольшими связанными группами, а не
-   одним большим переключателем.
-7. **Проверка после включения.** Аудит атрибутов ролей, policy catalog,
-   отрицательные cross-user тесты, метрики ошибок и повторный threat impact-
-   check.
+   зелёные. Preview live catalog audit `32446720820` совпал с контрактом; на
+   момент этого gate live RLS ещё не был включён.
+6. **Enforcement — первый Preview canary включён.** `UserDailyUsage` прошёл
+   локальный integration gate, post-merge CI, транзакционный live apply,
+   пользовательский CRUD smoke и независимый read-only audit. Production
+   остаётся без enforcement. Первый apply `List + Item` выявил `createList`
+   regression и был штатно откатан; corrective migration проходит повторный
+   PR/CI gate перед новым live apply.
+7. **Проверка после включения — выполнена для первого canary.** Role/catalog
+   audit, функциональный smoke и повторный threat impact-check пройдены.
+   Для `List + Item` catalog audit уже доказал точный профиль, но CRUD smoke
+   дал no-go; полный live gate повторяется после corrective migration.
 
 Каждая миграция должна быть совместима и со старой, и с новой версией
 приложения. RLS включается только после ухода старых инстансов, которые ещё не
