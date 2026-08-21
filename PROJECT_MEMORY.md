@@ -2,7 +2,9 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-14 (attachment maintenance helper)
+**Последнее обновление:** 2026-08-21 (scoped DB-контур интегрирован с актуальным
+`main`: сохранены приватность AI-групп и проверка сигнатур вложений; полный
+локальный test gate зелёный, live-среды и RLS не менялись)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -972,6 +974,16 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-21: локальная scoped-ветка повторно собрана от `main@f489eec` после
+  расхождения историй. В `getListInsight` персональные группы вызывающего
+  выбираются внутри подтверждённого `withSpaceDb`; attachment flow одновременно
+  сохраняет проверку magic bytes из актуального `main` и token-based
+  `CLEANUP_PENDING` maintenance. Boundary guard исключает `*.test.*` только из
+  сканирования production data plane, не ослабляя allowlist runtime-импортов.
+  Зелёные: lint, typecheck, 368 unit, 277 integration / 4 skipped, production
+  build и 118 E2E. Миграции применялись только к изолированным Docker-БД;
+  Preview, Production и RLS не менялись. Следующий gate — tenant-RLS policies
+  без enforcement.
 - 2026-08-14: enforcement-blocker глобальной attachment-квоты закрыт локально
   без включения RLS. Две additive-миграции добавляют `CLEANUP_PENDING`,
   согласованность служебных полей через CHECK и две `SECURITY DEFINER`-

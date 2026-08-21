@@ -14,6 +14,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
       if (entry.isDirectory()) {
         return entry.name === "generated" ? [] : sourceFiles(absolute);
       }
+      if (/\.(?:test|spec)\.(?:ts|tsx)$/.test(entry.name)) return [];
       return /\.(?:ts|tsx)$/.test(entry.name) ? [absolute] : [];
     }),
   );

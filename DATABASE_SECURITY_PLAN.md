@@ -4,8 +4,8 @@
 server read-path, user quota, space mutations и AI insights локально проверены,
 attachment flow, ListGroup lifecycle/membership, List lifecycle, sharing,
 note mutations, item lifecycle, item movement и attachment maintenance helper
-локально проверены, RLS выключен
-**Дата:** 2026-08-14
+интегрированы с `main@f489eec` и локально перепроверены, RLS выключен
+**Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
 матрицу доступа и безопасный порядок внедрения. Текущее состояние приложения
