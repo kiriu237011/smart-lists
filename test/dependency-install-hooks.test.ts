@@ -45,6 +45,7 @@ describe("установка зависимостей не исполняет ч
   it("видит workflow: иначе проверки ниже пройдут впустую", () => {
     expect(workflows.map((file) => file.name)).toContain("ci.yml");
     expect(workflows.map((file) => file.name)).toContain("sync-preview.yml");
+    expect(workflows.map((file) => file.name)).toContain("audit-database.yml");
   });
 
   it.each(workflows)("$name ставит зависимости без хуков", ({ body }) => {
@@ -60,7 +61,7 @@ describe("установка зависимостей не исполняет ч
   // Предыдущая проверка проходит и на пустом списке совпадений, поэтому здесь
   // требуется, чтобы выражение действительно находило установки там, где они
   // заведомо есть. Иначе сломанный regexp сделал бы контракт зелёным и пустым.
-  it.each(["ci.yml", "sync-preview.yml"])("в %s установки найдены", (name) => {
+  it.each(["ci.yml", "sync-preview.yml", "audit-database.yml"])("в %s установки найдены", (name) => {
     const file = workflows.find((candidate) => candidate.name === name);
     expect([...(file?.body ?? "").matchAll(INSTALL_COMMAND)]).not.toHaveLength(
       0,

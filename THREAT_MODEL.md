@@ -317,6 +317,14 @@ Production migration завершилась в `01:20:16Z`, Vercel Production п
 Production и Preview; `vercel env ls` подтвердил отсутствие переменной при
 сохранённых `DATABASE_URL`.
 
+**Ручной catalog audit использует ту же границу, а не новый credential.**
+`.github/workflows/audit-database.yml` запускается только с `main`, получает
+`contents: read` и выбранный Environment `preview`/`Production`. Установка
+зависимостей идёт с `--ignore-scripts` и без DB secret; затем exact-host guard
+предшествует `BEGIN READ ONLY` аудиту. Connection URL и строки приложения не
+выводятся. Environment branch policy `main` остаётся независимым барьером от
+запуска изменённого workflow из feature-ветки.
+
 **GitHub Environments проверены 2026-08-12.** `Production` и `Preview`
 ограничены branch policy `main`; API подтверждает наличие в каждой двух
 secrets — `DIRECT_URL` и `EXPECTED_DATABASE_HOST`. Их значения намеренно

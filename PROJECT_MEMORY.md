@@ -50,7 +50,8 @@ Smart Lists — локализованное веб-приложение для 
 - `next.config.ts` — next-intl и security headers;
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
 - `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
-  синхронизация Preview OAuth proxy и ежедневный бэкап БД в S3;
+  ручной read-only аудит catalog, синхронизация Preview OAuth proxy и ежедневный
+  бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
 - `DATABASE_SECURITY_PLAN.md` — staged-план Postgres least privilege и
@@ -77,6 +78,11 @@ Smart Lists — локализованное веб-приложение для 
 - 2026-08-21 миграция применена release-контурами в Preview и Production.
   Это только подготовка catalog: RLS и восемь guard-триггеров остались
   выключены, поэтому прикладное поведение и текущая изоляция не изменились.
+- Повторяемый live-аудит выполняется вручную workflow
+  `.github/workflows/audit-database.yml`: только `main`, выбранный GitHub
+  Environment, exact-host guard и `BEGIN READ ONLY`. Dependency install не
+  получает secret; вывод содержит catalog и runtime ACL, но не строки данных
+  или connection URL.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
