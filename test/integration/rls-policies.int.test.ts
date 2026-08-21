@@ -1,10 +1,12 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { addItem, renameList } from "@/app/actions";
 import { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/lib/prisma-client";
 import { createScopedDatabase } from "@/lib/scoped-db";
-import { prisma } from "./setup";
+import { formData } from "./factories";
+import { prisma, setSessionUser } from "./setup";
 
 const TENANT_TABLES = [
   "Space",
@@ -18,6 +20,11 @@ const TENANT_TABLES = [
 ] as const;
 
 const GUARDED_TABLES = [...TENANT_TABLES];
+const LIST_ITEM_PROFILE_TABLES = [
+  "List",
+  "Item",
+  "UserDailyUsage",
+] as const;
 
 const EXPECTED_POLICY_COMMANDS: Record<(typeof TENANT_TABLES)[number], string[]> = {
   Space: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -316,18 +323,110 @@ async function seedFixture() {
   return ids;
 }
 
-async function setEnforcement(enabled: boolean) {
-  for (const table of TENANT_TABLES) {
+async function setTablesEnforcement(
+  tables: readonly string[],
+  enabled: boolean,
+) {
+  for (const table of tables) {
     await enforcementAdminPrisma.$executeRawUnsafe(
       `ALTER TABLE "${table}" ${enabled ? "ENABLE" : "DISABLE"} ROW LEVEL SECURITY`,
     );
   }
-  for (const table of GUARDED_TABLES) {
+  for (const table of tables) {
     await enforcementAdminPrisma.$executeRawUnsafe(
       `ALTER TABLE "${table}" ${enabled ? "ENABLE" : "DISABLE"} TRIGGER app_tenant_update_columns_guard`,
     );
   }
 }
+
+async function setEnforcement(enabled: boolean) {
+  await setTablesEnforcement(TENANT_TABLES, enabled);
+}
+
+runtimeDescribe("частичный Preview-профиль RLS List + Item", () => {
+  beforeAll(async () => {
+    await setTablesEnforcement(LIST_ITEM_PROFILE_TABLES, true);
+  });
+
+  afterAll(async () => {
+    await setTablesEnforcement(LIST_ITEM_PROFILE_TABLES, false);
+  });
+
+  it("фильтрует List/Item, не притворяясь enforcement для остальных таблиц", async () => {
+    const ids = await seedFixture();
+
+    const rows = await withSpaceDb(ids.bob, ids.bobSpace, async (tx) => {
+      const [lists, items, spaces] = await Promise.all([
+        tx.list.findMany({ select: { id: true } }),
+        tx.item.findMany({ select: { id: true } }),
+        tx.space.findMany({ select: { id: true } }),
+      ]);
+      return { lists, items, spaces };
+    });
+
+    expect(rows.lists.map(({ id }) => id).sort()).toEqual(
+      [ids.aliceSharedList, ids.bobList].sort(),
+    );
+    expect(rows.items.map(({ id }) => id).sort()).toEqual(
+      [ids.sharedItem, ids.bobItem].sort(),
+    );
+    expect(rows.spaces).toHaveLength(4);
+  });
+
+  it("сохраняет editor content и owner-only rename через настоящие Server Actions", async () => {
+    const ids = await seedFixture();
+
+    setSessionUser(ids.bob);
+    expect(
+      await addItem(
+        formData({
+          itemName: "Добавлено редактором",
+          listId: ids.aliceSharedList,
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toEqual({ success: true });
+    expect(
+      await renameList(
+        formData({
+          listId: ids.aliceSharedList,
+          title: "Захват редактором",
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toEqual({
+      success: false,
+      error: "Только владелец может переименовать список",
+    });
+
+    setSessionUser(ids.alice);
+    expect(
+      await renameList(
+        formData({
+          listId: ids.aliceSharedList,
+          title: "Новое имя владельца",
+          spaceId: ids.aliceSpace,
+        }),
+      ),
+    ).toEqual({ success: true });
+
+    expect(
+      await enforcementAdminPrisma.item.findFirst({
+        where: {
+          listId: ids.aliceSharedList,
+          name: "Добавлено редактором",
+          addedById: ids.bob,
+        },
+      }),
+    ).not.toBeNull();
+    expect(
+      await enforcementAdminPrisma.list.findUnique({
+        where: { id: ids.aliceSharedList },
+        select: { title: true },
+      }),
+    ).toEqual({ title: "Новое имя владельца" });
+  });
+});
 
 runtimeDescribe("tenant RLS под restricted runtime-ролью", () => {
   beforeAll(async () => {

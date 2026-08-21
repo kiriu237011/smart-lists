@@ -4,7 +4,8 @@
 
 **Последнее обновление:** 2026-08-21 (первый tenant policy-контур применён в
 Preview и Production; `UserDailyUsage` RLS/guard canary включён и проверен в
-live Preview, остальные tenant-таблицы и Production без enforcement)
+live Preview; профиль `List + Item` подготовлен только локально, остальные
+tenant-таблицы и Production без enforcement)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -102,10 +103,18 @@ Smart Lists — локализованное веб-приложение для 
   `d95cc95b87c7` независимо подтвердил: RLS и guard включены только на
   `UserDailyUsage`, остальные tenant-таблицы/guards disabled, FORCE RLS нигде
   нет. Rollback — `rollback-usage-canary`; Production не менялся.
+- Следующий профиль `list-item` подготовлен, но ещё не включён ни в одной live-
+  среде. Именованные операции проводят только `usage-canary ↔ list-item`;
+  configurator до DDL сверяет точные predicates трёх включаемых таблиц, тела и
+  атрибуты `app_list_access`/column guard, runtime EXECUTE и отсутствие PUBLIC
+  EXECUTE. Локальный role-suite отверг подменённые helper/policy и частичный
+  catalog, доказал идемпотентный enable/rollback и backup/restore. Отдельный
+  partial-profile integration test прошёл editor add-item и owner-only rename
+  через настоящие Server Actions при выключенном RLS остальных таблиц.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
-  attribution и attachment transition. 287 DB-тестов и backup/restore зелёные.
+  attribution и attachment transition. 289 DB-тестов и backup/restore зелёные.
 - Первой consumer-группой перенесён `src/lib/spaces.ts`: создание
   default-space и lookup используют user-контекст, а проверка доступа к списку
   — подтверждённый space-контекст.
