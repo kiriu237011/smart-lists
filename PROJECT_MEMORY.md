@@ -87,6 +87,14 @@ Smart Lists — локализованное веб-приложение для 
   безопасные атрибуты и точный ACL runtime-роли, 15 таблиц, 3 enum, 4 routines,
   31 policy, 8 disabled guards и отсутствие `ENABLE/FORCE RLS`. Catalog gate
   закрыт; это не включило DB-изоляцию строк.
+- Первый Preview-only enforcement-canary подготовлен для одной таблицы
+  `UserDailyUsage`. Fail-closed configurator принимает только именованные
+  enable/rollback операции, сверяет direct endpoint, operational-role boundary,
+  ACL и полный catalog, меняет RLS вместе с guard одной транзакцией и отвергает
+  частичные профили. Workflow жёстко использует Environment `preview`, только
+  `main` и общий с Preview migration concurrency lock. Локальная PostgreSQL 17
+  проверка доказала идемпотентные enable/rollback и возврат к disabled; live
+  Preview ещё не менялся.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,

@@ -2,8 +2,9 @@
 
 **Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
 guard объекты первого tenant-контура применены в Preview и Production,
-проверены локально и прошли live catalog audit в Preview; RLS и guard-триггеры
-выключены
+проверены локально и прошли live catalog audit в Preview; Preview-only
+configurator первого `UserDailyUsage` canary готов и проверен локально, но live
+RLS и guard-триггеры ещё выключены
 **Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -575,8 +576,23 @@ membership в повышенной роли, DDL и доступа к migration 
 совпадение DML-матрицы, 15 таблиц, 3 enum, 4 routines, 31 policy и 8 disabled
 guards. На всех таблицах `rls_enabled=false` и `rls_forced=false`. Это закрывает
 gate инвентаризации, но не повышает live security status: следующий отдельный
-шаг — спроектировать и включить первую малую связанную группу enforcement
-только в Preview с заранее подготовленным откатом и отрицательной проверкой.
+шаг — подготовить и включить первую малую связанную группу enforcement только
+в Preview с заранее подготовленным откатом и отрицательной проверкой.
+
+**Первый enforcement-canary подготовлен локально 2026-08-21:** выбрана только
+`UserDailyUsage`, потому что её policy зависит от одного `app.user_id` и не
+затрагивает sharing/space-граф. Новый fail-closed configurator принимает ровно
+`enable-usage-canary` или `rollback-usage-canary`, до DDL сверяет direct
+endpoint, migrator/owner boundary, runtime ACL и полный catalog, а RLS и
+column guard меняет одной транзакцией под advisory lock. Частичное или
+неизвестное состояние отклоняется. Workflow жёстко привязан к `main` и GitHub
+Environment `preview`, не принимает имя Environment или таблицы и разделяет
+concurrency lock с Preview migration. Локальный PostgreSQL 17 подтвердил
+enable/повторный enable, fail-closed отказ на частичном профиле,
+rollback/повторный rollback и возврат к полностью disabled состоянию; полный
+restricted-role suite сохранил 287 зелёных DB-тестов и backup/restore. Это
+готовый механизм отката, а не live-контроль: workflow ещё не опубликован и в
+Preview не запускался.
 
 ## Модели вне первого RLS-контура
 
@@ -676,9 +692,12 @@ AI-сервиса расходует зарезервированную попы
    и Production; exact catalog contract и отрицательные Alice/Bob тесты
    зелёные. Preview live catalog audit `32446720820` совпал с контрактом. Live
    RLS не включён.
-6. **Enforcement — следующий этап.** Сначала integration DB, затем dev/preview и только после
-   полного go/no-go — production. Таблицы включаются небольшими связанными
-   группами, а не одним большим переключателем.
+6. **Enforcement — локальный gate первого canary готов.** Configurator и
+   Preview-only workflow для `UserDailyUsage` прошли integration DB; следующий
+   отдельный шаг — публикация, post-merge CI и только затем ручной apply в
+   Preview. Production остаётся вне этого workflow и потребует полного
+   Preview go/no-go. Таблицы включаются небольшими связанными группами, а не
+   одним большим переключателем.
 7. **Проверка после включения.** Аудит атрибутов ролей, policy catalog,
    отрицательные cross-user тесты, метрики ошибок и повторный threat impact-
    check.
