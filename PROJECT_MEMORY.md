@@ -3,8 +3,8 @@
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
 **Последнее обновление:** 2026-08-21 (первый tenant policy-контур применён в
-Preview и Production и прошёл read-only live audit в Preview; RLS и guard
-enforcement не включены)
+Preview и Production; `UserDailyUsage` RLS/guard canary включён и проверен в
+live Preview, остальные tenant-таблицы и Production без enforcement)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -61,8 +61,9 @@ Smart Lists — локализованное веб-приложение для 
 
 ### Доступ к PostgreSQL
 
-- Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS, но до
-  включения RLS она сохраняет table-wide DML на разрешённых таблицах.
+- Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
+  `UserDailyUsage` дополнительно ограничена RLS; в Production и на остальных
+  разрешённых tenant-таблицах пока сохраняется role-wide DML.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -72,9 +73,9 @@ Smart Lists — локализованное веб-приложение для 
   Статический переходный allowlist не допускает новых прямых импортов
   глобального Prisma Client.
 - Additive-миграция создаёт общий `app_list_access(text)`, 31 policy на восьми
-  tenant-таблицах и восемь update guards. RLS остаётся disabled, как и triggers:
-  включение — отдельный Preview/Production gate. Exact policy/trigger/routine
-  inventory закреплён в role configurators и выводится read-only аудитом.
+  tenant-таблицах и восемь update guards. Exact policy/trigger/routine inventory
+  закреплён в role configurators и выводится read-only аудитом. После первого
+  gate RLS и guard включены только для `UserDailyUsage` в Preview.
 - 2026-08-21 миграция применена release-контурами в Preview и Production.
   Это только подготовка catalog: RLS и восемь guard-триггеров остались
   выключены, поэтому прикладное поведение и текущая изоляция не изменились.
@@ -87,14 +88,20 @@ Smart Lists — локализованное веб-приложение для 
   безопасные атрибуты и точный ACL runtime-роли, 15 таблиц, 3 enum, 4 routines,
   31 policy, 8 disabled guards и отсутствие `ENABLE/FORCE RLS`. Catalog gate
   закрыт; это не включило DB-изоляцию строк.
-- Первый Preview-only enforcement-canary подготовлен для одной таблицы
+- Первый Preview-only enforcement-canary реализован для одной таблицы
   `UserDailyUsage`. Fail-closed configurator принимает только именованные
   enable/rollback операции, сверяет direct endpoint, operational-role boundary,
   ACL и полный catalog, меняет RLS вместе с guard одной транзакцией и отвергает
   частичные профили. Workflow жёстко использует Environment `preview`, только
   `main` и общий с Preview migration concurrency lock. Локальная PostgreSQL 17
-  проверка доказала идемпотентные enable/rollback и возврат к disabled; live
-  Preview ещё не менялся.
+  проверка доказала идемпотентные enable/rollback и возврат к disabled.
+- PR №107 merged в `main@35e8049`; post-merge CI, Production/Preview no-op
+  migrations и оба Vercel deployment зелёные. Workflow `32451253175` включил
+  профиль `usage-canary` в Preview. Пользователь подтвердил авторизованный CRUD
+  smoke без ошибок. Read-only audit `32452107430` на direct endpoint
+  `d95cc95b87c7` независимо подтвердил: RLS и guard включены только на
+  `UserDailyUsage`, остальные tenant-таблицы/guards disabled, FORCE RLS нигде
+  нет. Rollback — `rollback-usage-canary`; Production не менялся.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
