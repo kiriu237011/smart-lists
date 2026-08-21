@@ -111,6 +111,14 @@ RLS/policy catalog и состояние guard-триггеров. Connection st
 данных не выводятся. Источник
 выбирается в порядке `AUDIT_DATABASE_URL`, `DIRECT_URL`, `DATABASE_URL`.
 
+`.github/workflows/audit-database.yml` запускает этот аудит вручную только с
+`main` для выбранного Environment `preview` или `Production`. Job имеет только
+`contents: read`; dependency install не получает DB secret и не исполняет
+install-hooks. Перед `BEGIN READ ONLY` тот же release guard сравнивает exact
+direct hostname с `EXPECTED_DATABASE_HOST`, а `AUDIT_ROLE=smartlists_runtime`
+выводит именно runtime attributes и ACL. Environment branch policy остаётся
+вторым независимым ограничением запуска.
+
 `npm run db:configure-runtime-role` по умолчанию показывает план. Реальное
 изменение требует аргумента `-- --apply` и трёх env-переменных:
 `DIRECT_URL`, `EXPECTED_DATABASE_HOST`, `RUNTIME_ROLE_PASSWORD`. Скрипт
