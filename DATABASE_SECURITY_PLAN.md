@@ -1,8 +1,8 @@
 # План усиления доступа к PostgreSQL
 
 **Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
-guard объекты первого tenant-контура реализованы и локально проверены под
-restricted runtime, но RLS и guard-триггеры выключены; live-среды не менялись
+guard объекты первого tenant-контура применены в Preview и Production и
+проверены локально под restricted runtime; RLS и guard-триггеры выключены
 **Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -550,6 +550,17 @@ owner/editor/stranger, защищённые колонки, перенос Item 
 После теста RLS/guards снова выключены; это доказательство policy-механики, а
 не разрешение на live enforcement.
 
+**Live apply 2026-08-21:** merge `e15d883` применил три накопленные additive-
+миграции в Production через CI run `32443454219` и в Preview через Sync Preview
+Proxy run `32443735539`. Оба target guard подтвердили direct endpoint; Prisma
+сообщил об успешном применении `20260821000000_add_tenant_rls_policies` вместе
+с двумя attachment maintenance migrations. Первая Production-попытка получила
+`P1001` до установления соединения с Neon; повтор той же job прошёл успешно.
+Это меняет live catalog, но не runtime enforcement: миграция не содержит
+`ENABLE/FORCE RLS`, а все восемь guard-триггеров созданы disabled. Независимый
+read-only catalog audit остаётся обязательным gate перед включением первой
+Preview-группы.
+
 ## Модели вне первого RLS-контура
 
 | Таблицы | Решение первого цикла |
@@ -643,9 +654,10 @@ AI-сервиса расходует зарезервированную попы
    фазы AI insights, attachments, ListGroup lifecycle/membership, List
    lifecycle, sharing lifecycle, note/item lifecycle и movement реализованы и
    локально проверены.
-5. **DB-объекты без enforcement — локально завершены.** Attachment helpers,
-   общая access-функция, policies, disabled column guards, exact catalog
-   contract и отрицательные Alice/Bob тесты готовы; live RLS не включён.
+5. **DB-объекты без enforcement — применены 2026-08-21.** Attachment helpers,
+   общая access-функция, policies и disabled column guards находятся в Preview
+   и Production; exact catalog contract и отрицательные Alice/Bob тесты
+   зелёные. Live RLS не включён.
 6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
    полного go/no-go — production. Таблицы включаются небольшими связанными
    группами, а не одним большим переключателем.

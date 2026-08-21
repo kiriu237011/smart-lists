@@ -3,8 +3,8 @@
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
 **Последнее обновление:** 2026-08-21 (первый tenant policy-контур и disabled
-column guards реализованы и локально проверены под restricted runtime; live-
-среды, RLS и guard enforcement не менялись)
+column guards применены в Preview и Production; RLS и guard enforcement не
+включены)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -74,6 +74,9 @@ Smart Lists — локализованное веб-приложение для 
   tenant-таблицах и восемь update guards. RLS остаётся disabled, как и triggers:
   включение — отдельный Preview/Production gate. Exact policy/trigger/routine
   inventory закреплён в role configurators и выводится read-only аудитом.
+- 2026-08-21 миграция применена release-контурами в Preview и Production.
+  Это только подготовка catalog: RLS и восемь guard-триггеров остались
+  выключены, поэтому прикладное поведение и текущая изоляция не изменились.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -174,11 +177,11 @@ Smart Lists — локализованное веб-приложение для 
   `src/app/actions/index.ts` удалён, allowlist сократился с 6 до 5 файлов, а
   per-action guard защищает 22 функции.
 - Обычный production tenant data plane теперь использует scoped API, а
-  специальный глобальный attachment-поток локально переведён на fail-closed
-  helper. До RLS enforcement остаются policies и отрицательные проверки самих
-  policies. RLS пока выключен, поэтому live-изоляцию по-прежнему обеспечивают
-  прикладные проверки; helper закрывает blocker, но сам по себе ещё не
-  превращает scoped GUC в DB-level изоляцию строк.
+  специальный глобальный attachment-поток переведён на fail-closed helper.
+  Policies и column guards уже находятся в обеих live-БД, но RLS и triggers
+  выключены. Поэтому live-изоляцию по-прежнему обеспечивают прикладные
+  проверки; следующий gate — read-only catalog audit и поэтапное включение
+  enforcement сначала в Preview.
 
 ### Авторизация
 
@@ -982,6 +985,14 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-21: PR №103 слит в `main` как `e15d883`. Production CI run
+  `32443454219` и Preview sync run `32443735539` прошли target guards и
+  применили attachment maintenance плюс tenant policy migration. Первая
+  Production-попытка завершилась `P1001` до соединения с Neon; безопасный retry
+  той же job успешен. В обеих БД теперь есть helper, 31 policy и восемь disabled
+  guards, но `ENABLE/FORCE RLS` не выполнялся. Security status поэтому не
+  повышен: runtime всё ещё имеет table-wide DML в рамках ACL. Следующий этап —
+  live catalog audit и малые enforcement-группы только в Preview.
 - 2026-08-21: локальная scoped-ветка повторно собрана от `main@f489eec` после
   расхождения историй. В `getListInsight` персональные группы вызывающего
   выбираются внутри подтверждённого `withSpaceDb`; attachment flow одновременно
