@@ -4,8 +4,9 @@
 guard объекты первого tenant-контура применены в Preview и Production,
 проверены локально и прошли live catalog audit в Preview; Preview-only
 `UserDailyUsage` canary включён и проверен в live Preview; Production и
-остальные семь tenant-таблиц Preview пока остаются без enforcement; следующий
-профиль `List + Item` подготовлен и проверен только локально
+остальные семь tenant-таблиц Preview пока остаются без enforcement; первый
+apply `List + Item` откатан после регрессии `createList`, исправление проходит
+повторный release gate
 **Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -608,7 +609,7 @@ endpoint `d95cc95b87c7` увидел ровно один `rls_enabled=true` и �
 остались disabled, `relforcerowsecurity=false` везде. Rollback остаётся
 именованной операцией `rollback-usage-canary` того же workflow.
 
-**Профиль `List + Item` подготовлен локально 2026-08-21:** configurator теперь
+**Профиль `List + Item` подготовлен 2026-08-21:** configurator теперь
 разрешает только линейный переход `usage-canary → list-item` и обратный
 `list-item → usage-canary`; перепрыгнуть профиль или передать произвольную
 таблицу нельзя. Перед DDL он дополнительно сверяет точные predicates `List`,
@@ -618,9 +619,25 @@ endpoint `d95cc95b87c7` увидел ровно один `rls_enabled=true` и �
 Отдельный partial-profile тест под restricted runtime проверил нефильтрованные
 чтения и реальные Server Actions: editor может добавить `Item` в расшаренный
 список, но не переименовать чужой `List`, владелец сохраняет rename. Всего
-зелёные 21 integration-файл/289 DB-тестов и backup/restore. Live Preview и
-Production этой подготовкой не менялись; security posture остаётся прежним до
-отдельного apply и postcondition-аудита.
+зелёные 21 integration-файл/289 DB-тестов и backup/restore.
+
+**Первый Preview apply откатан 2026-08-21:** PR №109 merged в
+`main@76dfd2b`; post-merge CI, Production no-op migration, Vercel и Sync Preview
+Proxy прошли. Workflow `32459870529` выполнил `usage-canary → list-item`, а
+read-only audit `32459969470` подтвердил ожидаемые RLS/guards только на
+`UserDailyUsage`, `List`, `Item`. Ручной smoke затем обнаружил отказ создания
+списка: Prisma `INSERT … RETURNING` получил PostgreSQL `42501`, потому что
+`app_list_select` повторно искал ещё не видимую новой команде строку через
+`app_list_access(id)`. Rollback `32460715430` вернул `usage-canary`, аудит
+`32460792514` подтвердил восстановление; Production не менялся.
+
+Исправление не расширяет shared-доступ: новая additive migration
+`20260821010000_fix_list_insert_returning_rls` добавляет в `List SELECT` прямую
+ветку только для `ownerId = app.user_id AND spaceId = app.space_id`, сохраняя
+helper для существующих own/shared строк. Regression test вызывает настоящий
+`createList` под partial profile. Чистый PostgreSQL 17 role-suite применил 22
+миграции и прошёл 21 integration-файл/290 DB-тестов, configurator transitions и
+backup/restore. Live posture остаётся `usage-canary` до нового PR/CI/apply.
 
 ## Модели вне первого RLS-контура
 
@@ -724,12 +741,13 @@ AI-сервиса расходует зарезервированную попы
 6. **Enforcement — первый Preview canary включён.** `UserDailyUsage` прошёл
    локальный integration gate, post-merge CI, транзакционный live apply,
    пользовательский CRUD smoke и независимый read-only audit. Production
-   остаётся без enforcement. Следующий профиль `List + Item` уже прошёл
-   локальный design/rollback gate, но ещё не опубликован и не включён live.
+   остаётся без enforcement. Первый apply `List + Item` выявил `createList`
+   regression и был штатно откатан; corrective migration проходит повторный
+   PR/CI gate перед новым live apply.
 7. **Проверка после включения — выполнена для первого canary.** Role/catalog
    audit, функциональный smoke и повторный threat impact-check пройдены.
-   Для `List + Item` те же live-проверки начнутся только после отдельного
-   Preview go/no-go.
+   Для `List + Item` catalog audit уже доказал точный профиль, но CRUD smoke
+   дал no-go; полный live gate повторяется после corrective migration.
 
 Каждая миграция должна быть совместима и со старой, и с новой версией
 приложения. RLS включается только после ухода старых инстансов, которые ещё не

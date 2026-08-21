@@ -1,7 +1,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { addItem, renameList } from "@/app/actions";
+import { addItem, createList, renameList } from "@/app/actions";
 import { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/lib/prisma-client";
 import { createScopedDatabase } from "@/lib/scoped-db";
@@ -371,6 +371,36 @@ runtimeDescribe("частичный Preview-профиль RLS List + Item", () 
       [ids.sharedItem, ids.bobItem].sort(),
     );
     expect(rows.spaces).toHaveLength(4);
+  });
+
+  it("создаёт List через настоящий Server Action под включённым RLS", async () => {
+    const ids = await seedFixture();
+
+    setSessionUser(ids.bob);
+    const result = await createList(
+      formData({
+        title: "Создано под RLS",
+        spaceId: ids.bobSpace,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      success: true,
+      list: {
+        title: "Создано под RLS",
+        ownerId: ids.bob,
+        items: [],
+      },
+    });
+    expect(
+      await enforcementAdminPrisma.list.findFirst({
+        where: {
+          title: "Создано под RLS",
+          ownerId: ids.bob,
+          spaceId: ids.bobSpace,
+        },
+      }),
+    ).not.toBeNull();
   });
 
   it("сохраняет editor content и owner-only rename через настоящие Server Actions", async () => {
