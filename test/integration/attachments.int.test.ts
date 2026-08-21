@@ -21,8 +21,10 @@ import {
   MAX_FILES_PER_USER,
   STALE_MINUTES,
 } from "@/lib/attachments";
-import { flushAfter, prisma, setSessionUser } from "./setup";
-import { makeList, makeUser, shareList } from "./factories";
+import { finishAttachmentMaintenance } from "@/lib/attachment-maintenance";
+import { withSpaceDb } from "@/lib/scoped-db";
+import { adminPrisma, flushAfter, prisma, setSessionUser } from "./setup";
+import { makeList, makeSpace, makeUser, shareList } from "./factories";
 
 /** Готовая строка вложения (по умолчанию UPLOADED) для наполнения квоты. */
 async function makeAttachment(
@@ -52,6 +54,17 @@ describe("requestUpload", () => {
     const user = await makeUser();
     const list = await makeList(user.id, user.defaultSpaceId);
     setSessionUser(user.id);
+    const { createUploadPost } = await import("@/lib/s3");
+    vi.mocked(createUploadPost).mockImplementationOnce(async ({ key }) => {
+      // Presign вызывается после commit: отдельное соединение уже видит PENDING.
+      expect(
+        await adminPrisma.attachment.findUnique({
+          where: { key },
+          select: { status: true },
+        }),
+      ).toEqual({ status: "PENDING" });
+      return { url: "https://s3.test/upload", fields: {} };
+    });
 
     const result = await requestUpload({
       listId: list.id,
@@ -176,12 +189,44 @@ describe("requestUpload", () => {
     expect(result).toEqual({ success: false, error: "listQuotaExceeded" });
   });
 
+  it("завершает stale-cleanup, даже если активная квота списка исчерпана", async () => {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    for (let i = 0; i < MAX_FILES_PER_LIST; i++) {
+      await makeAttachment(list.id, user.id);
+    }
+    const staleRow = await makeAttachment(list.id, user.id, {
+      status: "PENDING",
+      createdAt: new Date(Date.now() - (STALE_MINUTES + 5) * 60 * 1000),
+    });
+    setSessionUser(user.id);
+
+    const result = await requestUpload({
+      listId: list.id,
+      spaceId: user.defaultSpaceId,
+      ...PNG,
+    });
+
+    expect(result).toEqual({ success: false, error: "listQuotaExceeded" });
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toMatchObject({ status: "CLEANUP_PENDING" });
+    await flushAfter();
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toBeNull();
+    const { deleteObjects } = await import("@/lib/s3");
+    expect(vi.mocked(deleteObjects)).toHaveBeenCalledWith([staleRow.key]);
+  });
+
   it("упирается в квоту пользователя поверх нескольких списков", async () => {
     const user = await makeUser();
-    // 20 файлов пользователя, распределённых по 4 спискам (по 5 = квота списка).
+    // 20 файлов пользователя распределены по разным пространствам. Квота
+    // глобальна для пользователя, а не начинается заново в каждом space.
     const lists = [];
     for (let l = 0; l < MAX_FILES_PER_USER / MAX_FILES_PER_LIST; l++) {
-      const list = await makeList(user.id, user.defaultSpaceId);
+      const space = await makeSpace(user.id, `Space ${l + 1}`);
+      const list = await makeList(user.id, space.id);
       lists.push(list);
       for (let i = 0; i < MAX_FILES_PER_LIST; i++) {
         await makeAttachment(list.id, user.id);
@@ -225,16 +270,66 @@ describe("requestUpload", () => {
 
     // Уборка освободила место, новая загрузка прошла.
     expect(result.success).toBe(true);
-    // Просроченные PENDING удалены.
+    // Квота уже освобождена, но метаданные остаются до результата S3.
     expect(
-      await prisma.attachment.count({ where: { id: { in: staleIds } } }),
-    ).toBe(0);
+      await prisma.attachment.findMany({
+        where: { id: { in: staleIds } },
+        select: {
+          status: true,
+          cleanupToken: true,
+          cleanupRequestedById: true,
+        },
+      }),
+    ).toEqual(
+      expect.arrayContaining(
+        staleIds.map(() => ({
+          status: "CLEANUP_PENDING",
+          cleanupToken: expect.any(String),
+          cleanupRequestedById: user.id,
+        })),
+      ),
+    );
 
     const { deleteObjects } = await import("@/lib/s3");
     expect(vi.mocked(deleteObjects)).not.toHaveBeenCalled();
     await flushAfter();
     expect(vi.mocked(deleteObjects)).toHaveBeenCalledOnce();
     expect(vi.mocked(deleteObjects)).toHaveBeenCalledWith(staleKeys);
+    expect(
+      await prisma.attachment.count({ where: { id: { in: staleIds } } }),
+    ).toBe(0);
+  });
+
+  it("убирает собственный stale PENDING из другого пространства", async () => {
+    const user = await makeUser();
+    const otherSpace = await makeSpace(user.id, "Другое");
+    const otherList = await makeList(user.id, otherSpace.id);
+    const currentList = await makeList(user.id, user.defaultSpaceId);
+    const staleRow = await makeAttachment(otherList.id, user.id, {
+      status: "PENDING",
+      createdAt: new Date(Date.now() - (STALE_MINUTES + 5) * 60 * 1000),
+    });
+    setSessionUser(user.id);
+
+    const result = await requestUpload({
+      listId: currentList.id,
+      spaceId: user.defaultSpaceId,
+      ...PNG,
+    });
+
+    expect(result.success).toBe(true);
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toMatchObject({
+      status: "CLEANUP_PENDING",
+      cleanupRequestedById: user.id,
+    });
+    const { deleteObjects } = await import("@/lib/s3");
+    await flushAfter();
+    expect(vi.mocked(deleteObjects)).toHaveBeenCalledWith([staleRow.key]);
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toBeNull();
   });
 
   it("не трогает свежие PENDING при уборке", async () => {
@@ -279,11 +374,135 @@ describe("requestUpload", () => {
     expect(result.success).toBe(true);
     expect(
       await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
-    ).toBeNull();
+    ).toMatchObject({
+      status: "CLEANUP_PENDING",
+      cleanupRequestedById: user.id,
+      cleanupToken: expect.any(String),
+    });
     await flushAfter();
     expect(
       await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
-    ).toMatchObject({ key: staleRow.key, status: "PENDING" });
+    ).toMatchObject({
+      key: staleRow.key,
+      status: "PENDING",
+      cleanupToken: null,
+      cleanupRequestedById: null,
+      cleanupStartedAt: null,
+    });
+  });
+
+  it("не позволяет другому пользователю завершить чужой cleanup-токен", async () => {
+    const user = await makeUser();
+    const stranger = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    const staleRow = await makeAttachment(list.id, user.id, {
+      status: "PENDING",
+      createdAt: new Date(Date.now() - (STALE_MINUTES + 5) * 60 * 1000),
+    });
+    setSessionUser(user.id);
+
+    expect(
+      (
+        await requestUpload({
+          listId: list.id,
+          spaceId: user.defaultSpaceId,
+          ...PNG,
+        })
+      ).success,
+    ).toBe(true);
+
+    const claimed = await prisma.attachment.findUniqueOrThrow({
+      where: { id: staleRow.id },
+      select: { cleanupToken: true },
+    });
+    expect(claimed.cleanupToken).toEqual(expect.any(String));
+
+    const affected = await withSpaceDb(
+      stranger.id,
+      stranger.defaultSpaceId,
+      (tx) =>
+        finishAttachmentMaintenance(tx, [claimed.cleanupToken!], false),
+    );
+    expect(affected).toBe(0);
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toMatchObject({
+      status: "CLEANUP_PENDING",
+      cleanupRequestedById: user.id,
+    });
+  });
+
+  it("редактор может освободить квоту списка от чужого stale PENDING", async () => {
+    const owner = await makeUser();
+    const editor = await makeUser();
+    const list = await makeList(owner.id, owner.defaultSpaceId);
+    await shareList(list.id, editor.id);
+    const staleRow = await makeAttachment(list.id, owner.id, {
+      status: "PENDING",
+      createdAt: new Date(Date.now() - (STALE_MINUTES + 5) * 60 * 1000),
+    });
+    setSessionUser(editor.id);
+
+    const result = await requestUpload({
+      listId: list.id,
+      spaceId: editor.defaultSpaceId,
+      ...PNG,
+    });
+
+    expect(result.success).toBe(true);
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toMatchObject({
+      status: "CLEANUP_PENDING",
+      cleanupRequestedById: editor.id,
+    });
+    await flushAfter();
+    expect(
+      await prisma.attachment.findUnique({ where: { id: staleRow.id } }),
+    ).toBeNull();
+  });
+
+  it("fail-closed отклоняет подменённое чужое пространство во всех потоках", async () => {
+    const owner = await makeUser();
+    const stranger = await makeUser();
+    const list = await makeList(owner.id, owner.defaultSpaceId);
+    const row = await makeAttachment(list.id, owner.id, { status: "PENDING" });
+    setSessionUser(stranger.id);
+
+    expect(
+      await requestUpload({
+        listId: list.id,
+        spaceId: owner.defaultSpaceId,
+        ...PNG,
+      }),
+    ).toEqual({ success: false, error: "listNotFound" });
+    expect(
+      await confirmUpload({
+        attachmentId: row.id,
+        spaceId: owner.defaultSpaceId,
+      }),
+    ).toEqual({ success: false, error: "attachmentNotFound" });
+    expect(
+      await deleteAttachment({
+        attachmentId: row.id,
+        spaceId: owner.defaultSpaceId,
+      }),
+    ).toEqual({ success: false, error: "attachmentNotFound" });
+    expect(
+      await getAttachmentUrl({
+        attachmentId: row.id,
+        spaceId: owner.defaultSpaceId,
+      }),
+    ).toEqual({ success: false, error: "attachmentNotFound" });
+
+    const s3 = await import("@/lib/s3");
+    expect(vi.mocked(s3.createUploadPost)).not.toHaveBeenCalled();
+    expect(vi.mocked(s3.headObject)).not.toHaveBeenCalled();
+    expect(vi.mocked(s3.deleteObject)).not.toHaveBeenCalled();
+    expect(vi.mocked(s3.getDownloadUrl)).not.toHaveBeenCalled();
+    expect(
+      await prisma.attachment.findUnique({ where: { id: row.id } }),
+    ).not.toBeNull();
   });
 });
 
@@ -299,9 +518,19 @@ describe("confirmUpload", () => {
     setSessionUser(user.id);
     const { headObject } = await import("@/lib/s3");
     // HeadObject даёт честный размер, отличный от заявленного при создании.
-    vi.mocked(headObject).mockResolvedValueOnce({
-      contentLength: 4096,
-      contentType: "image/png",
+    vi.mocked(headObject).mockImplementationOnce(async () => {
+      // HeadObject идёт между двумя DB-фазами: первая уже закрыта, а переход
+      // состояния ещё не начался.
+      expect(
+        await adminPrisma.attachment.findUnique({
+          where: { id: row.id },
+          select: { status: true },
+        }),
+      ).toEqual({ status: "PENDING" });
+      return {
+        contentLength: 4096,
+        contentType: "image/png",
+      };
     });
 
     const result = await confirmUpload({
@@ -441,7 +670,9 @@ describe("confirmUpload", () => {
 
   it("уведомляет участников после подтверждения", async () => {
     const user = await makeUser();
+    const editor = await makeUser();
     const list = await makeList(user.id, user.defaultSpaceId);
+    await shareList(list.id, editor.id);
     const row = await pending(user.id, list.id);
     setSessionUser(user.id);
     const { headObject } = await import("@/lib/s3");
@@ -449,13 +680,16 @@ describe("confirmUpload", () => {
       contentLength: 100,
       contentType: "image/png",
     });
-    const { notifyListMembers } = await import("@/lib/notify");
+    const { notifyUsers } = await import("@/lib/notify");
 
     await confirmUpload({ attachmentId: row.id, spaceId: user.defaultSpaceId });
 
-    expect(vi.mocked(notifyListMembers)).not.toHaveBeenCalled();
+    expect(vi.mocked(notifyUsers)).not.toHaveBeenCalled();
     await flushAfter();
-    expect(vi.mocked(notifyListMembers)).toHaveBeenCalledWith(list.id, undefined);
+    expect(vi.mocked(notifyUsers)).toHaveBeenCalledWith(
+      [user.id, editor.id],
+      undefined,
+    );
   });
 });
 
@@ -466,6 +700,13 @@ describe("deleteAttachment", () => {
     const row = await makeAttachment(list.id, user.id, { key: "lists/x/f.png" });
     setSessionUser(user.id);
     const { deleteObject } = await import("@/lib/s3");
+    vi.mocked(deleteObject).mockImplementationOnce(async () => {
+      // S3 cleanup вызывается после commit: строка уже исчезла для отдельного
+      // соединения, поэтому сетевой сбой не способен откатить DB-мутацию.
+      expect(
+        await adminPrisma.attachment.findUnique({ where: { id: row.id } }),
+      ).toBeNull();
+    });
 
     const result = await deleteAttachment({
       attachmentId: row.id,

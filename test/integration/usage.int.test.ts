@@ -108,6 +108,35 @@ describe("суточный бюджет мутаций", () => {
     });
     expect(usage).toEqual({ insights: 15, mutations: 1 });
   });
+
+  it("при параллельных запросах пропускает ровно остаток бюджета", async () => {
+    const user = await makeUser();
+    await prisma.userDailyUsage.create({
+      data: {
+        userId: user.id,
+        date: usageDate(),
+        mutations: DAILY_MUTATION_LIMIT - 2,
+      },
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => consumeMutationBudget(user.id)),
+    );
+
+    expect(results.filter(Boolean)).toHaveLength(2);
+    expect(results.filter((allowed) => !allowed)).toHaveLength(6);
+    const usage = await prisma.userDailyUsage.findUniqueOrThrow({
+      where: { userId_date: { userId: user.id, date: usageDate() } },
+      select: { mutations: true },
+    });
+    expect(usage.mutations).toBe(DAILY_MUTATION_LIMIT);
+  });
+
+  it("отклоняет некорректный userId до записи счётчика", async () => {
+    await expect(consumeMutationBudget("\0")).rejects.toMatchObject({
+      code: "INVALID_CONTEXT",
+    });
+  });
 });
 
 describe("ленивая уборка счётчиков", () => {

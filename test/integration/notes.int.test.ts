@@ -9,11 +9,18 @@
  * повторного сохранения того же текста и доступ редактора.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { updateItemNote, updateListNote } from "@/app/actions";
-import { prisma, setSessionUser } from "./setup";
-import { formData, makeItem, makeList, makeUser, shareList } from "./factories";
+import { flushAfter, prisma, setSessionUser } from "./setup";
+import {
+  formData,
+  makeItem,
+  makeList,
+  makeSpace,
+  makeUser,
+  shareList,
+} from "./factories";
 
 describe("updateItemNote", () => {
   async function seed() {
@@ -75,6 +82,45 @@ describe("updateItemNote", () => {
     expect(
       (await prisma.item.findUniqueOrThrow({ where: { id: item.id } })).note,
     ).toBe("первая");
+  });
+
+  it("при параллельном сохранении одной версии принимает ровно одну правку", async () => {
+    const { user, item } = await seed();
+
+    const results = await Promise.all([
+      updateItemNote(
+        formData({
+          itemId: item.id,
+          note: "первая",
+          expectedVersion: "0",
+          spaceId: user.defaultSpaceId,
+        }),
+      ),
+      updateItemNote(
+        formData({
+          itemId: item.id,
+          note: "вторая",
+          expectedVersion: "0",
+          spaceId: user.defaultSpaceId,
+        }),
+      ),
+    ]);
+
+    expect(results.filter((result) => result.success)).toHaveLength(1);
+    const conflict = results.find((result) => !result.success);
+    expect(conflict).toMatchObject({
+      success: false,
+      error: "noteConflict",
+      currentVersion: 1,
+    });
+
+    const saved = await prisma.item.findUniqueOrThrow({
+      where: { id: item.id },
+      select: { note: true, noteVersion: true },
+    });
+    expect(saved.noteVersion).toBe(1);
+    expect(["первая", "вторая"]).toContain(saved.note);
+    expect(conflict).toMatchObject({ currentNote: saved.note });
   });
 
   it("повторное сохранение того же текста не поднимает версию", async () => {
@@ -153,6 +199,7 @@ describe("updateItemNote", () => {
     await shareList(list.id, editor.id);
     const item = await makeItem(list.id, { name: "Молоко", position: 1 });
     setSessionUser(editor.id);
+    const { notifyListMembers, notifyUsers } = await import("@/lib/notify");
 
     const result = await updateItemNote(
       formData({
@@ -160,10 +207,18 @@ describe("updateItemNote", () => {
         note: "от редактора",
         expectedVersion: "0",
         spaceId: editor.defaultSpaceId,
+        socketId: "123.456",
       }),
     );
 
     expect(result).toMatchObject({ success: true, noteVersion: 1 });
+    expect(vi.mocked(notifyUsers)).not.toHaveBeenCalled();
+    await flushAfter();
+    expect(vi.mocked(notifyUsers)).toHaveBeenCalledWith(
+      [owner.id, editor.id],
+      "123.456",
+    );
+    expect(vi.mocked(notifyListMembers)).not.toHaveBeenCalled();
   });
 
   it("посторонний не может редактировать заметку", async () => {
@@ -186,6 +241,28 @@ describe("updateItemNote", () => {
     expect(
       (await prisma.item.findUniqueOrThrow({ where: { id: item.id } })).note,
     ).toBeNull();
+  });
+
+  it("не редактирует запись через другое пространство владельца", async () => {
+    const { user, item } = await seed();
+    const otherSpace = await makeSpace(user.id, "Другое");
+
+    const result = await updateItemNote(
+      formData({
+        itemId: item.id,
+        note: "не в том пространстве",
+        expectedVersion: "0",
+        spaceId: otherSpace.id,
+      }),
+    );
+
+    expect(result).toEqual({ success: false, error: "Запись не найдена" });
+    expect(
+      await prisma.item.findUniqueOrThrow({
+        where: { id: item.id },
+        select: { note: true, noteVersion: true },
+      }),
+    ).toMatchObject({ note: null, noteVersion: 0 });
   });
 });
 
@@ -249,6 +326,7 @@ describe("updateListNote", () => {
     const list = await makeList(owner.id, owner.defaultSpaceId);
     await shareList(list.id, editor.id);
     setSessionUser(editor.id);
+    const { notifyListMembers, notifyUsers } = await import("@/lib/notify");
 
     const result = await updateListNote(
       formData({
@@ -256,9 +334,39 @@ describe("updateListNote", () => {
         note: "правка редактора",
         expectedVersion: "0",
         spaceId: editor.defaultSpaceId,
+        socketId: "789.012",
       }),
     );
 
     expect(result).toMatchObject({ success: true, noteVersion: 1 });
+    expect(vi.mocked(notifyUsers)).not.toHaveBeenCalled();
+    await flushAfter();
+    expect(vi.mocked(notifyUsers)).toHaveBeenCalledWith(
+      [owner.id, editor.id],
+      "789.012",
+    );
+    expect(vi.mocked(notifyListMembers)).not.toHaveBeenCalled();
+  });
+
+  it("не редактирует заметку списка через другое пространство владельца", async () => {
+    const { user, list } = await seed();
+    const otherSpace = await makeSpace(user.id, "Архив");
+
+    const result = await updateListNote(
+      formData({
+        listId: list.id,
+        note: "не в том пространстве",
+        expectedVersion: "0",
+        spaceId: otherSpace.id,
+      }),
+    );
+
+    expect(result).toEqual({ success: false, error: "Список не найден" });
+    expect(
+      await prisma.list.findUniqueOrThrow({
+        where: { id: list.id },
+        select: { note: true, noteVersion: true },
+      }),
+    ).toMatchObject({ note: null, noteVersion: 0 });
   });
 });

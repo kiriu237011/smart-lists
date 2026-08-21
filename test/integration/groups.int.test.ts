@@ -218,6 +218,58 @@ describe("moveGroup", () => {
     expect(work.position).toBe(2);
   });
 
+  it("атомарно перенумеровывает группы при исчерпании точности позиции", async () => {
+    const user = await makeUser();
+    const [first, second, moving] = await Promise.all([
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Первая",
+          position: 1,
+        },
+      }),
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Вторая",
+          position: 1 + Number.EPSILON,
+        },
+      }),
+      prisma.listGroup.create({
+        data: {
+          userId: user.id,
+          spaceId: user.defaultSpaceId,
+          name: "Перемещаемая",
+          position: 3,
+        },
+      }),
+    ]);
+    setSessionUser(user.id);
+
+    const result = await moveGroup(
+      formData({
+        groupId: moving.id,
+        previousGroupId: first.id,
+        nextGroupId: second.id,
+        spaceId: user.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: true });
+    const ordered = await prisma.listGroup.findMany({
+      where: { userId: user.id, spaceId: user.defaultSpaceId },
+      orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, position: true },
+    });
+    expect(ordered).toEqual([
+      { id: first.id, position: 1 },
+      { id: moving.id, position: 2 },
+      { id: second.id, position: 3 },
+    ]);
+  });
+
   it("отклоняет устаревшую пару соседей без частичного обновления", async () => {
     const user = await makeUser();
     const groups = await Promise.all(
@@ -401,6 +453,46 @@ describe("moveListInGroup", () => {
     expect(result).toEqual({ success: true });
     expect(await listNamesInGroup(firstGroup.id)).toEqual(["C", "A", "B"]);
     expect(await listNamesInGroup(secondGroup.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("редактор меняет порядок расшаренного списка в своей группе", async () => {
+    const owner = await makeUser();
+    const editor = await makeUser();
+    const sharedList = await makeList(owner.id, owner.defaultSpaceId, {
+      title: "Общий",
+    });
+    const ownList = await makeList(editor.id, editor.defaultSpaceId, {
+      title: "Личный",
+    });
+    await shareList(sharedList.id, editor.id);
+    const group = await prisma.listGroup.create({
+      data: {
+        userId: editor.id,
+        spaceId: editor.defaultSpaceId,
+        name: "Редактор",
+        position: 1,
+      },
+    });
+    await prisma.listGroupMembership.createMany({
+      data: [
+        { groupId: group.id, listId: sharedList.id, position: 1 },
+        { groupId: group.id, listId: ownList.id, position: 2 },
+      ],
+    });
+    setSessionUser(editor.id);
+
+    const result = await moveListInGroup(
+      formData({
+        groupId: group.id,
+        listId: sharedList.id,
+        previousListId: ownList.id,
+        nextListId: "",
+        spaceId: editor.defaultSpaceId,
+      }),
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(await listNamesInGroup(group.id)).toEqual(["Личный", "Общий"]);
   });
 
   it("отклоняет устаревший разрыв без частичного обновления", async () => {
@@ -593,5 +685,55 @@ describe("персональность и изоляция групп", () => {
     expect(
       (await prisma.listGroup.findUniqueOrThrow({ where: { id: group.id } })).name,
     ).toBe("В default");
+  });
+
+  it("membership-действия не пересекают границу пространства", async () => {
+    const user = await makeUser();
+    const otherSpace = await makeSpace(user.id, "Другое");
+    const [memberList, candidateList] = await Promise.all([
+      makeList(user.id, user.defaultSpaceId, { title: "В группе" }),
+      makeList(user.id, user.defaultSpaceId, { title: "Кандидат" }),
+    ]);
+    const group = await prisma.listGroup.create({
+      data: {
+        userId: user.id,
+        spaceId: user.defaultSpaceId,
+        name: "В default",
+        position: 1,
+      },
+    });
+    await prisma.listGroupMembership.create({
+      data: { groupId: group.id, listId: memberList.id, position: 1 },
+    });
+    setSessionUser(user.id);
+
+    const addResult = await addListToGroup(
+      formData({
+        groupId: group.id,
+        listId: candidateList.id,
+        spaceId: otherSpace.id,
+      }),
+    );
+    const removeResult = await removeListFromGroup(
+      formData({
+        groupId: group.id,
+        listId: memberList.id,
+        spaceId: otherSpace.id,
+      }),
+    );
+    const moveResult = await moveListInGroup(
+      formData({
+        groupId: group.id,
+        listId: memberList.id,
+        previousListId: "",
+        nextListId: "",
+        spaceId: otherSpace.id,
+      }),
+    );
+
+    expect(addResult).toEqual({ success: false, error: "Группа не найдена" });
+    expect(removeResult).toEqual({ success: false, error: "Группа не найдена" });
+    expect(moveResult).toEqual({ success: false, error: "Группа не найдена" });
+    expect(await listsInGroup(group.id)).toEqual([memberList.id]);
   });
 });

@@ -61,16 +61,17 @@ describe("обвязка интеграционных тестов", () => {
     const list = await makeList(user.id, user.defaultSpaceId);
     setSessionUser(user.id);
 
-    const { notifyListMembers } = await import("@/lib/notify");
+    const { notifyListMembers, notifyUsers } = await import("@/lib/notify");
 
     await addItem(
       formData({ itemName: "Сыр", listId: list.id, spaceId: user.defaultSpaceId }),
     );
 
     // До flushAfter Pusher-уведомление ещё не отправлено.
-    expect(vi.mocked(notifyListMembers)).not.toHaveBeenCalled();
+    expect(vi.mocked(notifyUsers)).not.toHaveBeenCalled();
     await flushAfter();
     // socketId отсутствует в formData → null (вкладку-автора исключать не из чего).
-    expect(vi.mocked(notifyListMembers)).toHaveBeenCalledWith(list.id, null);
+    expect(vi.mocked(notifyUsers)).toHaveBeenCalledWith([user.id], null);
+    expect(vi.mocked(notifyListMembers)).not.toHaveBeenCalled();
   });
 });

@@ -43,14 +43,16 @@ export default defineConfig({
 
   globalSetup: "./test/e2e/global-setup.ts",
 
-  // Тесты изолированы данными (свой пользователь на тест), а не общей базой,
-  // поэтому параллелятся свободно.
+  // Тесты изолированы данными (свой пользователь на тест), но делят один
+  // production-сервер с DB-пулом max=5. Scoped-транзакции удерживают соединение
+  // на всю DB-фазу Action, поэтому оставляем два worker: остальной запас нужен
+  // Auth.js, RSC-чтениям и setup/teardown самих тестов.
   fullyParallel: true,
   forbidOnly: isCI,
   // Один retry в CI отсекает редкие сетевые и таймингвые срывы. Локально
   // ретраев нет: падение должно быть видно сразу.
   retries: isCI ? 1 : 0,
-  workers: isCI ? 2 : undefined,
+  workers: 2,
 
   reporter: isCI
     ? [["github"], ["html", { open: "never" }]]

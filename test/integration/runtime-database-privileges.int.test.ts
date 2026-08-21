@@ -122,4 +122,78 @@ runtimeDescribe("контракт restricted runtime-роли", () => {
       }),
     ).rejects.toThrow();
   });
+
+  it("имеет EXECUTE только на fail-closed прикладных helpers", async () => {
+    const routines = await prisma.$queryRaw<
+      Array<{
+        name: string;
+        arguments: string;
+        runtimeExecute: boolean;
+        publicExecute: boolean;
+      }>
+    >`
+      SELECT routine.proname AS name,
+             pg_get_function_identity_arguments(routine.oid) AS arguments,
+             has_function_privilege(
+               current_user,
+               routine.oid,
+               'EXECUTE'
+             ) AS "runtimeExecute",
+             COALESCE(
+               bool_or(
+                 privileges.grantee = 0
+                 AND privileges.privilege_type = 'EXECUTE'
+               ),
+               false
+             ) AS "publicExecute"
+      FROM pg_proc routine
+      JOIN pg_namespace namespace ON namespace.oid = routine.pronamespace
+      LEFT JOIN LATERAL aclexplode(routine.proacl) privileges ON true
+      WHERE namespace.nspname = 'public'
+      GROUP BY routine.oid, routine.proname
+      ORDER BY name, arguments
+    `;
+
+    expect(routines).toEqual([
+      {
+        name: "app_attachment_finish_maintenance",
+        arguments: "uuid[], boolean",
+        runtimeExecute: true,
+        publicExecute: false,
+      },
+      {
+        name: "app_attachment_prepare_maintenance",
+        arguments: "text",
+        runtimeExecute: true,
+        publicExecute: false,
+      },
+      {
+        name: "app_enforce_tenant_update_columns",
+        arguments: "",
+        runtimeExecute: false,
+        publicExecute: false,
+      },
+      {
+        name: "app_list_access",
+        arguments: "text",
+        runtimeExecute: true,
+        publicExecute: false,
+      },
+    ]);
+
+    await expect(
+      prisma.$queryRaw`
+        SELECT *
+        FROM public.app_attachment_prepare_maintenance('missing-context')
+      `,
+    ).rejects.toThrow();
+    await expect(
+      prisma.$queryRaw`
+        SELECT public.app_attachment_finish_maintenance(
+          ARRAY[]::uuid[],
+          false
+        )
+      `,
+    ).rejects.toThrow();
+  });
 });
