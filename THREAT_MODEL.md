@@ -8,7 +8,8 @@ attachment/AI privacy-потоки и путь `prisma → @prisma/config → de
 
 **Последняя проверка живой инфраструктуры:** 2026-08-13 (полная); 2026-08-19 —
 точечно: сетевые настройки проекта Neon и доступ к аккаунту Neon; 2026-08-21 —
-target guards и успешные migration runs Preview/Production
+target guards, успешные migration runs Preview/Production и read-only catalog
+audit Preview `32446720820`
 
 **Область:** runtime-архитектура приложения и AI-микросервиса
 
@@ -68,7 +69,9 @@ AI; удаление и повторяемая уборка объектов з�
    `smartlists_backup` — см. A37. Обычный tenant data plane использует scoped
    context; общая access-функция, 31 policy и восемь disabled column guards
    прошли отрицательные Alice/Bob-тесты под restricted runtime и применены в
-   Preview/Production 2026-08-21. RLS и guards в live-средах не включены.
+   Preview/Production 2026-08-21. Preview live catalog audit `32446720820`
+   подтвердил exact runtime ACL, policy/routine/trigger inventory и отсутствие
+   enforcement. RLS и guards в live-средах не включены.
    Матрица и gate:
    `DATABASE_SECURITY_PLAN.md`.
 3. **Infrastructure drift:** IAM, versioning, CORS, Force TLS и настройки Neon
@@ -324,6 +327,13 @@ Production и Preview; `vercel env ls` подтвердил отсутствие
 предшествует `BEGIN READ ONLY` аудиту. Connection URL и строки приложения не
 выводятся. Environment branch policy `main` остаётся независимым барьером от
 запуска изменённого workflow из feature-ветки.
+
+Preview run `32446720820` от `main@613ea662` успешно прошёл эту границу:
+endpoint direct, runtime `LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE
+NOREPLICATION NOBYPASSRLS`, повышенной исходящей membership нет, DML и routines
+совпали с контрактом. В catalog ровно 31 policy и 8 ожидаемых disabled guards;
+на 15 таблицах `rls_enabled=false`, `rls_forced=false`. Аудит закрыл
+инвентаризационный gate, но не является enforcement и не меняет оценку риска.
 
 **GitHub Environments проверены 2026-08-12.** `Production` и `Preview`
 ограничены branch policy `main`; API подтверждает наличие в каждой двух
@@ -892,7 +902,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | ~~2.2~~ | ~~Versioning на бакете вложений~~ | Mitigate | ✅ **Сделано 2026-08-10** на обоих бакетах вложений. Lifecycle отличается от бэкапного одной строкой, и это существенно: у бэкапов `Expiration` текущих версий нужен, у пользовательских файлов он означал бы пропажу по расписанию — поэтому здесь ограничены только noncurrent-версии, 30 дней. Проверено учением на dev: удаление ключом приложения, delete marker, восстановление |
 | ~~2.3~~ | ~~Проверка `AllowedEmail` в `session` callback~~ | Mitigate | ✅ **Сделано 2026-08-10.** Проверка **и** очистка `Session`: одного отказа мало, cookie осталась бы валидной. Покрыто интеграционно (обе функции против живой БД) и E2E (отозванный пользователь оказывается на экране входа) |
 | ~~2.4~~ | ~~Строка в UI о передаче данных; флаг `aiEnabled` на списке~~ | Mitigate | ✅ **Сделано 2026-08-10, оба средства.** Строка закрывает осведомлённость, флаг — субъектность; одно другого не заменяет. Выключить может любой участник: владельческая проверка оставила бы человека, чьи данные уходят, без средств. Запрет проверяется в Action, а не только скрытием кнопки |
-| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Release, runtime, operational roles/backup, scoped ordinary tenant data plane и DB-объекты без enforcement завершены; код интегрирован с `main@e15d883`.** Глобальная quota и cross-space stale-cleanup проходят через две fail-closed owner-функции: DB-generated token, fixed `search_path`, повторная user/space/list проверка, минимальный `{token,key}`, точечный runtime EXECUTE и отсутствие PUBLIC/backup EXECUTE. `CLEANUP_PENDING` сохраняет metadata до результата S3; failure возвращает только свои токены, success/finalize безопасно повторяется. Приватная выборка AI-групп выполняется внутри `withSpaceDb`, а magic-bytes проверка вложений сохранена. Локально зелёные: 368 unit, 287 restricted-role integration, build и 118 E2E; main CI и обе live migrations успешны. Policies/guards применены, но выключены, поэтому runtime пока сохраняет table-wide DML. Следующий шаг — read-only catalog audit и поэтапное включение tenant-RLS в Preview |
+| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Release, runtime, operational roles/backup, scoped ordinary tenant data plane и DB-объекты без enforcement завершены; код интегрирован с `main@e15d883`.** Глобальная quota и cross-space stale-cleanup проходят через две fail-closed owner-функции: DB-generated token, fixed `search_path`, повторная user/space/list проверка, минимальный `{token,key}`, точечный runtime EXECUTE и отсутствие PUBLIC/backup EXECUTE. `CLEANUP_PENDING` сохраняет metadata до результата S3; failure возвращает только свои токены, success/finalize безопасно повторяется. Приватная выборка AI-групп выполняется внутри `withSpaceDb`, а magic-bytes проверка вложений сохранена. Локально зелёные: 368 unit, 287 restricted-role integration, build и 118 E2E; main CI и обе live migrations успешны. Preview catalog audit `32446720820` совпал с контрактом. Policies/guards применены, но выключены, поэтому runtime пока сохраняет table-wide DML. Следующий шаг — первая малая группа tenant-RLS только в Preview |
 | ~~2.6~~ | ~~`USER` в `Dockerfile` сервиса~~ | Mitigate | ✅ **Сделано 2026-08-09.** `USER appuser`, uid 10001. Документ снова вправе считать это контролем — но не более чем сужением ущерба внутри контейнера (A25) |
 | ~~2.7~~ | ~~`openapi_url=None` при `debug=false`~~ | Mitigate | ✅ **Сделано 2026-08-09.** Схема больше не зависит от того, открыт сервис или нет |
 | ~~2.8~~ | ~~Включить Force TLS в приложении Pusher~~ | Mitigate | ✅ **Сделано 2026-08-09** в обоих приложениях, prod и dev. Гарантия перенесена с дефолта `pusher-js` на сервис |
@@ -904,7 +914,7 @@ design и release cutover; каждый следующий этап меняет
 
 | Порядок | Действие | Что меняет |
 |---|---|---|
-| 1 | Поэтапно включить tenant-RLS сначала в Preview | Policies и disabled guards применены в обеих БД; реальный DB-контроль появится только после catalog audit, включения и отрицательной live-проверки |
+| 1 | Поэтапно включить tenant-RLS сначала в Preview | Policies и disabled guards применены в обеих БД, Preview catalog audit пройден; реальный DB-контроль появится только после включения и отрицательной live-проверки |
 | 2 | Добавить audit trail для чувствительных мутаций и ручных административных изменений | Закрывает корень C; требует отдельного решения по сроку хранения и приватности |
 | 3 | Добавить `request_id` между Vercel и Cloud Run | Даёт корреляцию инцидента без логирования пользователя и содержимого |
 | 4 | Включить CloudTrail data events хотя бы на бэкап-бакете | Делает чтение, перезапись и удаление объектов наблюдаемыми |
@@ -937,7 +947,7 @@ design и release cutover; каждый следующий этап меняет
 | Квота на юзера (20 файлов) без row-lock | Косметический перебор на 1–2 файла, не cost abuse | Переход на квоту по сумме байт |
 | Ветку `production` можно удалить | Защита веток недоступна на `free_v3`. Компенсация не теоретическая: дампы защищены versioning и проверены на восстановимость 08-09 | Переход на платный тариф Neon — включить защиту сразу |
 | Токен `neonctl` на рабочей машине | Даёт ровно то же, что уже даёт браузерная сессия на том же ПК; удобство перевешивает при одном владельце | Появление второго человека за этой машиной; см. A12 |
-| Runtime credential до RLS имеет table-wide DML в разрешённых таблицах | DDL/ownership уже отозваны в обеих средах, но единая runtime-роль технически может читать и менять чужие строки там, где DML разрешён. Основным live-контролем остаются `listInSpaceWhere` и ownership-проверки приложения. Scoped data plane, общая access-функция, policies и column guards применены в обеих БД; Alice/Bob-тесты под restricted runtime прошли. Но пока live RLS выключен, эти объекты не ограничивают direct table DML | **Mitigation in progress:** выполнить live catalog audit, затем отдельными группами включить и проверить enforcement в Preview; Production только после полного go/no-go. Немедленный пересмотр при втором человеке с доступом к Vercel, снятии whitelist или появлении прямого SQL-пути из недоверенного ввода |
+| Runtime credential до RLS имеет table-wide DML в разрешённых таблицах | DDL/ownership уже отозваны в обеих средах, но единая runtime-роль технически может читать и менять чужие строки там, где DML разрешён. Основным live-контролем остаются `listInSpaceWhere` и ownership-проверки приложения. Scoped data plane, общая access-функция, policies и column guards применены в обеих БД; Alice/Bob-тесты под restricted runtime прошли. Preview live audit `32446720820` подтвердил точный catalog, но пока RLS выключен, эти объекты не ограничивают direct table DML | **Mitigation in progress:** отдельными группами включить и проверить enforcement в Preview; Production только после полного go/no-go. Немедленный пересмотр при втором человеке с доступом к Vercel, снятии whitelist или появлении прямого SQL-пути из недоверенного ввода |
 | Исполнение кода в контейнере сервиса даёт доступ к Anthropic | A25. Токен живёт 10 минут, наружу не выносится и ограничен одним workspace. Альтернатива — вернуть статический ключ, то есть заменить трудную и короткую угрозу на лёгкую и бессрочную | Появление в сервисе пути, исполняющего пользовательский ввод; расширение прав федеративного токена за пределы одного workspace |
 | Непрерывное сканирование образов выключено | Artifact Registry Container Scanning — платная функция ($0.26 за образ), и включать её на частном приложении сейчас нечем оправдать. Компенсация: собственные зависимости чисты (0 открытых алертов Dependabot, 0 critical/high в `requirements.txt`), а grype в `deploy.yml` показывает дельту на каждой выкладке. Чего не хватает — видимости CVE, опубликованной **после** сборки: между выкладками об образе не знает никто | Выход в свет; рост интервала между выкладками; появление critical/high в собственных зависимостях |
 | Immutable tags в Artifact Registry не включены | Выкладка идёт по digest (A48), поэтому перезапись тега не может подменить работающее — единственный вектор закрыт другим способом. Immutable tags защищали бы только человеческую трассировку «SHA-тег → образ», а ценой был бы запрет на повторный запуск выкладки для того же коммита: сборка не байт-в-байт воспроизводима, и повторный push дал бы конфликт тега | Появление второго обладателя `artifactregistry.writer`; отказ от выкладки по digest |

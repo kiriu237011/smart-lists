@@ -2,9 +2,9 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-21 (первый tenant policy-контур и disabled
-column guards применены в Preview и Production; RLS и guard enforcement не
-включены)
+**Последнее обновление:** 2026-08-21 (первый tenant policy-контур применён в
+Preview и Production и прошёл read-only live audit в Preview; RLS и guard
+enforcement не включены)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -83,6 +83,10 @@ Smart Lists — локализованное веб-приложение для 
   Environment, exact-host guard и `BEGIN READ ONLY`. Dependency install не
   получает secret; вывод содержит catalog и runtime ACL, но не строки данных
   или connection URL.
+- Preview run `32446720820` от `main@613ea662` подтвердил direct endpoint,
+  безопасные атрибуты и точный ACL runtime-роли, 15 таблиц, 3 enum, 4 routines,
+  31 policy, 8 disabled guards и отсутствие `ENABLE/FORCE RLS`. Catalog gate
+  закрыт; это не включило DB-изоляцию строк.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -186,8 +190,8 @@ Smart Lists — локализованное веб-приложение для 
   специальный глобальный attachment-поток переведён на fail-closed helper.
   Policies и column guards уже находятся в обеих live-БД, но RLS и triggers
   выключены. Поэтому live-изоляцию по-прежнему обеспечивают прикладные
-  проверки; следующий gate — read-only catalog audit и поэтапное включение
-  enforcement сначала в Preview.
+  проверки; read-only catalog gate Preview пройден, следующий шаг — первая
+  малая enforcement-группа только в Preview.
 
 ### Авторизация
 
@@ -997,8 +1001,9 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   Production-попытка завершилась `P1001` до соединения с Neon; безопасный retry
   той же job успешен. В обеих БД теперь есть helper, 31 policy и восемь disabled
   guards, но `ENABLE/FORCE RLS` не выполнялся. Security status поэтому не
-  повышен: runtime всё ещё имеет table-wide DML в рамках ACL. Следующий этап —
-  live catalog audit и малые enforcement-группы только в Preview.
+  повышен: runtime всё ещё имеет table-wide DML в рамках ACL. Read-only Preview
+  catalog audit `32446720820` от `main@613ea662` подтвердил точный контракт;
+  следующий этап — малые enforcement-группы только в Preview.
 - 2026-08-21: локальная scoped-ветка повторно собрана от `main@f489eec` после
   расхождения историй. В `getListInsight` персональные группы вызывающего
   выбираются внутри подтверждённого `withSpaceDb`; attachment flow одновременно

@@ -1,8 +1,9 @@
 # План усиления доступа к PostgreSQL
 
 **Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
-guard объекты первого tenant-контура применены в Preview и Production и
-проверены локально под restricted runtime; RLS и guard-триггеры выключены
+guard объекты первого tenant-контура применены в Preview и Production,
+проверены локально и прошли live catalog audit в Preview; RLS и guard-триггеры
+выключены
 **Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -565,9 +566,17 @@ Proxy run `32443735539`. Оба target guard подтвердили direct endpo
 с двумя attachment maintenance migrations. Первая Production-попытка получила
 `P1001` до установления соединения с Neon; повтор той же job прошёл успешно.
 Это меняет live catalog, но не runtime enforcement: миграция не содержит
-`ENABLE/FORCE RLS`, а все восемь guard-триггеров созданы disabled. Независимый
-read-only catalog audit остаётся обязательным gate перед включением первой
-Preview-группы.
+`ENABLE/FORCE RLS`, а все восемь guard-триггеров созданы disabled.
+
+**Preview catalog gate 2026-08-21:** ручной workflow run `32446720820` от
+`main@613ea662` прошёл exact-host guard и `BEGIN READ ONLY`. Аудит подтвердил
+direct endpoint, безопасные атрибуты `smartlists_runtime`, отсутствие у неё
+membership в повышенной роли, DDL и доступа к migration metadata, точное
+совпадение DML-матрицы, 15 таблиц, 3 enum, 4 routines, 31 policy и 8 disabled
+guards. На всех таблицах `rls_enabled=false` и `rls_forced=false`. Это закрывает
+gate инвентаризации, но не повышает live security status: следующий отдельный
+шаг — спроектировать и включить первую малую связанную группу enforcement
+только в Preview с заранее подготовленным откатом и отрицательной проверкой.
 
 ## Модели вне первого RLS-контура
 
@@ -662,11 +671,12 @@ AI-сервиса расходует зарезервированную попы
    фазы AI insights, attachments, ListGroup lifecycle/membership, List
    lifecycle, sharing lifecycle, note/item lifecycle и movement реализованы и
    локально проверены.
-5. **DB-объекты без enforcement — применены 2026-08-21.** Attachment helpers,
+5. **DB-объекты без enforcement — применены и проверены 2026-08-21.** Attachment helpers,
    общая access-функция, policies и disabled column guards находятся в Preview
    и Production; exact catalog contract и отрицательные Alice/Bob тесты
-   зелёные. Live RLS не включён.
-6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
+   зелёные. Preview live catalog audit `32446720820` совпал с контрактом. Live
+   RLS не включён.
+6. **Enforcement — следующий этап.** Сначала integration DB, затем dev/preview и только после
    полного go/no-go — production. Таблицы включаются небольшими связанными
    группами, а не одним большим переключателем.
 7. **Проверка после включения.** Аудит атрибутов ролей, policy catalog,
