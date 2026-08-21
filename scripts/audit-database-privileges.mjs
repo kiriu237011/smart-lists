@@ -198,10 +198,25 @@ try {
   `);
 
   const policies = await rows(`
-    SELECT schemaname, tablename, policyname, permissive, roles, cmd
+    SELECT schemaname, tablename, policyname, permissive, roles, cmd,
+           qual, with_check
     FROM pg_policies
     WHERE schemaname = 'public'
     ORDER BY tablename, policyname
+  `);
+
+  const triggers = await rows(`
+    SELECT relation.relname AS table,
+           trigger.tgname AS name,
+           routine.proname AS function,
+           trigger.tgenabled AS enabled
+    FROM pg_trigger trigger
+    JOIN pg_class relation ON relation.oid = trigger.tgrelid
+    JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+    JOIN pg_proc routine ON routine.oid = trigger.tgfoid
+    WHERE namespace.nspname = 'public'
+      AND NOT trigger.tgisinternal
+    ORDER BY relation.relname, trigger.tgname
   `);
 
   const defaultPrivileges = await rows(`
@@ -236,6 +251,7 @@ try {
     types,
     routines,
     policies,
+    triggers,
     defaultPrivileges,
   }, null, 2));
 

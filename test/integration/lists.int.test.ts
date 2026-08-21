@@ -152,7 +152,7 @@ describe("renameList — владелец", () => {
     const list = await makeList(owner.id, owner.defaultSpaceId);
     await shareList(list.id, editor.id);
     setSessionUser(owner.id);
-    const { notifyListMembers } = await import("@/lib/notify");
+    const { notifyUsers } = await import("@/lib/notify");
 
     await renameList(
       formData({
@@ -163,8 +163,12 @@ describe("renameList — владелец", () => {
     );
     await flushAfter();
 
-    // Здесь список остаётся в БД, поэтому получателей находит сам notify.
-    expect(vi.mocked(notifyListMembers)).toHaveBeenCalledWith(list.id, null);
+    // Получатели собраны внутри scoped-транзакции до commit; фоновый callback
+    // не открывает глобальный tenant-read через notifyListMembers.
+    expect(vi.mocked(notifyUsers)).toHaveBeenCalledTimes(1);
+    const [userIds, socketId] = vi.mocked(notifyUsers).mock.calls[0];
+    expect([...userIds].sort()).toEqual([owner.id, editor.id].sort());
+    expect(socketId).toBeNull();
   });
 
   it("отвергает слишком длинное название и не трогает строку", async () => {

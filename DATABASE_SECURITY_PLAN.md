@@ -1,8 +1,9 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этапы 2a и 2b завершены в Preview и Production; migration и backup
-scopes этапа 2c завершены и проверены в целевых средах
-**Дата:** 2026-08-13
+**Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
+guard объекты первого tenant-контура реализованы и локально проверены под
+restricted runtime, но RLS и guard-триггеры выключены; live-среды не менялись
+**Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
 матрицу доступа и безопасный порядок внедрения. Текущее состояние приложения
@@ -79,7 +80,10 @@ credential. Это уменьшает число одновременно мен
 | `_prisma_migrations` | нет | доступен только миграционному контуру |
 
 Во всей схеме runtime не получает `TRUNCATE`, `REFERENCES`, `TRIGGER`, права на
-sequences/functions и автоматический доступ к будущим объектам. Сейчас
+sequences и автоматический доступ к будущим объектам. Из routines точечный
+`EXECUTE` разрешён только
+`app_attachment_prepare_maintenance(text)` и
+`app_attachment_finish_maintenance(uuid[], boolean)`. Сейчас
 application sequences в `public` отсутствуют: идентификаторы создаются в коде.
 Новая таблица намеренно ломает runtime до явного review и добавления в матрицу,
 а не наследует широкий `GRANT ALL`.
@@ -102,8 +106,9 @@ control plane Neon, получают membership в `neon_superuser`, что ун
 
 `npm run db:audit-privileges` выполняет только `BEGIN READ ONLY`, читает
 Postgres catalogs и выводит fingerprint endpoint, атрибуты и settings роли,
-database/schema/relation/type/routine ownership, эффективные права и
-RLS-состояние. Connection string и строки данных не выводятся. Источник
+database/schema/relation/type/routine ownership, эффективные права,
+RLS/policy catalog и состояние guard-триггеров. Connection string и строки
+данных не выводятся. Источник
 выбирается в порядке `AUDIT_DATABASE_URL`, `DIRECT_URL`, `DATABASE_URL`.
 
 `npm run db:configure-runtime-role` по умолчанию показывает план. Реальное
@@ -371,11 +376,11 @@ Repository secret `DIRECT_URL` заменён на backup credential; owner cred
 в GitHub Actions больше не используется. Ручной workflow run `31681055043` на
 main SHA `53bcba40edfeadf7022ed2b5b0b61242da456846` успешно выполнил `pg_dump`,
 проверку каталога, получение AWS credentials через GitHub OIDC и upload в S3.
-Runtime contract до/после совпал. Следующий этап — scoped-контекст запросов.
+Runtime contract до/после совпал. После этого начат scoped-контекст запросов.
 
 ## Контексты запросов
 
-Планируются два явных контекста:
+Целевой API содержит два явных контекста:
 
 - пользовательский: `app.user_id` — квоты, список пространств и операции без
   выбранного пространства;
@@ -394,6 +399,108 @@ interactive transaction Prisma. Политики читают настройки
 вложенные `$transaction` должны быть распрямлены; сетевые вызовы S3, Pusher и AI
 не удерживают DB-транзакцию.
 
+**Foundation 2026-08-14:** `src/lib/scoped-db.ts` реализует оба wrapper.
+Контекст устанавливается
+параметризованным transaction-local `set_config`; user-only wrapper явно
+очищает `app.space_id`, space-wrapper сначала подтверждает `Space(id, userId)`,
+а оба перечитывают GUC перед передачей callback только
+`Prisma.TransactionClient`. Реальные PostgreSQL-тесты доказывают fail-closed
+валидацию, отказ для чужого пространства, rollback и отсутствие переноса
+контекста между транзакциями. Первой consumer-группой перенесён
+`src/lib/spaces.ts`: default-space и lookup работают через user-контекст,
+проверка доступа к списку — через подтверждённый space-контекст. Интеграционный
+тест сохраняет ownership, placement расшаренного списка и fail-closed ответ для
+чужого/некорректного пространства. Второй группой переведены
+`AuthenticatedHome` и `ListsDataFetcher`: список пространств, счётчик списков,
+основная выборка списков со связями и группы выполняются через `withSpaceDb`, а
+переводы и React-рендер не удерживают транзакцию. DB-тест доказывает, что
+server read-path видит все пространства пользователя, но не смешивает списки и
+группы разных пространств и сохраняет placement shared-list. Третьей группой
+переведён `src/lib/usage.ts`: атомарный инкремент, fail-soft
+очистка и компенсация выполняются отдельными `withUserDb`-транзакциями, чтобы
+сбой второстепенной операции не отменял пользовательское действие. Конкурентный
+DB-тест подтверждает, что при двух оставшихся единицах из восьми параллельных
+запросов проходят ровно два. Четвёртой группой переведены Server Actions
+пространств: `createSpace` сохраняет `Serializable` через scoped transaction
+options, rename/impact/delete используют подтверждённый space-контекст, а
+удаление атомарно собирает payload и выполняет DB-каскад до запуска cookies,
+S3 и realtime после commit. Поведение подтверждено полным integration suite и
+14 E2E-тестами пространств/маршрутизации. Пятой группой переведён
+`getListInsight`: данные списка и записей читаются в `withSpaceDb`, а
+атомарное резервирование и компенсация превышения квоты — в отдельных
+`withUserDb`. Получение Google ID-токена и запрос к AI-сервису происходят
+только после закрытия DB-транзакций. Отрицательный DB-тест подтверждает, что
+подмена пространства не отправляет данные и не расходует квоту; конкурентный
+тест на границе 15/сутки пропускает ровно один из двух запросов и оставляет
+счётчик на лимите. Allowlist прямых импортов глобального Prisma сократился с 13
+до 7; новые обходы запрещены. Шестой группой переведены attachment actions:
+`requestUpload` сохраняет list row-lock, квоты, stale-cleanup и создание
+`PENDING` в `withSpaceDb`; `confirmUpload` разделён на scoped read,
+`HeadObject` и scoped state transition; delete/download также закрывают
+DB-фазу до S3. Получатели realtime вычисляются до commit, поэтому `after()`
+вызывает только `notifyUsers` без tenant-чтения. Fail-soft восстановление
+метаданных после сбоя S3 получает отдельный scoped-контекст. DB-тесты
+подтверждают commit-before-S3, fail-closed чужого пространства и сохранение
+глобальной пользовательской квоты/уборки между пространствами. Allowlist
+сократился с 13 до 6. Седьмой группой переведены `createGroup`,
+`deleteGroup`, `renameGroup` и `moveGroup`: limit/position/create и
+read/validate/rebalance выполняются внутри `withSpaceDb`, а вложенная batch-
+транзакция reorder распрямлена в тот же scoped callback. Отдельный статический
+guard запрещает этим четырём функциям возвращаться к global Prisma, пока
+`index.ts` целиком остаётся в переходном allowlist. DB-тест закрепляет
+атомарный rebalance при исчерпании точности позиции; полный group UI flow прошёл
+E2E. Восьмой группой переведены `addListToGroup`, `removeListFromGroup` и
+`moveListInGroup`: личная группа, доступный собственный/расшаренный список,
+membership read/write и rebalance теперь находятся в одном `withSpaceDb`, без
+вложенной транзакции. Статический guard расширен до всех семи перенесённых
+group actions. DB-тесты закрепляют reorder расшаренного списка редактором и
+fail-closed отказ всех трёх действий при подмене пространства; production
+build и семь E2E групп/порядка зелёные. Общий allowlist остаётся равен 6,
+поскольку в `index.ts` ещё есть legacy-потоки. Девятой группой переведены
+`createList`, `deleteList`, `renameList` и `setListAiEnabled`: проверка
+лимита, optional initial membership, owner/editor access, mutation и сбор
+post-commit payload выполняются внутри `withSpaceDb`. S3 и Pusher запускаются
+после commit; create уведомляет известного владельца, остальные действия
+передают в `notifyUsers` участников, собранных в транзакции, поэтому
+`after()` не читает tenant-таблицы. DB-тест отдельным соединением подтверждает
+commit каскадного удаления до S3; cross-space тест закрывает все четыре Action.
+Per-action guard расширен с семи до одиннадцати функций, общий direct-import
+allowlist остаётся равен 6. Десятой группой переведены `shareList`,
+`removeSharedUser` и `leaveSharedList`: owner/self checks, запись `ListShare`
+и сбор всех realtime recipients выполняются внутри `withSpaceDb`, а
+`after()` получает только готовые user IDs. `shareList` больше не вызывает
+`ensureSpaceState(recipientId)` и не устанавливает DB-контекст другого
+пользователя; default-space определяется детерминированно, а составной FK
+откатывает share при нарушении инварианта. Проверка владения списком идёт до
+поиска email, поэтому чужой `listId` не является oracle регистрации.
+Per-action guard расширен до четырнадцати функций; общий allowlist остаётся 6.
+Одиннадцатой группой переведены `updateItemNote` и `updateListNote`: чтение
+текущей версии, условный `updateMany`, получение актуальной версии при конфликте
+и сбор realtime recipients выполняются в одной `withSpaceDb`-транзакции.
+Optimistic concurrency по `noteVersion`, editor-доступ и нормализация пустой
+заметки сохранены. Реальные DB-тесты проверяют параллельную гонку одной версии,
+cross-space отказ и отсутствие tenant-чтения из `after()`. Per-action guard
+расширен до шестнадцати функций; общий allowlist остаётся 6.
+Двенадцатой группой переведён item lifecycle: `addItem`, `deleteItem`,
+`toggleItem` и `renameItem`. Проверка editor-доступа, limit/position/create,
+каскад подпунктов, пересчёт денормализованной отметки родителя и запись
+выполняются в одной `withSpaceDb`-транзакции. Получатели realtime собираются
+до commit; `after()` не читает tenant-таблицы. DB-тесты закрепляют cross-space
+fail-closed для всех четырёх Actions и прежнюю семантику подпунктов.
+Per-action guard расширен до двадцати функций и теперь также запрещает
+перенесённым Actions возвращать `notifyListMembers`/`notifyListsMembers`; общий
+direct-import allowlist остаётся 6.
+Тринадцатой группой переведены `moveItem` и `moveItemToList`. Доступ к
+исходному и целевому спискам, проверка соседей/лимита, обычная запись,
+rebalance, перенос поддерева и копирование родителя с подпунктами выполняются
+в одной `withSpaceDb`-транзакции. Realtime recipients собираются до commit:
+union двух списков для move и только target для copy. Глобальный Prisma import
+из `src/app/actions/index.ts` удалён; allowlist сократился с 6 до 5, guard
+расширен до двадцати двух функций. Обычный tenant data plane теперь scoped.
+RLS всё ещё выключен, поэтому это ещё не завершённый контроль изоляции строк;
+attachment helper уже локально проверен; до enforcement остаются policies и
+их отрицательные тесты.
+
 ## Матрица первого RLS-контура
 
 | Таблица | `SELECT` | `INSERT` | `UPDATE` | `DELETE` |
@@ -402,28 +509,46 @@ interactive transaction Prisma. Политики читают настройки
 | `List` | владелец либо активный `ListShare` в `app.space_id` | владелец — текущий пользователь, `spaceId` — текущий | владелец или editor в текущем пространстве; поля владения защищены отдельно | только владелец в текущем пространстве |
 | `ListShare` | участники доступного списка могут видеть состав доступа | только владелец списка; получатель существует | в текущем коде запрещён | владелец списка либо сам получатель удаляет свой доступ |
 | `ListGroup` | только группа пользователя в текущем пространстве | только пользователь и текущее пространство | только владелец группы; нельзя сменить владельца/пространство | только владелец группы |
-| `ListGroupMembership` | только если группа принадлежит пользователю, а список доступен в том же пространстве | то же условие для обеих сторон связи | в текущем коде запрещён | только владелец группы, при сохранении space-инварианта |
+| `ListGroupMembership` | только если группа принадлежит пользователю, а список доступен в том же пространстве | то же условие для обеих сторон связи | только `position`, при том же условии; `listId`/`groupId` неизменяемы | только владелец группы, при сохранении space-инварианта |
 | `Item` | через доступ к родительскому списку в текущем пространстве | editor или владелец списка | editor или владелец списка | editor или владелец списка |
 | `Attachment` | через доступ к родительскому списку в текущем пространстве | editor или владелец; `uploadedById = app.user_id` | только допустимый переход состояния для доступного списка | editor/владелец списка; отдельная очистка — по узкому системному пути |
-| `UserDailyUsage` | только `userId = app.user_id` | только собственная строка | только собственная строка | runtime не требуется |
+| `UserDailyUsage` | только `userId = app.user_id` | только собственная строка | только собственная строка | только собственные старые строки для ленивой очистки |
 
 Политика RLS ограничивает строки, но сама по себе не запрещает editor менять
-отдельные колонки доступной строки `List`. Поля `userId`, `spaceId`, `title` и
-операции владения должны получить дополнительный контроль. Перед реализацией
-выбирается один из двух вариантов:
-
-1. trigger сравнивает `OLD`/`NEW` и разрешает editor менять только содержимое;
-2. у runtime отзывается прямой `UPDATE` защищённых колонок, а легитимные
-   операции проходят через узкие `SECURITY DEFINER`-функции владельца.
-
-Предпочтителен второй вариант там, где он не усложняет Prisma-поток. Любая
-definer-функция получает фиксированный `search_path`, минимальные права,
-валидацию владельца внутри функции и `REVOKE ... FROM PUBLIC`.
+отдельные колонки доступной строки `List`. Для первого контура выбран общий
+`BEFORE UPDATE` trigger: он сохраняет существующие Prisma writes и отдельно
+защищает ownership/space/attribution, owner-only `List.title`, неизменяемые
+membership endpoints и единственный runtime-переход вложения
+`PENDING -> UPLOADED`. Table owner проходит guard для миграций и узких
+attachment helpers. Функция trigger работает как `SECURITY INVOKER` с
+фиксированным `search_path`; прямой `EXECUTE` отозван у PUBLIC и runtime.
 
 Общая логика «доступен ли список в пространстве» должна находиться в одной
 неизменяемой по контракту DB-функции и использоваться политиками `List`,
 `Item`, `Attachment`, `ListShare` и membership. Это снижает риск расхождения
 пяти копий одного правила.
+
+**DB-объекты 2026-08-21:** additive-миграция создаёт
+`app_list_access(text)`, 31 policy на восьми tenant-таблицах и восемь column-
+guard triggers. Policies адресованы `PUBLIC`, потому что operational login-
+роли не создаются миграциями; table ACL остаётся отдельным fail-closed
+барьером. Helper — `SECURITY DEFINER` с фиксированным `search_path`, без
+PUBLIC EXECUTE; runtime получает только точечный EXECUTE. Role configurators
+теперь проверяют exact routine/policy/trigger inventory, а read-only audit
+выводит `qual`, `with_check` и состояние triggers. Миграция намеренно не
+выполняет `ENABLE/FORCE ROW LEVEL SECURITY`; triggers созданы disabled.
+`FORCE` несовместим с текущим helper: table owner обязан обходить policies,
+чтобы чтение `List`/`ListShare` не рекурсировало. Это явное допущение A50, а не
+скрытый режим; первый enforcement использует только обычный `ENABLE`.
+
+На локальном PostgreSQL 17 restricted-role gate временно включил RLS и guards,
+после чего прямые нефильтрованные Prisma-запросы доказали изоляцию всех восьми
+таблиц, fail-closed отсутствие GUC, Alice/Bob reuse пула размера 1,
+owner/editor/stranger, защищённые колонки, перенос Item только между двумя
+доступными списками, attribution, sharing и attachment state transition.
+Полный role suite: 287 тестов, миграция под migrator и backup/restore прошли.
+После теста RLS/guards снова выключены; это доказательство policy-механики, а
+не разрешение на live enforcement.
 
 ## Модели вне первого RLS-контура
 
@@ -441,21 +566,27 @@ definer-функция получает фиксированный `search_path`
 
 ### Расшаривание и пространство получателя
 
-Сейчас `shareList` может создать получателю default-space через
-`ensureSpaceState(recipientId)`. Обычная пользовательская RLS-политика не должна
-позволять создавать `Space` другому пользователю. До включения enforcement
-нужно либо изменить инвариант так, чтобы default-space создавался только при
-регистрации/входе, либо вынести этот один поток в узкую owner-функцию. Второй
-вариант требует отдельного abuse-теста и не должен давать произвольный
-cross-user `INSERT`.
+**Blocker закрыт 2026-08-14 без privileged helper.** Все существовавшие на
+момент перехода пользователи получили default-space expand/contract-
+миграциями; новые получают его в Auth.js `createUser`, а собственные entrypoint
+дополнительно выполняют idempotent self-heal. `shareList` теперь работает
+только в owner-scoped транзакции, вычисляет детерминированный
+`space_default_<recipientId>` и не вызывает
+`ensureSpaceState(recipientId)`. Составной FK `ListShare(spaceId, userId)`
+подтверждает принадлежность пространства получателю; если инвариант нарушен,
+вся выдача доступа откатывается. DB-тест доказывает одновременно отсутствие
+`ListShare` и отсутствие cross-user `Space INSERT`. Следовательно, обычная
+RLS-политика `Space` может остаться строго `userId = app.user_id`, а
+`SECURITY DEFINER` для sharing не требуется.
 
 ### Realtime после commit
 
-`after()` сейчас может читать участников списка после завершения мутации.
-Контекст транзакции к этому моменту уже закрыт. Список получателей нужно
-вычислять внутри авторизованной транзакции и передавать в фоновую задачу как
-минимальный набор идентификаторов; `after()` не должен повторно обращаться к
-tenant-таблицам через Prisma.
+`after()` не должен повторно обращаться к tenant-таблицам через Prisma:
+контекст транзакции к этому моменту уже закрыт. Attachment, List lifecycle,
+sharing, note, item lifecycle и item movement вычисляют получателей внутри
+авторизованной транзакции и передают в фоновую задачу минимальный набор
+идентификаторов. Обычный tenant data plane больше не вызывает
+`notifyListMembers`/`notifyListsMembers`.
 
 ### Очистка вложений
 
@@ -464,12 +595,39 @@ tenant-таблицам через Prisma.
 понадобится, выполняется отдельным job-role, а не расширением пользовательской
 политики.
 
+**Enforcement-blocker закрыт локально 2026-08-14:** `MAX_FILES_PER_USER` и уборка
+собственных stale `PENDING` имеют глобальную семантику по всем пространствам
+пользователя. Обычная policy `Attachment`, ограниченная `app.space_id`,
+занизила бы count и не смогла бы безопасно повторить cleanup другого
+пространства. Две owner-функции решают это без расширения обычной policy:
+
+- prepare требует непустые `app.user_id`/`app.space_id`, повторно проверяет
+  принадлежность Space и owner/editor-доступ к целевому списку;
+- только stale `PENDING` целевого списка или текущего uploader переводятся в
+  `CLEANUP_PENDING`; одноразовые UUID-токены создаёт БД;
+- наружу возвращаются только глобальный count и `{token,key}`; произвольные
+  metadata, status или user ID функция не принимает;
+- finish удаляет либо возвращает в `PENDING` только токены, ранее выданные
+  текущему пользователю; успешный S3 delete при сбое finalize остаётся
+  `CLEANUP_PENDING` для идемпотентного повтора;
+- CHECK связывает служебные поля со статусом; fixed `search_path`,
+  `REVOKE FROM PUBLIC`, точечный runtime `EXECUTE` и отсутствие EXECUTE у
+  backup закреплены role-contract;
+- старый application build понимает схему: служебные строки не видны в UI,
+  но до возврата нового build могут временно учитываться старым quota count.
+
+Cross-space, чужой token, S3 rollback, quota-rejection и exact ACL проверены на
+реальной БД. RLS остаётся выключен: helper закрывает специальный data-flow
+blocker, но table-wide DML runtime будет ограничен только будущими policies.
+
 ### Auth.js и квоты
 
 Prisma Adapter выполняет запросы до появления `app.user_id`, поэтому auth-
 таблицы не зависят от пользовательского контекста. `UserDailyUsage`, напротив,
 всегда выполняется внутри `withUserDb`; AI-вызов идёт уже после атомарного
-резервирования квоты.
+резервирования квоты и закрытия транзакции. По существующему контракту ошибка
+AI-сервиса расходует зарезервированную попытку; компенсируется только инкремент
+сверх дневного лимита.
 
 ## Порядок реализации
 
@@ -480,10 +638,14 @@ Prisma Adapter выполняет запросы до появления `app.us
 3. **Least privilege без RLS.** Создать owner/migrator/runtime-роли, передать
    runtime минимальные права и доказать, что он не может DDL/ownership/role
    operations. Приложение всё ещё защищено существующими фильтрами.
-4. **Scoped Prisma API.** Добавить `withUserDb`/`withSpaceDb`, перенести все
-   tenant-запросы и специальные потоки, сохранив поведение и тесты.
-5. **DB-объекты без enforcement.** Добавить helper-функции, column controls и
-   политики миграцией, но пока не включать RLS для runtime-трафика.
+4. **Scoped Prisma API — завершён для обычного tenant data plane.** Foundation `withUserDb`/`withSpaceDb`,
+   space helpers, основной server read-path, user quota, space mutations и DB-
+   фазы AI insights, attachments, ListGroup lifecycle/membership, List
+   lifecycle, sharing lifecycle, note/item lifecycle и movement реализованы и
+   локально проверены.
+5. **DB-объекты без enforcement — локально завершены.** Attachment helpers,
+   общая access-функция, policies, disabled column guards, exact catalog
+   contract и отрицательные Alice/Bob тесты готовы; live RLS не включён.
 6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
    полного go/no-go — production. Таблицы включаются небольшими связанными
    группами, а не одним большим переключателем.
@@ -581,7 +743,8 @@ restore-проверки не менялись. Пункты 4 и 5 выполн
 - тесты покрывают owner/editor/stranger, неверное пространство, подмену
   `userId`/`spaceId`, смену владельца и перенос строки между пространствами;
 - проверены relation-запросы Prisma, nested writes и все поля `include`;
-- работают sign-in/session/Auth.js Adapter, создание default-space при share,
+- работают sign-in/session/Auth.js Adapter, гарантия default-space через
+  migration/Auth.js и fail-closed share без cross-user создания `Space`,
   realtime после commit, квоты и очистка stale attachments;
 - backup создан привилегированным workflow и пробно восстановлен в отдельную
   базу;

@@ -277,10 +277,17 @@ export async function deleteObject(key: string): Promise<void> {
  */
 export async function deleteObjects(keys: string[]): Promise<void> {
   if (keys.length === 0) return;
-  await s3Client.send(
+  const result = await s3Client.send(
     new DeleteObjectsCommand({
       Bucket: BUCKET,
       Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
     }),
   );
+  // DeleteObjects может вернуть HTTP 200 и отдельные ошибки по ключам.
+  // Считаем batch неуспешным, чтобы вызывающий не удалил метаданные БД.
+  if (result.Errors && result.Errors.length > 0) {
+    throw new Error(
+      `S3 не удалил часть объектов (ошибок: ${result.Errors.length}).`,
+    );
+  }
 }
