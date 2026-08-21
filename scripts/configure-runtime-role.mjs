@@ -4,8 +4,11 @@ import { createHash } from "node:crypto";
 import {
   ALL_TABLE_PRIVILEGES,
   DATABASE_ROLES,
+  EXPECTED_POLICIES,
+  EXPECTED_ROUTINE_DEFINITIONS,
   EXPECTED_ROUTINES,
   EXPECTED_TABLES,
+  EXPECTED_TRIGGERS,
   RUNTIME_EXECUTE_ROUTINES,
   RUNTIME_TABLE_PRIVILEGES,
 } from "./database-role-contract.mjs";
@@ -92,6 +95,43 @@ async function listPublicRoutines(client) {
   return result.rows.map(
     (row) => `${row.kind}:${row.name}(${row.arguments})`,
   );
+}
+
+async function listPublicPolicies(client) {
+  const result = await client.query(`
+    SELECT format(
+             '%s:%s:%s:%s:%s',
+             tablename,
+             policyname,
+             cmd,
+             permissive,
+             array_to_string(roles, ',')
+           ) AS policy
+    FROM pg_policies
+    WHERE schemaname = 'public'
+    ORDER BY tablename, policyname
+  `);
+  return result.rows.map((row) => row.policy);
+}
+
+async function listPublicTriggers(client) {
+  const result = await client.query(`
+    SELECT format(
+             '%s:%s:%s:%s',
+             relation.relname,
+             trigger.tgname,
+             routine.proname,
+             trigger.tgenabled
+           ) AS trigger
+    FROM pg_trigger trigger
+    JOIN pg_class relation ON relation.oid = trigger.tgrelid
+    JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+    JOIN pg_proc routine ON routine.oid = trigger.tgfoid
+    WHERE namespace.nspname = 'public'
+      AND NOT trigger.tgisinternal
+    ORDER BY relation.relname, trigger.tgname
+  `);
+  return result.rows.map((row) => row.trigger);
 }
 
 async function assertExistingRuntimeRoleIsRestricted(client) {
@@ -205,7 +245,7 @@ async function verifyRuntimeRole(connectionString) {
       );
     }
 
-    for (const routine of RUNTIME_EXECUTE_ROUTINES) {
+    for (const routine of EXPECTED_ROUTINE_DEFINITIONS) {
       const signature =
         `public.${routine.name}(${routine.identityArguments})`;
       const privilegeResult = await runtimeClient.query(
@@ -216,9 +256,15 @@ async function verifyRuntimeRole(connectionString) {
          ) AS execute`,
         [signature],
       );
-      if (!privilegeResult.rows[0]?.execute) {
+      const expectedExecute = RUNTIME_EXECUTE_ROUTINES.some(
+        (allowed) =>
+          allowed.kind === routine.kind &&
+          allowed.name === routine.name &&
+          allowed.identityArguments === routine.identityArguments,
+      );
+      if (privilegeResult.rows[0]?.execute !== expectedExecute) {
         throw new Error(
-          `Runtime не имеет ожидаемого EXECUTE на ${signature}.`,
+          `Runtime EXECUTE на ${signature} не совпадает с контрактом.`,
         );
       }
     }
@@ -276,6 +322,16 @@ async function main() {
       await listPublicRoutines(client),
       EXPECTED_ROUTINES,
       "Набор routines public",
+    );
+    assertSameValues(
+      await listPublicPolicies(client),
+      EXPECTED_POLICIES,
+      "Набор policies public",
+    );
+    assertSameValues(
+      await listPublicTriggers(client),
+      EXPECTED_TRIGGERS,
+      "Набор triggers public",
     );
 
     const roleResult = await client.query(

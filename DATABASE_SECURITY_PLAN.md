@@ -1,10 +1,8 @@
 # План усиления доступа к PostgreSQL
 
-**Статус:** этапы 2a–2c завершены; foundation scoped Prisma API, `spaces`,
-server read-path, user quota, space mutations и AI insights локально проверены,
-attachment flow, ListGroup lifecycle/membership, List lifecycle, sharing,
-note mutations, item lifecycle, item movement и attachment maintenance helper
-интегрированы с `main@f489eec` и локально перепроверены, RLS выключен
+**Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
+guard объекты первого tenant-контура реализованы и локально проверены под
+restricted runtime, но RLS и guard-триггеры выключены; live-среды не менялись
 **Дата:** 2026-08-21
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -108,8 +106,9 @@ control plane Neon, получают membership в `neon_superuser`, что ун
 
 `npm run db:audit-privileges` выполняет только `BEGIN READ ONLY`, читает
 Postgres catalogs и выводит fingerprint endpoint, атрибуты и settings роли,
-database/schema/relation/type/routine ownership, эффективные права и
-RLS-состояние. Connection string и строки данных не выводятся. Источник
+database/schema/relation/type/routine ownership, эффективные права,
+RLS/policy catalog и состояние guard-триггеров. Connection string и строки
+данных не выводятся. Источник
 выбирается в порядке `AUDIT_DATABASE_URL`, `DIRECT_URL`, `DATABASE_URL`.
 
 `npm run db:configure-runtime-role` по умолчанию показывает план. Реальное
@@ -513,25 +512,43 @@ attachment helper уже локально проверен; до enforcement о�
 | `ListGroupMembership` | только если группа принадлежит пользователю, а список доступен в том же пространстве | то же условие для обеих сторон связи | только `position`, при том же условии; `listId`/`groupId` неизменяемы | только владелец группы, при сохранении space-инварианта |
 | `Item` | через доступ к родительскому списку в текущем пространстве | editor или владелец списка | editor или владелец списка | editor или владелец списка |
 | `Attachment` | через доступ к родительскому списку в текущем пространстве | editor или владелец; `uploadedById = app.user_id` | только допустимый переход состояния для доступного списка | editor/владелец списка; отдельная очистка — по узкому системному пути |
-| `UserDailyUsage` | только `userId = app.user_id` | только собственная строка | только собственная строка | runtime не требуется |
+| `UserDailyUsage` | только `userId = app.user_id` | только собственная строка | только собственная строка | только собственные старые строки для ленивой очистки |
 
 Политика RLS ограничивает строки, но сама по себе не запрещает editor менять
-отдельные колонки доступной строки `List`. Поля `userId`, `spaceId`, `title` и
-операции владения должны получить дополнительный контроль. Перед реализацией
-выбирается один из двух вариантов:
-
-1. trigger сравнивает `OLD`/`NEW` и разрешает editor менять только содержимое;
-2. у runtime отзывается прямой `UPDATE` защищённых колонок, а легитимные
-   операции проходят через узкие `SECURITY DEFINER`-функции владельца.
-
-Предпочтителен второй вариант там, где он не усложняет Prisma-поток. Любая
-definer-функция получает фиксированный `search_path`, минимальные права,
-валидацию владельца внутри функции и `REVOKE ... FROM PUBLIC`.
+отдельные колонки доступной строки `List`. Для первого контура выбран общий
+`BEFORE UPDATE` trigger: он сохраняет существующие Prisma writes и отдельно
+защищает ownership/space/attribution, owner-only `List.title`, неизменяемые
+membership endpoints и единственный runtime-переход вложения
+`PENDING -> UPLOADED`. Table owner проходит guard для миграций и узких
+attachment helpers. Функция trigger работает как `SECURITY INVOKER` с
+фиксированным `search_path`; прямой `EXECUTE` отозван у PUBLIC и runtime.
 
 Общая логика «доступен ли список в пространстве» должна находиться в одной
 неизменяемой по контракту DB-функции и использоваться политиками `List`,
 `Item`, `Attachment`, `ListShare` и membership. Это снижает риск расхождения
 пяти копий одного правила.
+
+**DB-объекты 2026-08-21:** additive-миграция создаёт
+`app_list_access(text)`, 31 policy на восьми tenant-таблицах и восемь column-
+guard triggers. Policies адресованы `PUBLIC`, потому что operational login-
+роли не создаются миграциями; table ACL остаётся отдельным fail-closed
+барьером. Helper — `SECURITY DEFINER` с фиксированным `search_path`, без
+PUBLIC EXECUTE; runtime получает только точечный EXECUTE. Role configurators
+теперь проверяют exact routine/policy/trigger inventory, а read-only audit
+выводит `qual`, `with_check` и состояние triggers. Миграция намеренно не
+выполняет `ENABLE/FORCE ROW LEVEL SECURITY`; triggers созданы disabled.
+`FORCE` несовместим с текущим helper: table owner обязан обходить policies,
+чтобы чтение `List`/`ListShare` не рекурсировало. Это явное допущение A50, а не
+скрытый режим; первый enforcement использует только обычный `ENABLE`.
+
+На локальном PostgreSQL 17 restricted-role gate временно включил RLS и guards,
+после чего прямые нефильтрованные Prisma-запросы доказали изоляцию всех восьми
+таблиц, fail-closed отсутствие GUC, Alice/Bob reuse пула размера 1,
+owner/editor/stranger, защищённые колонки, перенос Item только между двумя
+доступными списками, attribution, sharing и attachment state transition.
+Полный role suite: 287 тестов, миграция под migrator и backup/restore прошли.
+После теста RLS/guards снова выключены; это доказательство policy-механики, а
+не разрешение на live enforcement.
 
 ## Модели вне первого RLS-контура
 
@@ -626,10 +643,9 @@ AI-сервиса расходует зарезервированную попы
    фазы AI insights, attachments, ListGroup lifecycle/membership, List
    lifecycle, sharing lifecycle, note/item lifecycle и movement реализованы и
    локально проверены.
-5. **DB-объекты без enforcement — в работе.** Attachment helper и служебный
-   column/state control добавлены локально; далее добавить общую access-
-   функцию, column controls остальных моделей и policies миграцией, но пока
-   не включать RLS для runtime-трафика.
+5. **DB-объекты без enforcement — локально завершены.** Attachment helpers,
+   общая access-функция, policies, disabled column guards, exact catalog
+   contract и отрицательные Alice/Bob тесты готовы; live RLS не включён.
 6. **Enforcement.** Сначала integration DB, затем dev/preview и только после
    полного go/no-go — production. Таблицы включаются небольшими связанными
    группами, а не одним большим переключателем.

@@ -7,9 +7,12 @@ import {
   DATABASE_ROLES,
   EXPECTED_DOMAINS,
   EXPECTED_ENUM_TYPES,
+  EXPECTED_POLICIES,
+  EXPECTED_ROUTINE_DEFINITIONS,
   EXPECTED_ROUTINES,
   EXPECTED_SEQUENCES,
   EXPECTED_TABLES,
+  EXPECTED_TRIGGERS,
   EXPECTED_VIEWS,
   RUNTIME_EXECUTE_ROUTINES,
   RUNTIME_TABLE_PRIVILEGES,
@@ -203,6 +206,48 @@ async function inventory(client) {
   };
 }
 
+async function securityInventory(client) {
+  const policies = await client.query(`
+    SELECT format(
+             '%s:%s:%s:%s:%s',
+             tablename,
+             policyname,
+             cmd,
+             permissive,
+             array_to_string(roles, ',')
+           ) AS policy
+    FROM pg_policies
+    WHERE schemaname = 'public'
+    ORDER BY tablename, policyname
+  `);
+  const triggers = await client.query(`
+    SELECT format(
+             '%s:%s:%s:%s',
+             relation.relname,
+             trigger.tgname,
+             routine.proname,
+             trigger.tgenabled
+           ) AS trigger
+    FROM pg_trigger trigger
+    JOIN pg_class relation ON relation.oid = trigger.tgrelid
+    JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+    JOIN pg_proc routine ON routine.oid = trigger.tgfoid
+    WHERE namespace.nspname = 'public'
+      AND NOT trigger.tgisinternal
+    ORDER BY relation.relname, trigger.tgname
+  `);
+  return {
+    policies: policies.rows.map((row) => row.policy),
+    triggers: triggers.rows.map((row) => row.trigger),
+  };
+}
+
+async function assertSecurityInventory(client) {
+  const actual = await securityInventory(client);
+  assertSameValues(actual.policies, EXPECTED_POLICIES, "Policies");
+  assertSameValues(actual.triggers, EXPECTED_TRIGGERS, "Triggers");
+}
+
 function assertInventory(actual) {
   assertSameValues(actual.tables.map((row) => row.name), EXPECTED_TABLES, "Таблицы");
   assertSameValues(
@@ -280,7 +325,7 @@ async function runtimeSnapshot(client) {
     );
   }
   const routines = {};
-  for (const routine of RUNTIME_EXECUTE_ROUTINES) {
+  for (const routine of EXPECTED_ROUTINE_DEFINITIONS) {
     const signature =
       `public.${routine.name}(${routine.identityArguments})`;
     const result = await client.query(
@@ -288,8 +333,14 @@ async function runtimeSnapshot(client) {
       [DATABASE_ROLES.runtime, signature],
     );
     routines[signature] = result.rows[0]?.execute === true;
-    if (!routines[signature]) {
-      throw new Error(`Runtime EXECUTE отсутствует на ${signature}.`);
+    const expectedExecute = RUNTIME_EXECUTE_ROUTINES.some(
+      (allowed) =>
+        allowed.kind === routine.kind &&
+        allowed.name === routine.name &&
+        allowed.identityArguments === routine.identityArguments,
+    );
+    if (routines[signature] !== expectedExecute) {
+      throw new Error(`Runtime EXECUTE на ${signature} не совпадает с контрактом.`);
     }
   }
   return { boundary: boundary.rows[0], tables, routines };
@@ -630,6 +681,7 @@ async function applyBackupRole(client, context) {
 async function verifyOwnership(client) {
   const actual = await inventory(client);
   assertInventory(actual);
+  await assertSecurityInventory(client);
   for (const rows of Object.values(actual)) {
     for (const row of rows) {
       if (row.owner !== DATABASE_ROLES.owner) {
@@ -750,7 +802,7 @@ async function verifyBackup(connectionString) {
         `Backup privileges on ${table}`,
       );
     }
-    for (const routine of RUNTIME_EXECUTE_ROUTINES) {
+    for (const routine of EXPECTED_ROUTINE_DEFINITIONS) {
       const signature =
         `public.${routine.name}(${routine.identityArguments})`;
       const result = await client.query(
@@ -816,6 +868,7 @@ async function main() {
     ).rows[0];
     const actualInventory = await inventory(client);
     assertInventory(actualInventory);
+    await assertSecurityInventory(client);
     const roles = await assertExistingRolesAreSafe(
       client,
       connection.database,

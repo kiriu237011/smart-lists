@@ -123,7 +123,7 @@ runtimeDescribe("контракт restricted runtime-роли", () => {
     ).rejects.toThrow();
   });
 
-  it("имеет EXECUTE только на fail-closed attachment helpers", async () => {
+  it("имеет EXECUTE только на fail-closed прикладных helpers", async () => {
     const routines = await prisma.$queryRaw<
       Array<{
         name: string;
@@ -163,6 +163,18 @@ runtimeDescribe("контракт restricted runtime-роли", () => {
       },
       {
         name: "app_attachment_prepare_maintenance",
+        arguments: "text",
+        runtimeExecute: true,
+        publicExecute: false,
+      },
+      {
+        name: "app_enforce_tenant_update_columns",
+        arguments: "",
+        runtimeExecute: false,
+        publicExecute: false,
+      },
+      {
+        name: "app_list_access",
         arguments: "text",
         runtimeExecute: true,
         publicExecute: false,

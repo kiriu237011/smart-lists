@@ -2,9 +2,9 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-21 (scoped DB-контур интегрирован с актуальным
-`main`: сохранены приватность AI-групп и проверка сигнатур вложений; полный
-локальный test gate зелёный, live-среды и RLS не менялись)
+**Последнее обновление:** 2026-08-21 (первый tenant policy-контур и disabled
+column guards реализованы и локально проверены под restricted runtime; live-
+среды, RLS и guard enforcement не менялись)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -70,6 +70,14 @@ Smart Lists — локализованное веб-приложение для 
   пространство, rollback и отсутствие утечки контекста между транзакциями.
   Статический переходный allowlist не допускает новых прямых импортов
   глобального Prisma Client.
+- Additive-миграция создаёт общий `app_list_access(text)`, 31 policy на восьми
+  tenant-таблицах и восемь update guards. RLS остаётся disabled, как и triggers:
+  включение — отдельный Preview/Production gate. Exact policy/trigger/routine
+  inventory закреплён в role configurators и выводится read-only аудитом.
+- Локальный restricted-role suite временно включает подготовленные контроли и
+  проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
+  owner/editor/stranger, protected columns, Item transfer, sharing,
+  attribution и attachment transition. 287 DB-тестов и backup/restore зелёные.
 - Первой consumer-группой перенесён `src/lib/spaces.ts`: создание
   default-space и lookup используют user-контекст, а проверка доступа к списку
   — подтверждённый space-контекст.
@@ -107,8 +115,8 @@ Smart Lists — локализованное веб-приложение для 
 - Attachment quota `MAX_FILES_PER_USER` и очистка собственных stale
   `PENDING` глобальны между пространствами. Узкий DB-helper сохраняет эту
   семантику, не расширяя будущую обычную Attachment policy; PUBLIC и backup
-  не имеют `EXECUTE`, runtime получает только две явно перечисленные функции.
-  До RLS enforcement остаются policies и отрицательные проверки самих policies.
+  не имеют `EXECUTE`, runtime получает две attachment-функции и общий read-only
+  list-access helper. Trigger function прямого `EXECUTE` не получает.
 - Седьмой группой перенесён ListGroup lifecycle в `src/app/actions/index.ts`:
   create/delete/rename/move используют `withSpaceDb`; проверка лимита,
   вычисление позиции и создание выполняются в одной транзакции, как и чтение
