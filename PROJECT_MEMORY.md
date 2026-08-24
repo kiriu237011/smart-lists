@@ -2,10 +2,9 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-21 (первый tenant policy-контур применён в
-Preview и Production; `UserDailyUsage` RLS/guard canary включён и проверен в
-live Preview; первый live apply `List + Item` откатан после регрессии
-`createList`, исправление подготовлено локально; остальные tenant-таблицы и
+**Последнее обновление:** 2026-08-24 (первый tenant policy-контур применён в
+Preview и Production; RLS/guard включены и проверены в live Preview для
+`UserDailyUsage`, `List` и `Item`; оставшиеся пять tenant-таблиц Preview и
 Production без enforcement)
 **Состояние:** активная разработка
 
@@ -64,8 +63,8 @@ Smart Lists — локализованное веб-приложение для 
 ### Доступ к PostgreSQL
 
 - Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
-  `UserDailyUsage` дополнительно ограничена RLS; в Production и на остальных
-  разрешённых tenant-таблицах пока сохраняется role-wide DML.
+  `UserDailyUsage`, `List` и `Item` дополнительно ограничены RLS; в Production и
+  на оставшихся пяти tenant-таблицах Preview пока сохраняется role-wide DML.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -76,8 +75,9 @@ Smart Lists — локализованное веб-приложение для 
   глобального Prisma Client.
 - Additive-миграция создаёт общий `app_list_access(text)`, 31 policy на восьми
   tenant-таблицах и восемь update guards. Exact policy/trigger/routine inventory
-  закреплён в role configurators и выводится read-only аудитом. После первого
-  gate RLS и guard включены только для `UserDailyUsage` в Preview.
+  закреплён в role configurators и выводится read-only аудитом. После двух
+  успешных gates RLS и guard включены для `UserDailyUsage`, `List` и `Item` в
+  Preview.
 - 2026-08-21 базовая policy-миграция применена release-контурами в Preview и
   Production. Она только подготовила catalog; позже отдельный write-gate
   включил в Preview RLS/guard canary только для `UserDailyUsage`.
@@ -111,12 +111,19 @@ Smart Lists — локализованное веб-приложение для 
   строку через `app_list_access(id)` внутри той же команды. Профиль немедленно
   откатан `list-item → usage-canary` run `32460715430`; read-only audit
   `32460792514` подтвердил восстановление. Production не менялся.
-- Исправление подготовлено новой additive migration
+- Исправление выпущено новой additive migration
   `20260821010000_fix_list_insert_returning_rls`: прямой owner/space predicate
   разрешает вернуть только собственную новую строку, а shared-доступ остаётся
   через `app_list_access`. Настоящий `createList` добавлен в partial-profile
   regression test; чистый restricted-role suite прошёл 21 integration-файл,
   290 DB-тестов, enable/rollback и backup/restore.
+- PR №110 merged в `main@b826f4f`; post-merge CI, E2E, обе catalog-миграции и
+  Preview deployment прошли. Повторный workflow `32699850399` выполнил
+  `usage-canary → list-item`, а независимый read-only audit `32699937238`
+  подтвердил RLS/guards ровно на `UserDailyUsage`, `List`, `Item`, безопасные
+  атрибуты runtime-роли и отсутствие FORCE RLS. Пользовательский smoke создания
+  третьего списка, CRUD записей, rename, reload и sharing прошёл без ошибок.
+  Rollback — `rollback-list-item`; Production enforcement не менялся.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
