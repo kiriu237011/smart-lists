@@ -4,9 +4,8 @@
 
 **Последнее обновление:** 2026-08-25 (первый tenant policy-контур применён в
 Preview и Production; RLS/guard включены и проверены в live Preview для
-`UserDailyUsage`, `List` и `Item`; следующий профиль `Space + Groups`
-подготовлен локально, но ещё не применён; оставшиеся пять tenant-таблиц Preview
-и Production без enforcement)
+`UserDailyUsage`, `List`, `Item`, `Space`, `ListGroup` и `_ListGroupMembers`;
+в Preview остались `ListShare` и `Attachment`, Production без enforcement)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -64,8 +63,8 @@ Smart Lists — локализованное веб-приложение для 
 ### Доступ к PostgreSQL
 
 - Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
-  `UserDailyUsage`, `List` и `Item` дополнительно ограничены RLS; в Production и
-  на оставшихся пяти tenant-таблицах Preview пока сохраняется role-wide DML.
+  шесть tenant-таблиц дополнительно ограничены RLS; в Production и на
+  `ListShare`/`Attachment` Preview пока сохраняется role-wide DML.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -76,9 +75,9 @@ Smart Lists — локализованное веб-приложение для 
   глобального Prisma Client.
 - Additive-миграция создаёт общий `app_list_access(text)`, 31 policy на восьми
   tenant-таблицах и восемь update guards. Exact policy/trigger/routine inventory
-  закреплён в role configurators и выводится read-only аудитом. После двух
-  успешных gates RLS и guard включены для `UserDailyUsage`, `List` и `Item` в
-  Preview.
+  закреплён в role configurators и выводится read-only аудитом. После трёх
+  успешных gates RLS и guard включены для `UserDailyUsage`, `List`, `Item`,
+  `Space`, `ListGroup` и `_ListGroupMembers` в Preview.
 - 2026-08-21 базовая policy-миграция применена release-контурами в Preview и
   Production. Она только подготовила catalog; позже отдельный write-gate
   включил в Preview RLS/guard canary только для `UserDailyUsage`.
@@ -125,12 +124,13 @@ Smart Lists — локализованное веб-приложение для 
   атрибуты runtime-роли и отсутствие FORCE RLS. Пользовательский smoke создания
   третьего списка, CRUD записей, rename, reload и sharing прошёл без ошибок.
   Rollback — `rollback-list-item`; Production enforcement не менялся.
-- Следующий профиль `space-groups` добавляет к `list-item` таблицы `Space`,
-  `ListGroup` и `_ListGroupMembers` только линейным переходом с отдельным
-  rollback обратно к `list-item`. Exact catalog, фильтрация нефильтрованных
-  чтений и реальные Server Actions Space/Group/membership проверены локально:
-  21 integration-файл, 292 DB-теста, backup/restore зелёные. Live Preview этот
-  профиль ещё не получал; отдельно остаются `ListShare` и `Attachment`.
+- PR №112 merged в `main@984322a`; post-merge CI, 118 E2E, integration,
+  CodeQL, Production no-op migration и Sync Preview Proxy прошли. Workflow
+  `32818823108` включил `space-groups`, независимый audit `32818934270`
+  подтвердил RLS/guards ровно на шести таблицах, отсутствие FORCE RLS и
+  disabled `ListShare`/`Attachment`. Пользовательский smoke пространств,
+  групп, membership и reorder прошёл без ошибок. Rollback —
+  `rollback-space-groups`; Production enforcement не менялся.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -233,9 +233,9 @@ Smart Lists — локализованное веб-приложение для 
 - Обычный production tenant data plane теперь использует scoped API, а
   специальный глобальный attachment-поток переведён на fail-closed helper.
   Policies и column guards уже находятся в обеих live-БД. В Preview RLS/guard
-  включены для `UserDailyUsage`, `List` и `Item`; профиль `Space + Groups`
-  подготовлен только в коде. Production остаётся без enforcement, поэтому для
-  остальных таблиц live-изоляцию по-прежнему обеспечивают прикладные проверки.
+  включены на шести tenant-таблицах; отдельно остались `ListShare` и
+  `Attachment`. Production остаётся без enforcement, поэтому там и на двух
+  оставшихся Preview-таблицах live-изоляцию обеспечивают прикладные проверки.
 
 ### Авторизация
 
