@@ -3,10 +3,8 @@
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
 **Последнее обновление:** 2026-08-25 (первый tenant policy-контур применён в
-Preview и Production; RLS/guard включены и проверены в live Preview для
-`UserDailyUsage`, `List`, `Item`, `Space`, `ListGroup` и `_ListGroupMembers`;
-финальный `tenant-full` для `ListShare`/`Attachment` подготовлен и проверен
-локально, но live Preview ещё на `space-groups`; Production без enforcement)
+Preview и Production; RLS/guard включены и проверены в live Preview для всех
+восьми tenant-таблиц; Production без enforcement)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -64,8 +62,8 @@ Smart Lists — локализованное веб-приложение для 
 ### Доступ к PostgreSQL
 
 - Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
-  шесть tenant-таблиц дополнительно ограничены RLS; в Production и на
-  `ListShare`/`Attachment` live Preview пока сохраняется role-wide DML.
+  все восемь tenant-таблиц дополнительно ограничены RLS; в Production пока
+  сохраняется role-wide DML.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -138,7 +136,13 @@ Smart Lists — локализованное веб-приложение для 
   helpers до DDL. Локальный restricted-role suite прошёл 21 integration-файл/
   294 DB-теста, включая настоящие owner invite/revoke, self-leave и
   `PENDING → UPLOADED → delete`, tamper/partial-profile отказ и backup/restore.
-  Профиль ещё не опубликован и не применён в live Preview.
+  PR №116 merged в `main@d64e9f75`; post-merge CI, 118 E2E, integration,
+  CodeQL, Production no-op migration и Sync Preview Proxy прошли. Workflow
+  `32822405891` включил `tenant-full`; независимый audit `32822519427`
+  подтвердил RLS/guards на всех восьми tenant-таблицах, отсутствие FORCE RLS и
+  прежний runtime ACL. Ручной smoke sharing/revoke/leave и полного attachment
+  flow прошёл без ошибок. Rollback — `rollback-tenant-full`; Production не
+  менялся.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -241,9 +245,8 @@ Smart Lists — локализованное веб-приложение для 
 - Обычный production tenant data plane теперь использует scoped API, а
   специальный глобальный attachment-поток переведён на fail-closed helper.
   Policies и column guards уже находятся в обеих live-БД. В Preview RLS/guard
-  включены на шести tenant-таблицах; отдельно остались `ListShare` и
-  `Attachment`. Production остаётся без enforcement, поэтому там и на двух
-  оставшихся Preview-таблицах live-изоляцию обеспечивают прикладные проверки.
+  включены на всех восьми tenant-таблицах. Production остаётся без enforcement,
+  поэтому там live-изоляцию по-прежнему обеспечивают прикладные проверки.
 
 ### Авторизация
 
