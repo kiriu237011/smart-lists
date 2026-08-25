@@ -12,6 +12,8 @@ on:
           - rollback-usage-canary
           - enable-list-item
           - rollback-list-item
+          - enable-space-groups
+          - rollback-space-groups
 
 # Этот workflow намеренно не принимает Environment или произвольную группу:
 # опубликованный main может выполнить только именованный переход между

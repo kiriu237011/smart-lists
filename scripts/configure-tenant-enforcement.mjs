@@ -43,12 +43,28 @@ export const ENFORCEMENT_OPERATIONS = {
     allowedProfiles: ["list-item", "usage-canary"],
     targetProfile: "usage-canary",
   },
+  "enable-space-groups": {
+    allowedProfiles: ["list-item", "space-groups"],
+    targetProfile: "space-groups",
+  },
+  "rollback-space-groups": {
+    allowedProfiles: ["space-groups", "list-item"],
+    targetProfile: "list-item",
+  },
 };
 
 const PROFILE_TABLES = {
   disabled: [],
   "usage-canary": ["UserDailyUsage"],
   "list-item": ["UserDailyUsage", "List", "Item"],
+  "space-groups": [
+    "UserDailyUsage",
+    "List",
+    "Item",
+    "Space",
+    "ListGroup",
+    "_ListGroupMembers",
+  ],
 };
 const GUARD_NAME = "app_tenant_update_columns_guard";
 const USAGE_POLICY_PREDICATE =
@@ -58,6 +74,12 @@ const LIST_SELECT_PREDICATE =
   '((("ownerId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND ("spaceId" = NULLIF(current_setting(\'app.space_id\'::text, true), \'\'::text))) OR (app_list_access(id) IS NOT NULL))';
 const ITEM_ACCESS_PREDICATE =
   '(app_list_access("listId") IS NOT NULL)';
+const SPACE_GROUP_PREDICATE =
+  '(("userId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND ("spaceId" = NULLIF(current_setting(\'app.space_id\'::text, true), \'\'::text)))';
+const LIST_GROUP_MEMBERSHIP_ACCESS_PREDICATE =
+  '((EXISTS ( SELECT 1\n' +
+  '   FROM "ListGroup" list_group\n' +
+  '  WHERE ((list_group.id = "_ListGroupMembers"."B") AND (list_group."userId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND (list_group."spaceId" = NULLIF(current_setting(\'app.space_id\'::text, true), \'\'::text))))) AND (app_list_access("A") IS NOT NULL))';
 
 const POLICY_PREDICATES = {
   UserDailyUsage: {
@@ -97,6 +119,36 @@ const POLICY_PREDICATES = {
       withCheck: ITEM_ACCESS_PREDICATE,
     },
     DELETE: { qual: ITEM_ACCESS_PREDICATE, withCheck: null },
+  },
+  Space: {
+    SELECT: { qual: USAGE_POLICY_PREDICATE, withCheck: null },
+    INSERT: { qual: null, withCheck: USAGE_POLICY_PREDICATE },
+    UPDATE: {
+      qual: USAGE_POLICY_PREDICATE,
+      withCheck: USAGE_POLICY_PREDICATE,
+    },
+    DELETE: { qual: USAGE_POLICY_PREDICATE, withCheck: null },
+  },
+  ListGroup: {
+    SELECT: { qual: SPACE_GROUP_PREDICATE, withCheck: null },
+    INSERT: { qual: null, withCheck: SPACE_GROUP_PREDICATE },
+    UPDATE: {
+      qual: SPACE_GROUP_PREDICATE,
+      withCheck: SPACE_GROUP_PREDICATE,
+    },
+    DELETE: { qual: SPACE_GROUP_PREDICATE, withCheck: null },
+  },
+  _ListGroupMembers: {
+    SELECT: { qual: LIST_GROUP_MEMBERSHIP_ACCESS_PREDICATE, withCheck: null },
+    INSERT: {
+      qual: null,
+      withCheck: LIST_GROUP_MEMBERSHIP_ACCESS_PREDICATE,
+    },
+    UPDATE: {
+      qual: LIST_GROUP_MEMBERSHIP_ACCESS_PREDICATE,
+      withCheck: LIST_GROUP_MEMBERSHIP_ACCESS_PREDICATE,
+    },
+    DELETE: { qual: LIST_GROUP_MEMBERSHIP_ACCESS_PREDICATE, withCheck: null },
   },
 };
 

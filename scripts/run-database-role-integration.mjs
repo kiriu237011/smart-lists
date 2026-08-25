@@ -278,6 +278,16 @@ async function proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl) 
     "--apply",
     "--operation=rollback-list-item",
   ];
+  const enableSpaceGroupsArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=enable-space-groups",
+  ];
+  const rollbackSpaceGroupsArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=rollback-space-groups",
+  ];
 
   run(process.execPath, enableArgs, enforcementEnv);
   run(process.execPath, enableArgs, enforcementEnv);
@@ -333,6 +343,51 @@ async function proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl) 
     await client.end();
   }
 
+  run(process.execPath, enableSpaceGroupsArgs, enforcementEnv);
+  run(process.execPath, enableSpaceGroupsArgs, enforcementEnv);
+  runExpectFailure(
+    process.execPath,
+    rollbackListItemArgs,
+    enforcementEnv,
+    "запрещена из профиля space-groups",
+  );
+
+  const spaceGroupsClient = new Client({ connectionString: migratorDatabaseUrl });
+  await spaceGroupsClient.connect();
+  try {
+    await spaceGroupsClient.query(
+      'ALTER POLICY app_list_group_select ON public."ListGroup" USING (true)',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackSpaceGroupsArgs,
+      enforcementEnv,
+      "ListGroup SELECT policy predicate не совпадает",
+    );
+    await spaceGroupsClient.query(
+      'ALTER POLICY app_list_group_select ON public."ListGroup" ' +
+        'USING ("userId" = NULLIF(current_setting(\'app.user_id\', true), \'\') ' +
+        'AND "spaceId" = NULLIF(current_setting(\'app.space_id\', true), \'\'))',
+    );
+
+    await spaceGroupsClient.query(
+      'ALTER TABLE public."Attachment" ENABLE ROW LEVEL SECURITY',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackSpaceGroupsArgs,
+      enforcementEnv,
+      "не соответствует известному rollout-профилю",
+    );
+  } finally {
+    await spaceGroupsClient.query(
+      'ALTER TABLE public."Attachment" DISABLE ROW LEVEL SECURITY',
+    );
+    await spaceGroupsClient.end();
+  }
+
+  run(process.execPath, rollbackSpaceGroupsArgs, enforcementEnv);
+  run(process.execPath, rollbackSpaceGroupsArgs, enforcementEnv);
   run(process.execPath, rollbackListItemArgs, enforcementEnv);
   run(process.execPath, rollbackListItemArgs, enforcementEnv);
   run(process.execPath, rollbackArgs, enforcementEnv);
@@ -417,8 +472,9 @@ async function main() {
     DIRECT_URL: migratorDatabaseUrl,
   });
 
-  // Rollout-гейт проходит disabled -> usage-canary -> list-item и обратно,
-  // идемпотентен и отвергает подменённые helper/policy и частичный профиль.
+  // Rollout-гейт проходит disabled -> usage-canary -> list-item -> space-groups
+  // и обратно, идемпотентен и отвергает подменённые helper/policy и частичный
+  // профиль.
   await proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl);
 
   run(
