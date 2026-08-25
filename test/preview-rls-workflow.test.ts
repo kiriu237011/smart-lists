@@ -27,6 +27,8 @@ describe("Preview tenant RLS workflow", () => {
     expect(workflow).toContain("- rollback-list-item");
     expect(workflow).toContain("- enable-space-groups");
     expect(workflow).toContain("- rollback-space-groups");
+    expect(workflow).toContain("- enable-tenant-full");
+    expect(workflow).toContain("- rollback-tenant-full");
     expect(workflow).not.toContain("--group=");
     expect(configurator).not.toContain("--table=");
     expect(configurator).not.toContain("FORCE ROW LEVEL SECURITY");
@@ -64,6 +66,7 @@ describe("Preview tenant RLS workflow", () => {
     expect(configurator).toContain("Committed enforcement profile");
     expect(configurator).toContain('["UserDailyUsage", "List", "Item"]');
     expect(configurator).toContain('"space-groups"');
+    expect(configurator).toContain('"tenant-full"');
     expect(configurator).toContain("ROUTINE_CONTRACTS");
     expect(configurator).toContain("POLICY_PREDICATES");
   });

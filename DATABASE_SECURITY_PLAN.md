@@ -4,8 +4,8 @@
 guard объекты первого tenant-контура применены в Preview и Production,
 проверены локально и прошли live catalog audit в Preview; Preview-only профили
 `UserDailyUsage`, `List + Item` и `Space + Groups` включены и проверены;
-в Preview без enforcement остаются только `ListShare` и `Attachment`,
-Production остаётся без enforcement
+финальный профиль `tenant-full` для `ListShare + Attachment` подготовлен и
+проверен локально, но ещё не применён; Production остаётся без enforcement
 **Дата:** 2026-08-25
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -677,6 +677,18 @@ disabled, FORCE RLS отсутствует везде. Пользователь�
 membership и reorder групп прошёл без ошибок. Именованный rollback
 `space-groups → list-item` готов; Production enforcement не менялся.
 
+**Финальный профиль `ListShare + Attachment` подготовлен локально
+2026-08-25:** configurator допускает только линейный переход
+`space-groups → tenant-full` и rollback `tenant-full → space-groups`. Перед DDL
+он сверяет exact predicates `ListShare`/`Attachment`, а также исполняемые тела,
+fixed `search_path`, `SECURITY DEFINER` и `EXECUTE`-границы двух attachment
+maintenance helpers. Restricted-role suite прошёл 21 integration-файл/294
+DB-теста: owner invite/revoke, self-leave и полный
+`PENDING → UPLOADED → delete` выполняются настоящими Server Actions; tamper
+policy/helper, частичное состояние и пропуск профиля отклоняются fail-closed.
+Новых миграций, credentials, сервисов или границ доверия нет. Live Preview
+остаётся на `space-groups` до публикации через PR/CI и отдельного go/no-go.
+
 ## Модели вне первого RLS-контура
 
 | Таблицы | Решение первого цикла |
@@ -744,9 +756,9 @@ sharing, note, item lifecycle и item movement вычисляют получат
   но до возврата нового build могут временно учитываться старым quota count.
 
 Cross-space, чужой token, S3 rollback, quota-rejection и exact ACL проверены на
-реальной БД. RLS для `Attachment` остаётся выключен: helper закрывает
-специальный data-flow blocker, но table-wide DML этой таблицы будет ограничен
-только будущим enforcement её policy.
+реальной БД. В live Preview RLS для `Attachment` пока остаётся выключен:
+helper закрывает специальный data-flow blocker, а подготовленный профиль
+`tenant-full` ограничит table-wide DML после отдельного go/no-go.
 
 ### Auth.js и квоты
 
@@ -776,14 +788,18 @@ AI-сервиса расходует зарезервированную попы
    и Production; exact catalog contract и отрицательные Alice/Bob тесты
    зелёные. Preview live catalog audit `32446720820` совпал с контрактом; на
    момент этого gate live RLS ещё не был включён.
-6. **Enforcement — три Preview gate включены.** `UserDailyUsage`, исправленный
-   профиль `List + Item`, затем `Space + Groups` прошли локальный integration
-   gate, post-merge CI, транзакционный live apply, пользовательский smoke и
-   независимый read-only audit. Production остаётся без enforcement.
+6. **Enforcement — три Preview gate включены, четвёртый подготовлен.**
+   `UserDailyUsage`, исправленный профиль `List + Item`, затем `Space + Groups`
+   прошли локальный integration gate, post-merge CI, транзакционный live apply,
+   пользовательский smoke и независимый read-only audit. Финальный
+   `tenant-full` для `ListShare + Attachment` прошёл локальные fail-closed и
+   restricted-role проверки, но ещё не опубликован и не применён. Production
+   остаётся без enforcement.
 7. **Проверка после включения — выполнена для шести tenant-таблиц.** Exact
    role/catalog audit, функциональный smoke и повторный threat impact-check
-   пройдены; rollback `space-groups → list-item` остаётся готов. В Preview
-   осталось отдельно проверить `ListShare + Attachment`.
+   пройдены; rollback `space-groups → list-item` остаётся готов. Следующий gate
+   — PR/CI финального профиля, затем отдельный Preview apply с rollback
+   `tenant-full → space-groups`.
 
 Каждая миграция должна быть совместима и со старой, и с новой версией
 приложения. RLS включается только после ухода старых инстансов, которые ещё не
