@@ -2,9 +2,9 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-25 (первый tenant policy-контур применён в
-Preview и Production; RLS/guard включены и проверены в live Preview для всех
-восьми tenant-таблиц; Production без enforcement)
+**Последнее обновление:** 2026-08-25 (первый tenant policy-контур полностью
+применён в Preview; Production прошёл первый gate `usage-canary`, следующие
+профили ещё не включены)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -62,8 +62,9 @@ Smart Lists — локализованное веб-приложение для 
 ### Доступ к PostgreSQL
 
 - Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
-  все восемь tenant-таблиц дополнительно ограничены RLS; в Production пока
-  сохраняется role-wide DML.
+  все восемь tenant-таблиц дополнительно ограничены RLS; в Production RLS и
+  guard включены для `UserDailyUsage`, остальные семь tenant-таблиц пока
+  сохраняют role-wide DML в рамках runtime ACL.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -147,8 +148,12 @@ Smart Lists — локализованное веб-приложение для 
   контракт, disabled RLS/guards и отсутствие FORCE. Отдельный Production
   workflow подготовлен с Environment `Production`, точным typed confirmation,
   линейными профилями и общим lock со штатной migration job. Workflow сам по
-  себе не меняет БД и ещё не применялся; Production posture остаётся прежним
-  до отдельного go/no-go каждого live перехода.
+  себе не меняет БД. После свежего backup `32826557777` и отдельного go/no-go
+  run `32826737964` применил `disabled → usage-canary`; независимый audit
+  `32826844348` подтвердил RLS/guard только на `UserDailyUsage`, отсутствие
+  FORCE и прежний ролевой контракт. Ручной smoke Google sign-in, reload,
+  обычной мутации и AI insight прошёл без DB-ошибок. Rollback —
+  `rollback-usage-canary`; следующий отдельный gate — Production P2.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -251,8 +256,9 @@ Smart Lists — локализованное веб-приложение для 
 - Обычный production tenant data plane теперь использует scoped API, а
   специальный глобальный attachment-поток переведён на fail-closed helper.
   Policies и column guards уже находятся в обеих live-БД. В Preview RLS/guard
-  включены на всех восьми tenant-таблицах. Production остаётся без enforcement,
-  поэтому там live-изоляцию по-прежнему обеспечивают прикладные проверки.
+  включены на всех восьми tenant-таблицах. В Production RLS/guard включены для
+  `UserDailyUsage`; на остальных семи tenant-таблицах live-изоляцию пока
+  обеспечивают прикладные проверки.
 
 ### Авторизация
 
