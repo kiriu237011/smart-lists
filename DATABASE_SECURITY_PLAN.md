@@ -3,16 +3,17 @@
 **Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
 guard объекты первого tenant-контура применены в Preview и Production,
 проверены локально и прошли live catalog audit в Preview; Preview-only профили
-`UserDailyUsage` и `List + Item` включены и проверены; следующий профиль
-`Space + Groups` подготовлен и локально проверен, но ещё не включён в Preview;
-Production и оставшиеся пять tenant-таблиц Preview пока без enforcement
+`UserDailyUsage`, `List + Item` и `Space + Groups` включены и проверены;
+в Preview без enforcement остаются только `ListShare` и `Attachment`,
+Production остаётся без enforcement
 **Дата:** 2026-08-25
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
 матрицу доступа и безопасный порядок внедрения. Текущее состояние приложения
 по-прежнему описывает `THREAT_MODEL.md`: сейчас изоляцию обеспечивают Auth.js,
 `listInSpaceWhere` и проверки Server Actions; дополнительный RLS-слой работает
-для `UserDailyUsage`, `List` и `Item` в Preview.
+для `UserDailyUsage`, `List`, `Item`, `Space`, `ListGroup` и
+`_ListGroupMembers` в Preview.
 
 ## Цель и границы
 
@@ -661,7 +662,20 @@ catalog: пространство ограничено `app.user_id`, групп
 role-suite прошёл 21 integration-файл/292 DB-теста, идемпотентные переходы,
 отрицательные tamper/partial-profile проверки и backup/restore. Новых
 миграций, credentials, сервисов или границ доверия нет. Это локальная
-готовность: live Preview остаётся на `list-item` до отдельного go/no-go.
+готовность: на момент подготовки live Preview оставался на `list-item` до
+отдельного go/no-go.
+
+**Preview gate `Space + Groups` пройден 2026-08-25:** PR №112 merged в
+`main@984322a`; PR и post-merge CI, 118 E2E, integration, CodeQL, Production
+no-op migration и Sync Preview Proxy прошли. Workflow `32818823108` выполнил
+точный переход `list-item → space-groups` на direct endpoint fingerprint
+`d95cc95b87c7`. Независимый `BEGIN READ ONLY` audit `32818934270` подтвердил
+RLS и column guards ровно на шести таблицах: `UserDailyUsage`, `List`, `Item`,
+`Space`, `ListGroup`, `_ListGroupMembers`; `ListShare` и `Attachment` остались
+disabled, FORCE RLS отсутствует везде. Пользовательский smoke переключения,
+создания, переименования и удаления пространств, а также lifecycle,
+membership и reorder групп прошёл без ошибок. Именованный rollback
+`space-groups → list-item` готов; Production enforcement не менялся.
 
 ## Модели вне первого RLS-контура
 
@@ -762,15 +776,14 @@ AI-сервиса расходует зарезервированную попы
    и Production; exact catalog contract и отрицательные Alice/Bob тесты
    зелёные. Preview live catalog audit `32446720820` совпал с контрактом; на
    момент этого gate live RLS ещё не был включён.
-6. **Enforcement — два Preview gate включены, третий подготовлен.** `UserDailyUsage`, затем
-   исправленный профиль `List + Item` прошли локальный integration gate,
-   post-merge CI, транзакционный live apply, пользовательский CRUD smoke и
-   независимый read-only audit. Следующий линейный профиль `Space + Groups`
-   локально прошёл restricted-role gate, но ещё не применялся в Preview.
-   Production остаётся без enforcement.
-7. **Проверка после включения — выполнена для `UserDailyUsage`, `List` и
-   `Item`.** Role/catalog audit, функциональный smoke и повторный threat
-   impact-check пройдены; rollback к `usage-canary` остаётся готов.
+6. **Enforcement — три Preview gate включены.** `UserDailyUsage`, исправленный
+   профиль `List + Item`, затем `Space + Groups` прошли локальный integration
+   gate, post-merge CI, транзакционный live apply, пользовательский smoke и
+   независимый read-only audit. Production остаётся без enforcement.
+7. **Проверка после включения — выполнена для шести tenant-таблиц.** Exact
+   role/catalog audit, функциональный smoke и повторный threat impact-check
+   пройдены; rollback `space-groups → list-item` остаётся готов. В Preview
+   осталось отдельно проверить `ListShare + Attachment`.
 
 Каждая миграция должна быть совместима и со старой, и с новой версией
 приложения. RLS включается только после ухода старых инстансов, которые ещё не
