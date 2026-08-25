@@ -14,6 +14,8 @@ on:
           - rollback-list-item
           - enable-space-groups
           - rollback-space-groups
+          - enable-tenant-full
+          - rollback-tenant-full
 
 # Этот workflow намеренно не принимает Environment или произвольную группу:
 # опубликованный main может выполнить только именованный переход между

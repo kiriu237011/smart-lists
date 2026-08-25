@@ -5,7 +5,8 @@
 **Последнее обновление:** 2026-08-25 (первый tenant policy-контур применён в
 Preview и Production; RLS/guard включены и проверены в live Preview для
 `UserDailyUsage`, `List`, `Item`, `Space`, `ListGroup` и `_ListGroupMembers`;
-в Preview остались `ListShare` и `Attachment`, Production без enforcement)
+финальный `tenant-full` для `ListShare`/`Attachment` подготовлен и проверен
+локально, но live Preview ещё на `space-groups`; Production без enforcement)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -64,7 +65,7 @@ Smart Lists — локализованное веб-приложение для 
 
 - Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
   шесть tenant-таблиц дополнительно ограничены RLS; в Production и на
-  `ListShare`/`Attachment` Preview пока сохраняется role-wide DML.
+  `ListShare`/`Attachment` live Preview пока сохраняется role-wide DML.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -131,10 +132,17 @@ Smart Lists — локализованное веб-приложение для 
   disabled `ListShare`/`Attachment`. Пользовательский smoke пространств,
   групп, membership и reorder прошёл без ошибок. Rollback —
   `rollback-space-groups`; Production enforcement не менялся.
+- Финальный профиль `tenant-full` добавляет только `ListShare` и `Attachment`
+  к `space-groups`; разрешены лишь идемпотентный enable и rollback обратно.
+  Configurator проверяет exact predicates и контракты attachment maintenance
+  helpers до DDL. Локальный restricted-role suite прошёл 21 integration-файл/
+  294 DB-теста, включая настоящие owner invite/revoke, self-leave и
+  `PENDING → UPLOADED → delete`, tamper/partial-profile отказ и backup/restore.
+  Профиль ещё не опубликован и не применён в live Preview.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
-  attribution и attachment transition. 292 DB-теста и backup/restore зелёные.
+  attribution и attachment transition. 294 DB-теста и backup/restore зелёные.
 - Первой consumer-группой перенесён `src/lib/spaces.ts`: создание
   default-space и lookup используют user-контекст, а проверка доступа к списку
   — подтверждённый space-контекст.

@@ -1,14 +1,22 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   addItem,
   addListToGroup,
   createGroup,
   createList,
+  leaveSharedList,
+  removeSharedUser,
   renameGroup,
   renameList,
+  shareList,
 } from "@/app/actions";
+import {
+  confirmUpload,
+  deleteAttachment,
+  requestUpload,
+} from "@/app/actions/attachments";
 import { createSpace } from "@/app/actions/spaces";
 import { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/lib/prisma-client";
@@ -754,6 +762,109 @@ runtimeDescribe("tenant RLS под restricted runtime-ролью", () => {
         }),
       ),
     ).rejects.toThrow();
+  });
+
+  it("проводит owner invite/revoke и self-leave через настоящие Server Actions", async () => {
+    const ids = await seedFixture();
+
+    setSessionUser(ids.bob);
+    expect(
+      await shareList(
+        formData({
+          listId: ids.bobList,
+          email: "rls-mallory@test.local",
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toMatchObject({
+      success: true,
+      user: { id: ids.mallory, email: "rls-mallory@test.local" },
+    });
+    expect(
+      await enforcementAdminPrisma.listShare.findUnique({
+        where: {
+          listId_userId: { listId: ids.bobList, userId: ids.mallory },
+        },
+      }),
+    ).not.toBeNull();
+
+    expect(
+      await removeSharedUser(
+        formData({
+          listId: ids.bobList,
+          userId: ids.mallory,
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toEqual({ success: true });
+    expect(
+      await enforcementAdminPrisma.listShare.findUnique({
+        where: {
+          listId_userId: { listId: ids.bobList, userId: ids.mallory },
+        },
+      }),
+    ).toBeNull();
+
+    expect(
+      await leaveSharedList(
+        formData({ listId: ids.aliceSharedList, spaceId: ids.bobSpace }),
+      ),
+    ).toEqual({ success: true });
+    expect(
+      await enforcementAdminPrisma.listShare.findUnique({
+        where: {
+          listId_userId: { listId: ids.aliceSharedList, userId: ids.bob },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("проводит PENDING → UPLOADED → delete через настоящие attachment Actions", async () => {
+    const ids = await seedFixture();
+
+    setSessionUser(ids.bob);
+    const requested = await requestUpload({
+      listId: ids.aliceSharedList,
+      spaceId: ids.bobSpace,
+      fileName: "rls-upload.png",
+      contentType: "image/png",
+      size: 100,
+    });
+    expect(requested).toMatchObject({ success: true });
+    if (!requested.success || !requested.upload) {
+      throw new Error("PENDING-вложение не создано под tenant-full RLS");
+    }
+
+    const { headObject } = await import("@/lib/s3");
+    vi.mocked(headObject).mockResolvedValueOnce({
+      contentLength: 4096,
+      contentType: "image/png",
+    });
+    expect(
+      await confirmUpload({
+        attachmentId: requested.upload.attachmentId,
+        spaceId: ids.bobSpace,
+      }),
+    ).toEqual({ success: true });
+    expect(
+      await enforcementAdminPrisma.attachment.findUnique({
+        where: { id: requested.upload.attachmentId },
+        select: { status: true, size: true, uploadedById: true },
+      }),
+    ).toEqual({ status: "UPLOADED", size: 4096, uploadedById: ids.bob });
+
+    setSessionUser(ids.alice);
+    expect(
+      await deleteAttachment({
+        attachmentId: requested.upload.attachmentId,
+        spaceId: ids.aliceSpace,
+      }),
+    ).toEqual({ success: true });
+    expect(
+      await enforcementAdminPrisma.attachment.findUnique({
+        where: { id: requested.upload.attachmentId },
+      }),
+    ).toBeNull();
   });
 });
 

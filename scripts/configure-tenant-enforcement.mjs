@@ -51,6 +51,14 @@ export const ENFORCEMENT_OPERATIONS = {
     allowedProfiles: ["space-groups", "list-item"],
     targetProfile: "list-item",
   },
+  "enable-tenant-full": {
+    allowedProfiles: ["space-groups", "tenant-full"],
+    targetProfile: "tenant-full",
+  },
+  "rollback-tenant-full": {
+    allowedProfiles: ["tenant-full", "space-groups"],
+    targetProfile: "space-groups",
+  },
 };
 
 const PROFILE_TABLES = {
@@ -64,6 +72,16 @@ const PROFILE_TABLES = {
     "Space",
     "ListGroup",
     "_ListGroupMembers",
+  ],
+  "tenant-full": [
+    "UserDailyUsage",
+    "List",
+    "Item",
+    "Space",
+    "ListGroup",
+    "_ListGroupMembers",
+    "ListShare",
+    "Attachment",
   ],
 };
 const GUARD_NAME = "app_tenant_update_columns_guard";
@@ -80,6 +98,12 @@ const LIST_GROUP_MEMBERSHIP_ACCESS_PREDICATE =
   '((EXISTS ( SELECT 1\n' +
   '   FROM "ListGroup" list_group\n' +
   '  WHERE ((list_group.id = "_ListGroupMembers"."B") AND (list_group."userId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND (list_group."spaceId" = NULLIF(current_setting(\'app.space_id\'::text, true), \'\'::text))))) AND (app_list_access("A") IS NOT NULL))';
+const LIST_ID_ACCESS_PREDICATE =
+  '(app_list_access("listId") IS NOT NULL)';
+const LIST_SHARE_DELETE_PREDICATE =
+  '((app_list_access("listId") = \'OWNER\'::text) OR (("userId" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND ("spaceId" = NULLIF(current_setting(\'app.space_id\'::text, true), \'\'::text))))';
+const ATTACHMENT_INSERT_PREDICATE =
+  '((app_list_access("listId") IS NOT NULL) AND ("uploadedById" = NULLIF(current_setting(\'app.user_id\'::text, true), \'\'::text)) AND (status = \'PENDING\'::"AttachmentStatus") AND ("cleanupToken" IS NULL) AND ("cleanupRequestedById" IS NULL) AND ("cleanupStartedAt" IS NULL))';
 
 const POLICY_PREDICATES = {
   UserDailyUsage: {
@@ -150,12 +174,51 @@ const POLICY_PREDICATES = {
     },
     DELETE: { qual: LIST_GROUP_MEMBERSHIP_ACCESS_PREDICATE, withCheck: null },
   },
+  ListShare: {
+    SELECT: { qual: LIST_ID_ACCESS_PREDICATE, withCheck: null },
+    INSERT: {
+      qual: null,
+      withCheck: '(app_list_access("listId") = \'OWNER\'::text)',
+    },
+    DELETE: { qual: LIST_SHARE_DELETE_PREDICATE, withCheck: null },
+  },
+  Attachment: {
+    SELECT: { qual: LIST_ID_ACCESS_PREDICATE, withCheck: null },
+    INSERT: { qual: null, withCheck: ATTACHMENT_INSERT_PREDICATE },
+    UPDATE: {
+      qual: LIST_ID_ACCESS_PREDICATE,
+      withCheck: LIST_ID_ACCESS_PREDICATE,
+    },
+    DELETE: { qual: LIST_ID_ACCESS_PREDICATE, withCheck: null },
+  },
 };
 
 // Хешируется pg_proc.prosrc, а не форматированный pg_get_functiondef: так
 // контракт не зависит от косметического форматирования конкретной версии
 // PostgreSQL, но отклоняет любое изменение исполняемого тела helper/guard.
 const ROUTINE_CONTRACTS = {
+  "app_attachment_finish_maintenance(uuid[], boolean)": {
+    language: "plpgsql",
+    securityDefiner: true,
+    volatility: "v",
+    config: ["search_path=pg_catalog"],
+    result: "integer",
+    sourceSha256:
+      "a9ae3b45e78967ab58b384ba66826e478dadd4bbec506e10fdec66907cf20407",
+    runtimeExecute: true,
+    publicExecute: false,
+  },
+  "app_attachment_prepare_maintenance(text)": {
+    language: "plpgsql",
+    securityDefiner: true,
+    volatility: "v",
+    config: ["search_path=pg_catalog"],
+    result: 'TABLE("cleanupPayload" jsonb, "userCount" bigint)',
+    sourceSha256:
+      "ae801e45935fb2cd4edbec4c1bad0acdbe65789d272aa92c98b5815f7a290a6a",
+    runtimeExecute: true,
+    publicExecute: false,
+  },
   "app_enforce_tenant_update_columns()": {
     language: "plpgsql",
     securityDefiner: false,
