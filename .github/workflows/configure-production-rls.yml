@@ -1,0 +1,76 @@
+name: Configure Production Tenant RLS
+
+run-name: Production tenant RLS ${{ inputs.operation }} by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Exact Production rollout transition
+        required: true
+        type: choice
+        options:
+          - enable-usage-canary
+          - rollback-usage-canary
+          - enable-list-item
+          - rollback-list-item
+          - enable-space-groups
+          - rollback-space-groups
+          - enable-tenant-full
+          - rollback-tenant-full
+      confirmation:
+        description: Type APPLY PRODUCTION RLS
+        required: true
+        type: string
+
+# Этот workflow намеренно не принимает Environment или произвольную группу:
+# опубликованный main может выполнить только именованный переход между
+# заранее проверенными rollout-профилями Production.
+permissions:
+  contents: read
+
+# Общий лок с production migration исключает параллельные изменения catalog.
+concurrency:
+  group: production-database-release
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Подтверждение проверяется до установки и до появления DB secret.
+      - name: Verify explicit Production confirmation
+        env:
+          PRODUCTION_CONFIRMATION: ${{ inputs.confirmation }}
+        run: test "${PRODUCTION_CONFIRMATION}" = "APPLY PRODUCTION RLS"
+
+      # Install не получает DB secret и не исполняет lifecycle hooks.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify Production database target
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+        run: node scripts/verify-release-database.mjs
+
+      - name: Apply exact Production enforcement transition
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+          ENFORCEMENT_OPERATION: ${{ inputs.operation }}
+        run: >-
+          npm run db:configure-tenant-enforcement --
+          --apply
+          --operation="${ENFORCEMENT_OPERATION}"

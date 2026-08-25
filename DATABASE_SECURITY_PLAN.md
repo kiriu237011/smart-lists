@@ -5,7 +5,8 @@ guard объекты первого tenant-контура применены в 
 проверены локально и прошли live catalog audit в Preview; Preview-only профили
 `UserDailyUsage`, `List + Item`, `Space + Groups` и финальный `tenant-full`
 включены и проверены; все восемь tenant-таблиц Preview защищены, Production
-остаётся без enforcement
+остаётся без enforcement; отправная точка Production повторно подтверждена
+read-only audit, защищённый Production workflow подготовлен, но не применялся
 **Дата:** 2026-08-25
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
@@ -698,6 +699,44 @@ endpoint fingerprint `d95cc95b87c7`. Независимый `BEGIN READ ONLY` au
 Ручной smoke подтвердил owner invite/revoke, self-leave, editor-доступ к
 расшаренному списку, загрузку/чтение/удаление вложений и отсутствие ошибок.
 Rollback `tenant-full → space-groups` готов; Production enforcement не менялся.
+
+## Production enforcement: подготовленный порядок
+
+Read-only audit `32824670290` от актуального `main@8cd7988` 2026-08-25
+подтвердил Production endpoint fingerprint `eec09bcdb874`, соединение
+`smartlists_migrator → smartlists_owner`, прежний restricted runtime ACL,
+`rls_enabled=false` и disabled guards на всех tenant-таблицах, а также
+`rls_forced=false` везде. Это точная отправная точка; audit не менял БД.
+
+Workflow `.github/workflows/configure-production-rls.yml` повторяет уже
+проверенный Preview-механизм, но жёстко использует Environment `Production`.
+Он запускается только из `main`, принимает только восемь именованных линейных
+операций, требует точную строку `APPLY PRODUCTION RLS`, проверяет direct target
+до apply и делит `production-database-release` lock со штатной migration job.
+Dependency install не получает DB secret и не исполняет lifecycle hooks.
+Configuring и rollback используют один fail-closed configurator: exact catalog,
+RLS и guard меняются одной транзакцией, FORCE не включается. Публикация этого
+workflow сама по себе не меняет Production и не считается security-контролем
+до успешного live apply, независимого audit и smoke.
+
+Production проходит те же профили без перепрыгивания:
+
+| Gate | Enable / rollback | Новые таблицы | Обязательный smoke |
+|---|---|---|---|
+| P1 | `enable-usage-canary` / `rollback-usage-canary` | `UserDailyUsage` | вход, обычная мутация, AI insight и корректное списание Production-квоты |
+| P2 | `enable-list-item` / `rollback-list-item` | `List`, `Item` | create/rename/delete списка, CRUD/порядок/перенос записей, owner/editor/stranger |
+| P3 | `enable-space-groups` / `rollback-space-groups` | `Space`, `ListGroup`, `_ListGroupMembers` | создание/rename/delete пространства, группы, membership и reorder |
+| P4 | `enable-tenant-full` / `rollback-tenant-full` | `ListShare`, `Attachment` | invite/revoke/self-leave и полный Production S3 flow `PENDING → UPLOADED → read → delete` |
+
+Перед P1 требуется отдельный live go/no-go: зелёный `main`, отсутствие pending
+миграций, свежий успешный Production backup, доступность rollback workflow и
+выбранное окно с низкой активностью. После каждого enable сначала выполняется
+независимый `BEGIN READ ONLY` catalog audit, затем только smoke указанной группы
+и проверка Vercel-логов. Следующий профиль запрещён, пока текущий не прошёл все
+три проверки. При широком функциональном отказе выполняется именованный rollback
+на один профиль назад и повторный audit; при единичном отказе поток блокируется,
+а RLS не отключается без необходимости. Каждое live изменение и каждый rollback
+требуют отдельного явного разрешения.
 
 ## Модели вне первого RLS-контура
 

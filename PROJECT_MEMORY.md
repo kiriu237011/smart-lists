@@ -50,8 +50,8 @@ Smart Lists — локализованное веб-приложение для 
 - `next.config.ts` — next-intl и security headers;
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
 - `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
-  ручной read-only аудит catalog, синхронизация Preview OAuth proxy и ежедневный
-  бэкап БД в S3;
+  ручной read-only аудит catalog, именованные Preview/Production tenant-RLS
+  переходы, синхронизация Preview OAuth proxy и ежедневный бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
 - `DATABASE_SECURITY_PLAN.md` — staged-план Postgres least privilege и
@@ -74,9 +74,8 @@ Smart Lists — локализованное веб-приложение для 
   глобального Prisma Client.
 - Additive-миграция создаёт общий `app_list_access(text)`, 31 policy на восьми
   tenant-таблицах и восемь update guards. Exact policy/trigger/routine inventory
-  закреплён в role configurators и выводится read-only аудитом. После трёх
-  успешных gates RLS и guard включены для `UserDailyUsage`, `List`, `Item`,
-  `Space`, `ListGroup` и `_ListGroupMembers` в Preview.
+  закреплён в role configurators и выводится read-only аудитом. После четырёх
+  успешных gates RLS и guard включены для всех восьми tenant-таблиц Preview.
 - 2026-08-21 базовая policy-миграция применена release-контурами в Preview и
   Production. Она только подготовила catalog; позже отдельный write-gate
   включил в Preview RLS/guard canary только для `UserDailyUsage`.
@@ -143,6 +142,13 @@ Smart Lists — локализованное веб-приложение для 
   прежний runtime ACL. Ручной smoke sharing/revoke/leave и полного attachment
   flow прошёл без ошибок. Rollback — `rollback-tenant-full`; Production не
   менялся.
+- Production read-only audit `32824670290` от `main@8cd7988` повторно
+  подтвердил endpoint fingerprint `eec09bcdb874`, точный owner/migrator/runtime
+  контракт, disabled RLS/guards и отсутствие FORCE. Отдельный Production
+  workflow подготовлен с Environment `Production`, точным typed confirmation,
+  линейными профилями и общим lock со штатной migration job. Workflow сам по
+  себе не меняет БД и ещё не применялся; Production posture остаётся прежним
+  до отдельного go/no-go каждого live перехода.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
