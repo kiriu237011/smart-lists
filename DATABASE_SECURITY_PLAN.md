@@ -3,9 +3,10 @@
 **Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
 guard объекты первого tenant-контура применены в Preview и Production,
 проверены локально и прошли live catalog audit в Preview; Preview-only профили
-`UserDailyUsage` и `List + Item` включены и проверены; Production и оставшиеся
-пять tenant-таблиц Preview пока остаются без enforcement
-**Дата:** 2026-08-24
+`UserDailyUsage` и `List + Item` включены и проверены; следующий профиль
+`Space + Groups` подготовлен и локально проверен, но ещё не включён в Preview;
+Production и оставшиеся пять tenant-таблиц Preview пока без enforcement
+**Дата:** 2026-08-25
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
 матрицу доступа и безопасный порядок внедрения. Текущее состояние приложения
@@ -647,6 +648,21 @@ RLS. Пользовательский CRUD smoke, включая создани�
 записями, rename, reload и sharing, прошёл без ошибок. Rollback
 `list-item → usage-canary` остаётся готов; Production enforcement не менялся.
 
+**Профиль `Space + Groups` подготовлен 2026-08-25:** к действующему
+`list-item` добавляются `Space`, `ListGroup` и `_ListGroupMembers`. Configurator
+разрешает только линейный переход `list-item → space-groups` и обратный
+`space-groups → list-item`; произвольный пропуск профиля и частичное состояние
+отклоняются до DDL. Exact predicates берутся из уже применённого policy-
+catalog: пространство ограничено `app.user_id`, группа — пользователем и
+`app.space_id`, membership требует одновременно личную группу и доступный в
+том же пространстве список. Partial-profile regression проверяет
+нефильтрованные чтения и настоящие Server Actions создания Space/Group,
+переименования группы и добавления расшаренного списка. Чистый PostgreSQL 17
+role-suite прошёл 21 integration-файл/292 DB-теста, идемпотентные переходы,
+отрицательные tamper/partial-profile проверки и backup/restore. Новых
+миграций, credentials, сервисов или границ доверия нет. Это локальная
+готовность: live Preview остаётся на `list-item` до отдельного go/no-go.
+
 ## Модели вне первого RLS-контура
 
 | Таблицы | Решение первого цикла |
@@ -746,10 +762,12 @@ AI-сервиса расходует зарезервированную попы
    и Production; exact catalog contract и отрицательные Alice/Bob тесты
    зелёные. Preview live catalog audit `32446720820` совпал с контрактом; на
    момент этого gate live RLS ещё не был включён.
-6. **Enforcement — два Preview gate включены.** `UserDailyUsage`, затем
+6. **Enforcement — два Preview gate включены, третий подготовлен.** `UserDailyUsage`, затем
    исправленный профиль `List + Item` прошли локальный integration gate,
    post-merge CI, транзакционный live apply, пользовательский CRUD smoke и
-   независимый read-only audit. Production остаётся без enforcement.
+   независимый read-only audit. Следующий линейный профиль `Space + Groups`
+   локально прошёл restricted-role gate, но ещё не применялся в Preview.
+   Production остаётся без enforcement.
 7. **Проверка после включения — выполнена для `UserDailyUsage`, `List` и
    `Item`.** Role/catalog audit, функциональный smoke и повторный threat
    impact-check пройдены; rollback к `usage-canary` остаётся готов.

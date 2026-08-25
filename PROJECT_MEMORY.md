@@ -2,10 +2,11 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-24 (первый tenant policy-контур применён в
+**Последнее обновление:** 2026-08-25 (первый tenant policy-контур применён в
 Preview и Production; RLS/guard включены и проверены в live Preview для
-`UserDailyUsage`, `List` и `Item`; оставшиеся пять tenant-таблиц Preview и
-Production без enforcement)
+`UserDailyUsage`, `List` и `Item`; следующий профиль `Space + Groups`
+подготовлен локально, но ещё не применён; оставшиеся пять tenant-таблиц Preview
+и Production без enforcement)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -124,10 +125,16 @@ Smart Lists — локализованное веб-приложение для 
   атрибуты runtime-роли и отсутствие FORCE RLS. Пользовательский smoke создания
   третьего списка, CRUD записей, rename, reload и sharing прошёл без ошибок.
   Rollback — `rollback-list-item`; Production enforcement не менялся.
+- Следующий профиль `space-groups` добавляет к `list-item` таблицы `Space`,
+  `ListGroup` и `_ListGroupMembers` только линейным переходом с отдельным
+  rollback обратно к `list-item`. Exact catalog, фильтрация нефильтрованных
+  чтений и реальные Server Actions Space/Group/membership проверены локально:
+  21 integration-файл, 292 DB-теста, backup/restore зелёные. Live Preview этот
+  профиль ещё не получал; отдельно остаются `ListShare` и `Attachment`.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
-  attribution и attachment transition. 290 DB-тестов и backup/restore зелёные.
+  attribution и attachment transition. 292 DB-теста и backup/restore зелёные.
 - Первой consumer-группой перенесён `src/lib/spaces.ts`: создание
   default-space и lookup используют user-контекст, а проверка доступа к списку
   — подтверждённый space-контекст.
@@ -226,8 +233,8 @@ Smart Lists — локализованное веб-приложение для 
 - Обычный production tenant data plane теперь использует scoped API, а
   специальный глобальный attachment-поток переведён на fail-closed helper.
   Policies и column guards уже находятся в обеих live-БД. В Preview RLS/guard
-  включены только для `UserDailyUsage`; после неуспешного smoke `List + Item`
-  вернулся к этому профилю. Production остаётся без enforcement, поэтому для
+  включены для `UserDailyUsage`, `List` и `Item`; профиль `Space + Groups`
+  подготовлен только в коде. Production остаётся без enforcement, поэтому для
   остальных таблиц live-изоляцию по-прежнему обеспечивают прикладные проверки.
 
 ### Авторизация

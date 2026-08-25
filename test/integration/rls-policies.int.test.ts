@@ -1,7 +1,15 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { addItem, createList, renameList } from "@/app/actions";
+import {
+  addItem,
+  addListToGroup,
+  createGroup,
+  createList,
+  renameGroup,
+  renameList,
+} from "@/app/actions";
+import { createSpace } from "@/app/actions/spaces";
 import { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/lib/prisma-client";
 import { createScopedDatabase } from "@/lib/scoped-db";
@@ -24,6 +32,12 @@ const LIST_ITEM_PROFILE_TABLES = [
   "List",
   "Item",
   "UserDailyUsage",
+] as const;
+const SPACE_GROUPS_PROFILE_TABLES = [
+  ...LIST_ITEM_PROFILE_TABLES,
+  "Space",
+  "ListGroup",
+  "_ListGroupMembers",
 ] as const;
 
 const EXPECTED_POLICY_COMMANDS: Record<(typeof TENANT_TABLES)[number], string[]> = {
@@ -137,10 +151,10 @@ async function seedFixture() {
     alice: "rls_alice",
     bob: "rls_bob",
     mallory: "rls_mallory",
-    aliceSpace: "rls_space_alice",
-    bobSpace: "rls_space_bob",
+    aliceSpace: "space_default_rls_alice",
+    bobSpace: "space_default_rls_bob",
     bobOtherSpace: "rls_space_bob_other",
-    mallorySpace: "rls_space_mallory",
+    mallorySpace: "space_default_rls_mallory",
     aliceSharedList: "rls_list_alice_shared",
     alicePrivateList: "rls_list_alice_private",
     bobList: "rls_list_bob",
@@ -455,6 +469,95 @@ runtimeDescribe("частичный Preview-профиль RLS List + Item", () 
         select: { title: true },
       }),
     ).toEqual({ title: "Новое имя владельца" });
+  });
+});
+
+runtimeDescribe("частичный Preview-профиль RLS Space + Groups", () => {
+  beforeAll(async () => {
+    await setTablesEnforcement(SPACE_GROUPS_PROFILE_TABLES, true);
+  });
+
+  afterAll(async () => {
+    await setTablesEnforcement(SPACE_GROUPS_PROFILE_TABLES, false);
+  });
+
+  it("фильтрует Space/groups/memberships, оставляя финальные таблицы выключенными", async () => {
+    const ids = await seedFixture();
+
+    const rows = await withSpaceDb(ids.bob, ids.bobSpace, async (tx) => {
+      const [spaces, groups, memberships, attachments] = await Promise.all([
+        tx.space.findMany({ select: { id: true } }),
+        tx.listGroup.findMany({ select: { id: true } }),
+        tx.listGroupMembership.findMany({
+          select: { groupId: true, listId: true },
+        }),
+        tx.attachment.findMany({ select: { id: true } }),
+      ]);
+      return { spaces, groups, memberships, attachments };
+    });
+
+    expect(rows.spaces.map(({ id }) => id).sort()).toEqual(
+      [ids.bobSpace, ids.bobOtherSpace].sort(),
+    );
+    expect(rows.groups).toEqual([{ id: ids.bobGroup }]);
+    expect(rows.memberships).toEqual([
+      { groupId: ids.bobGroup, listId: ids.aliceSharedList },
+    ]);
+    expect(rows.attachments).toHaveLength(3);
+  });
+
+  it("создаёт Space, Group и membership через настоящие Server Actions", async () => {
+    const ids = await seedFixture();
+    setSessionUser(ids.bob);
+
+    expect(await createSpace("Работа под RLS")).toMatchObject({ success: true });
+    const groupResult = await createGroup(
+      formData({ name: "Группа под RLS", spaceId: ids.bobSpace }),
+    );
+    expect(groupResult).toMatchObject({
+      success: true,
+      group: { name: "Группа под RLS" },
+    });
+    if (!groupResult.success || !groupResult.group) {
+      throw new Error("Группа не создана под RLS");
+    }
+    const groupId = groupResult.group.id;
+
+    expect(
+      await renameGroup(
+        formData({
+          groupId,
+          name: "Переименовано под RLS",
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toEqual({ success: true });
+    expect(
+      await addListToGroup(
+        formData({
+          groupId,
+          listId: ids.aliceSharedList,
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toEqual({ success: true });
+
+    expect(
+      await enforcementAdminPrisma.listGroup.findUnique({
+        where: { id: groupId },
+        select: { name: true },
+      }),
+    ).toEqual({ name: "Переименовано под RLS" });
+    expect(
+      await enforcementAdminPrisma.listGroupMembership.findUnique({
+        where: {
+          listId_groupId: {
+            listId: ids.aliceSharedList,
+            groupId,
+          },
+        },
+      }),
+    ).not.toBeNull();
   });
 });
 
