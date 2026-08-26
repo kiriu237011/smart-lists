@@ -128,18 +128,41 @@ describe("tenant RLS catalog до enforcement", () => {
       ORDER BY relation.relname
     `;
 
-    expect(triggers).toHaveLength(GUARDED_TABLES.length);
-    expect(triggers.map(({ table }) => table).sort()).toEqual(
+    const guards = triggers.filter(
+      (trigger) => trigger.name === "app_tenant_update_columns_guard",
+    );
+    expect(guards).toHaveLength(GUARDED_TABLES.length);
+    expect(guards.map(({ table }) => table).sort()).toEqual(
       [...GUARDED_TABLES].sort(),
     );
     expect(
-      triggers.every(
+      guards.every(
         (trigger) =>
-          trigger.name === "app_tenant_update_columns_guard" &&
           trigger.function === "app_enforce_tenant_update_columns" &&
           trigger.enabled === "D",
       ),
     ).toBe(true);
+
+    expect(
+      triggers
+        .filter((trigger) => trigger.name === "app_audit_global_admin_change")
+        .map((trigger) => ({
+          table: trigger.table,
+          function: trigger.function,
+          enabled: trigger.enabled,
+        })),
+    ).toEqual([
+      {
+        table: "AllowedEmail",
+        function: "app_audit_global_admin_change",
+        enabled: "O",
+      },
+      {
+        table: "AppSetting",
+        function: "app_audit_global_admin_change",
+        enabled: "O",
+      },
+    ]);
   });
 });
 

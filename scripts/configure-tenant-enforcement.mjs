@@ -607,6 +607,18 @@ function assertCatalog(catalog) {
     expectedTriggerDefinitions,
     "Triggers public",
   );
+  assertSameValues(
+    catalog.triggers
+      .filter((trigger) => trigger.name !== GUARD_NAME)
+      .map(
+        (trigger) =>
+          `${trigger.table_name}:${trigger.name}:${trigger.function_name}:${trigger.enabled}`,
+      ),
+    EXPECTED_TRIGGERS.filter(
+      (trigger) => !trigger.includes(`:${GUARD_NAME}:`),
+    ),
+    "Always-on triggers public",
+  );
 }
 
 function profileFromCatalog(catalog) {
@@ -624,7 +636,10 @@ function profileFromCatalog(catalog) {
     .filter((relation) => tenantSet.has(relation.name) && relation.rls_enabled)
     .map((relation) => relation.name);
   const guardsEnabled = catalog.triggers
-    .filter((trigger) => trigger.enabled !== "D")
+    .filter(
+      (trigger) =>
+        trigger.name === GUARD_NAME && trigger.enabled !== "D",
+    )
     .map((trigger) => {
       if (trigger.enabled !== "O" || trigger.name !== GUARD_NAME) {
         throw new Error(

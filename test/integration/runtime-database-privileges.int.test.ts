@@ -103,6 +103,15 @@ runtimeDescribe("контракт restricted runtime-роли", () => {
 
   it("запрещает runtime менять глобальную конфигурацию и неиспользуемые auth-объекты", async () => {
     await expect(
+      prisma.$queryRawUnsafe('SELECT * FROM "AuditEvent" LIMIT 1'),
+    ).rejects.toThrow();
+    await expect(
+      prisma.$executeRawUnsafe(
+        `INSERT INTO "AuditEvent" ("source", "action", "databaseRole")
+         VALUES ('APPLICATION', 'SPACE_DELETED', current_user)`,
+      ),
+    ).rejects.toThrow();
+    await expect(
       prisma.allowedEmail.create({
         data: { email: `forbidden_${crypto.randomUUID()}@example.com` },
       }),
@@ -168,6 +177,12 @@ runtimeDescribe("контракт restricted runtime-роли", () => {
         publicExecute: false,
       },
       {
+        name: "app_audit_global_admin_change",
+        arguments: "",
+        runtimeExecute: false,
+        publicExecute: false,
+      },
+      {
         name: "app_enforce_tenant_update_columns",
         arguments: "",
         runtimeExecute: false,
@@ -176,6 +191,18 @@ runtimeDescribe("контракт restricted runtime-роли", () => {
       {
         name: "app_list_access",
         arguments: "text",
+        runtimeExecute: true,
+        publicExecute: false,
+      },
+      {
+        name: "app_prune_audit_events",
+        arguments: "",
+        runtimeExecute: false,
+        publicExecute: false,
+      },
+      {
+        name: "app_write_audit_event",
+        arguments: '"AuditEventAction", text, text, text, text',
         runtimeExecute: true,
         publicExecute: false,
       },
@@ -194,6 +221,20 @@ runtimeDescribe("контракт restricted runtime-роли", () => {
           false
         )
       `,
+    ).rejects.toThrow();
+    await expect(
+      prisma.$queryRaw`
+        SELECT public.app_write_audit_event(
+          'SPACE_DELETED'::public."AuditEventAction",
+          'missing-context',
+          NULL,
+          NULL,
+          NULL
+        )
+      `,
+    ).rejects.toThrow();
+    await expect(
+      prisma.$queryRaw`SELECT public.app_prune_audit_events()`,
     ).rejects.toThrow();
   });
 });

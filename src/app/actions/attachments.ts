@@ -61,6 +61,7 @@ import {
 } from "@/lib/s3";
 import type { FileCategory } from "@/generated/prisma/client";
 import { consumeMutationBudget } from "@/lib/usage";
+import { writeAuditEvent } from "@/lib/audit";
 
 function isMissingSpace(error: unknown): boolean {
   return (
@@ -498,6 +499,13 @@ export async function confirmUpload(input: {
         });
         if (updated.count === 0) return null;
 
+        await writeAuditEvent(tx, {
+          action: "ATTACHMENT_UPLOADED",
+          spaceId: result.data.spaceId,
+          listId: attachment.listId,
+          targetId: attachment.id,
+        });
+
         return {
           recipientIds: [
             ...new Set([
@@ -597,6 +605,13 @@ export async function deleteAttachment(input: {
           },
         });
         if (deleted.count === 0) return null;
+
+        await writeAuditEvent(tx, {
+          action: "ATTACHMENT_DELETED",
+          spaceId: result.data.spaceId,
+          listId: attachment.listId,
+          targetId: attachment.id,
+        });
 
         return {
           id: attachment.id,

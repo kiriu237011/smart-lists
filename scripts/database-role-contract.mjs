@@ -10,6 +10,7 @@ export const EXPECTED_TABLES = [
   "AllowedEmail",
   "AppSetting",
   "Attachment",
+  "AuditEvent",
   "Item",
   "List",
   "ListGroup",
@@ -25,6 +26,8 @@ export const EXPECTED_TABLES = [
 
 export const EXPECTED_ENUM_TYPES = [
   "AttachmentStatus",
+  "AuditEventAction",
+  "AuditEventSource",
   "FileCategory",
   "ListShareRole",
 ];
@@ -48,6 +51,11 @@ export const EXPECTED_ROUTINE_DEFINITIONS = [
   },
   {
     kind: "function",
+    name: "app_audit_global_admin_change",
+    identityArguments: "",
+  },
+  {
+    kind: "function",
     name: "app_enforce_tenant_update_columns",
     identityArguments: "",
   },
@@ -56,9 +64,24 @@ export const EXPECTED_ROUTINE_DEFINITIONS = [
     name: "app_list_access",
     identityArguments: "text",
   },
+  {
+    kind: "function",
+    name: "app_prune_audit_events",
+    identityArguments: "",
+  },
+  {
+    kind: "function",
+    name: "app_write_audit_event",
+    identityArguments: '"AuditEventAction", text, text, text, text',
+  },
 ];
 export const RUNTIME_EXECUTE_ROUTINES = EXPECTED_ROUTINE_DEFINITIONS.filter(
-  (routine) => routine.name !== "app_enforce_tenant_update_columns",
+  (routine) =>
+    ![
+      "app_audit_global_admin_change",
+      "app_enforce_tenant_update_columns",
+      "app_prune_audit_events",
+    ].includes(routine.name),
 );
 export const EXPECTED_ROUTINES = EXPECTED_ROUTINE_DEFINITIONS.map(
   (routine) =>
@@ -105,6 +128,8 @@ export const EXPECTED_POLICIES = [
 // D означает disabled. Включение guard-триггеров и RLS — отдельный gate;
 // этот контракт намеренно не позволяет configurator сделать это молча.
 export const EXPECTED_TRIGGERS = [
+  "AllowedEmail:app_audit_global_admin_change:app_audit_global_admin_change:O",
+  "AppSetting:app_audit_global_admin_change:app_audit_global_admin_change:O",
   "Attachment:app_tenant_update_columns_guard:app_enforce_tenant_update_columns:D",
   "Item:app_tenant_update_columns_guard:app_enforce_tenant_update_columns:D",
   "List:app_tenant_update_columns_guard:app_enforce_tenant_update_columns:D",
@@ -120,6 +145,7 @@ export const RUNTIME_TABLE_PRIVILEGES = {
   AllowedEmail: ["SELECT"],
   AppSetting: ["SELECT"],
   Attachment: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+  AuditEvent: [],
   Item: ["SELECT", "INSERT", "UPDATE", "DELETE"],
   List: ["SELECT", "INSERT", "UPDATE", "DELETE"],
   ListGroup: ["SELECT", "INSERT", "UPDATE", "DELETE"],

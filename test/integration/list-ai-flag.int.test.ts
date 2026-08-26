@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { setListAiEnabled } from "@/app/actions";
 import { getListInsight } from "@/app/actions/insights";
-import { prisma, setSessionUser } from "./setup";
+import { adminPrisma, prisma, setSessionUser } from "./setup";
 import { formData, makeList, makeUser, shareList } from "./factories";
 
 vi.mock("@/lib/gcp-auth", () => ({
@@ -57,6 +57,20 @@ describe("переключение AI для списка", () => {
       formData({ listId: list.id, aiEnabled: "true", spaceId: owner.defaultSpaceId }),
     );
     expect(await storedFlag(list.id)).toBe(true);
+    const events = await adminPrisma.auditEvent.findMany({
+      where: { action: "LIST_AI_ACCESS_CHANGED", listId: list.id },
+      orderBy: { occurredAt: "asc" },
+    });
+    expect(events).toHaveLength(2);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorUserId: owner.id,
+          spaceId: owner.defaultSpaceId,
+          source: "APPLICATION",
+        }),
+      ]),
+    );
   });
 
   it("участник, не являющийся владельцем, тоже может выключить", async () => {
@@ -92,6 +106,11 @@ describe("переключение AI для списка", () => {
 
     expect(result.success).toBe(false);
     expect(await storedFlag(list.id)).toBe(true);
+    expect(
+      await adminPrisma.auditEvent.count({
+        where: { action: "LIST_AI_ACCESS_CHANGED", listId: list.id },
+      }),
+    ).toBe(0);
   });
 
   it("непонятное значение флага отвергается, а не толкуется", async () => {
