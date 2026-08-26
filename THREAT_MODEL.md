@@ -2,8 +2,8 @@
 
 **Дата составления:** 2026-08-09
 
-**Последняя сверка с кодом:** 2026-08-13 (полная); 2026-08-25 — актуальный
-`main@46d8c7ae`, scoped DB-контур, tenant policy/column-guard объекты,
+**Последняя сверка с кодом:** 2026-08-13 (полная); 2026-08-26 — актуальный
+`main@03d5d3a2`, scoped DB-контур, tenant policy/column-guard объекты,
 attachment/AI privacy-потоки, путь `prisma → @prisma/config → deepmerge-ts` и
 live-профиль Preview `tenant-full`
 
@@ -16,7 +16,9 @@ audit `32699937238` и пользовательский smoke; 2026-08-25 — `S
 apply `32818823108`, финальный `tenant-full` apply `32822405891`, audits
 `32818934270`/`32822519427` и пользовательские smoke; Production read-only
 audit `32824670290`, свежий backup `32826557777`, P1 apply `32826737964`,
-audit `32826844348` и пользовательский smoke
+audit `32826844348` и пользовательский smoke; 2026-08-26 — свежий backup
+`32866694333`, preflight audit `32915451362`, P2 apply `32915685539`,
+post-apply audit `32915755104` и пользовательский smoke
 
 **Область:** runtime-архитектура приложения и AI-микросервиса
 
@@ -35,7 +37,7 @@ audit `32826844348` и пользовательский smoke
   свободного текста, отправляемого в Anthropic;
 - полный deployment-time разбор не выполнен: границы GitHub Actions рассмотрены
   для бэкапов, автоматической синхронизации Preview OAuth proxy, Preview tenant-
-  enforcement, подготовленного Production tenant-enforcement и пути образа
+  enforcement, staged Production tenant-enforcement и пути образа
   AI-сервиса до Cloud Run.
 
 **Независимая сверка 2026-08-11.** До чтения этого документа оба репозитория
@@ -54,7 +56,7 @@ AI; удаление и повторяемая уборка объектов з�
 | Вложения и бэкапы | **partial / accepted** | приватные бакеты, SSE-S3, versioning, проверенный restore и сверка содержимого с сигнатурой типа; остаются TOCTOU, непроверяемый `text/plain`, вечные сироты и отсутствие data events |
 | Realtime | **closed / partial** | персональные private-каналы с пустым payload; при исчерпании квоты теряется только realtime |
 | AI-сервис | **partial / accepted** | анонимный вызов закрыт и статических секретов нет; приватность свободного текста и передача провайдеру остаются остаточными рисками |
-| База данных | **partial / accepted** | runtime обеих сред отделён от DDL/ownership; все восемь tenant-таблиц защищены RLS в Preview, `UserDailyUsage` — в Production; остальные семь Production tenant-таблиц без enforcement |
+| База данных | **partial / accepted** | runtime обеих сред отделён от DDL/ownership; все восемь tenant-таблиц защищены RLS в Preview, `UserDailyUsage`, `List` и `Item` — в Production; остальные пять Production tenant-таблиц без enforcement |
 | Атрибуция изменений | **gap / accepted** | полноценного audit trail нет; риск принят для малого доверенного круга |
 | Конфигурация инфраструктуры | **partial** | критичные симптомы исправлены; `AGENTS.md` требует impact-check до и после значимых правок, но часть гарантий всё ещё живёт вне репозитория и CI |
 
@@ -81,9 +83,9 @@ AI; удаление и повторяемая уборка объектов з�
    подтвердил exact runtime ACL, policy/routine/trigger inventory и отсутствие
    enforcement на момент gate. Затем в Preview включены и проверены профили
    `UserDailyUsage`, `List + Item`, `Space + Groups` и финальный `tenant-full`.
-   Все восемь tenant-таблиц Preview защищены. В Production первый профиль
-   `usage-canary` прошёл apply, audit и ручной smoke; без enforcement остаются
-   остальные семь tenant-таблиц.
+   Все восемь tenant-таблиц Preview защищены. В Production профили
+   `usage-canary` и `list-item` прошли apply, audit и ручной smoke; без
+   enforcement остаются остальные пять tenant-таблиц.
    Матрица и gate:
    `DATABASE_SECURITY_PLAN.md`.
 3. **Infrastructure drift:** IAM, versioning, CORS, Force TLS и настройки Neon
@@ -277,7 +279,7 @@ ownership) сужают ущерб, но не влияют на достижим
 
 | Буква | Статус | Суть |
 |---|---|---|
-| T | partial | обе среды используют restricted runtime без DDL; все восемь tenant-таблиц Preview и `UserDailyUsage` Production защищены RLS, остальные семь Production tenant-таблиц и ручной канал `AllowedEmail`/`AppSetting` остаются role-wide |
+| T | partial | обе среды используют restricted runtime без DDL; все восемь tenant-таблиц Preview и `UserDailyUsage`, `List`, `Item` Production защищены RLS, остальные пять Production tenant-таблиц и ручной канал `AllowedEmail`/`AppSetting` остаются role-wide |
 | R | **gap / accepted** | атрибуция пользователей на уровне БД архитектурно недостижима |
 | I | partial | write-путь бэкапов изолирован и зашифрован; read-путь восстановления использует личные админские права |
 | D | partial / accepted | restore проверен; реплики и деградированного режима нет, удаление ветки не блокируется тарифом |
@@ -285,8 +287,9 @@ ownership) сужают ущерб, но не влияют на достижим
 **T.** В обеих средах `DATABASE_URL` ограничен точной DML-матрицей без DDL и
 ownership. Компрометация runtime credential больше не позволяет менять схему,
 роли или migration metadata. Все восемь tenant-таблиц Preview и
-`UserDailyUsage` Production ограничены RLS; на остальных семи Production
-tenant-таблицах до следующих staged gates сохраняется role-wide доступ.
+`UserDailyUsage`, `List`, `Item` Production ограничены RLS; на остальных пяти
+Production tenant-таблицах до следующих staged gates сохраняется role-wide
+доступ.
 
 **Разобрано 2026-08-10, предпосылка закрыта 2026-08-13.** На тот момент
 очевидная мера — завести runtime-роль без прав DDL — не закрывала сценарий:
@@ -452,6 +455,21 @@ insight без DB-ошибок в Vercel logs. Impact-check: quota/AI data-flow 
 role-wide DML устранён для одной Production tenant-таблицы и остаётся для семи.
 Rollback `usage-canary → disabled` готов. Следующий отдельный gate — P2
 `List + Item`.
+
+**Production P2 пройден 2026-08-26.** Автоматический backup `32866694333`
+успешно завершился от `main@03d5d3a2`; preflight read-only audit `32915451362`
+подтвердил исходный профиль `usage-canary` на endpoint fingerprint
+`eec09bcdb874`. После отдельного go/no-go workflow `32915685539` выполнил
+`usage-canary → list-item`; независимый post-apply audit `32915755104`
+подтвердил RLS/guards ровно на `UserDailyUsage`, `List`, `Item`, отсутствие
+FORCE и прежний operational/runtime contract. Ручной smoke подтвердил
+create/rename/delete списков, CRUD/порядок/перенос записей,
+owner/editor/stranger и отсутствие DB-ошибок в Vercel logs. Impact-check:
+list/item data-flow и матрица owner/editor/stranger сохранены; новых сервисов,
+credentials, активов, угроз или границ доверия нет. Риск role-wide DML устранён
+ещё для двух Production tenant-таблиц и остаётся для пяти. Rollback
+`list-item → usage-canary` готов. Следующий отдельный gate — P3
+`Space + Groups`.
 
 **GitHub Environments проверены 2026-08-12.** `Production` и `Preview`
 ограничены branch policy `main`; API подтверждает наличие в каждой двух
@@ -1020,7 +1038,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | ~~2.2~~ | ~~Versioning на бакете вложений~~ | Mitigate | ✅ **Сделано 2026-08-10** на обоих бакетах вложений. Lifecycle отличается от бэкапного одной строкой, и это существенно: у бэкапов `Expiration` текущих версий нужен, у пользовательских файлов он означал бы пропажу по расписанию — поэтому здесь ограничены только noncurrent-версии, 30 дней. Проверено учением на dev: удаление ключом приложения, delete marker, восстановление |
 | ~~2.3~~ | ~~Проверка `AllowedEmail` в `session` callback~~ | Mitigate | ✅ **Сделано 2026-08-10.** Проверка **и** очистка `Session`: одного отказа мало, cookie осталась бы валидной. Покрыто интеграционно (обе функции против живой БД) и E2E (отозванный пользователь оказывается на экране входа) |
 | ~~2.4~~ | ~~Строка в UI о передаче данных; флаг `aiEnabled` на списке~~ | Mitigate | ✅ **Сделано 2026-08-10, оба средства.** Строка закрывает осведомлённость, флаг — субъектность; одно другого не заменяет. Выключить может любой участник: владельческая проверка оставила бы человека, чьи данные уходят, без средств. Запрет проверяется в Action, а не только скрытием кнопки |
-| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Release, runtime, operational roles/backup, scoped ordinary tenant data plane и DB-объекты завершены; RLS/guards для всех восьми tenant-таблиц работают в Preview.** В Production пройден P1 `usage-canary`: после свежего backup включены RLS и guard для `UserDailyUsage`, независимый audit и пользовательский smoke успешны, FORCE отсутствует, rollback готов. Остальные семь tenant-таблиц Production пока остаются без DB-level enforcement; следующий отдельный gate — P2 `list-item` |
+| 2.5 | Staged-переход Postgres: release migration, runtime least privilege, scoped context, tenant-RLS | **Mitigate** | 🟡 **Release, runtime, operational roles/backup, scoped ordinary tenant data plane и DB-объекты завершены; RLS/guards для всех восьми tenant-таблиц работают в Preview.** В Production пройдены P1 `usage-canary` и P2 `list-item`: RLS/guards защищают `UserDailyUsage`, `List` и `Item`, независимые audits и пользовательские smoke успешны, FORCE отсутствует, rollback готов. Остальные пять tenant-таблиц Production пока без DB-level enforcement; следующий отдельный gate — P3 `space-groups` |
 | ~~2.6~~ | ~~`USER` в `Dockerfile` сервиса~~ | Mitigate | ✅ **Сделано 2026-08-09.** `USER appuser`, uid 10001. Документ снова вправе считать это контролем — но не более чем сужением ущерба внутри контейнера (A25) |
 | ~~2.7~~ | ~~`openapi_url=None` при `debug=false`~~ | Mitigate | ✅ **Сделано 2026-08-09.** Схема больше не зависит от того, открыт сервис или нет |
 | ~~2.8~~ | ~~Включить Force TLS в приложении Pusher~~ | Mitigate | ✅ **Сделано 2026-08-09** в обоих приложениях, prod и dev. Гарантия перенесена с дефолта `pusher-js` на сервис |
@@ -1032,7 +1050,7 @@ design и release cutover; каждый следующий этап меняет
 
 | Порядок | Действие | Что меняет |
 |---|---|---|
-| 1 | Завершить staged tenant-RLS в Production | Preview завершён полностью. В Production P1 `usage-canary` прошёл backup, exact apply, независимый audit и пользовательский smoke; `UserDailyUsage` защищена RLS/guard. Следующий отдельный этап — согласовать P2 `list-item`; ещё семь tenant-таблиц не имеют DB-level enforcement |
+| 1 | Завершить staged tenant-RLS в Production | Preview завершён полностью. В Production P1 `usage-canary` и P2 `list-item` прошли backup/preflight, exact apply, независимые audits и пользовательские smoke; `UserDailyUsage`, `List` и `Item` защищены RLS/guard. Следующий отдельный этап — согласовать P3 `space-groups`; ещё пять tenant-таблиц не имеют DB-level enforcement |
 | 2 | Добавить audit trail для чувствительных мутаций и ручных административных изменений | Закрывает корень C; требует отдельного решения по сроку хранения и приватности |
 | 3 | Добавить `request_id` между Vercel и Cloud Run | Даёт корреляцию инцидента без логирования пользователя и содержимого |
 | 4 | Включить CloudTrail data events хотя бы на бэкап-бакете | Делает чтение, перезапись и удаление объектов наблюдаемыми |
@@ -1065,7 +1083,7 @@ design и release cutover; каждый следующий этап меняет
 | Квота на юзера (20 файлов) без row-lock | Косметический перебор на 1–2 файла, не cost abuse | Переход на квоту по сумме байт |
 | Ветку `production` можно удалить | Защита веток недоступна на `free_v3`. Компенсация не теоретическая: дампы защищены versioning и проверены на восстановимость 08-09 | Переход на платный тариф Neon — включить защиту сразу |
 | Токен `neonctl` на рабочей машине | Даёт ровно то же, что уже даёт браузерная сессия на том же ПК; удобство перевешивает при одном владельце | Появление второго человека за этой машиной; см. A12 |
-| Runtime credential имеет table-wide DML там, где RLS ещё не включён | DDL/ownership уже отозваны в обеих средах. В Production `UserDailyUsage` защищена RLS/guard после успешного P1, но единая runtime-роль технически может читать и менять чужие строки в остальных семи tenant-таблицах. Основным live-контролем для них остаются `listInSpaceWhere` и ownership-проверки приложения. В Preview все восемь tenant-таблиц ограничены RLS и guard; exact apply, smoke и независимые audits прошли | **Mitigation in progress:** P1 Production завершён; защищённый workflow, следующие fail-closed профили и rollback подготовлены. Следующий отдельный go/no-go — P2 `list-item`. Немедленный пересмотр при втором человеке с доступом к Vercel, снятии whitelist или появлении прямого SQL-пути из недоверенного ввода |
+| Runtime credential имеет table-wide DML там, где RLS ещё не включён | DDL/ownership уже отозваны в обеих средах. В Production `UserDailyUsage`, `List` и `Item` защищены RLS/guard после успешных P1–P2, но единая runtime-роль технически может читать и менять чужие строки в остальных пяти tenant-таблицах. Основным live-контролем для них остаются `listInSpaceWhere` и ownership-проверки приложения. В Preview все восемь tenant-таблиц ограничены RLS и guard; exact apply, smoke и независимые audits прошли | **Mitigation in progress:** P1–P2 Production завершены; защищённый workflow, следующие fail-closed профили и rollback подготовлены. Следующий отдельный go/no-go — P3 `space-groups`. Немедленный пересмотр при втором человеке с доступом к Vercel, снятии whitelist или появлении прямого SQL-пути из недоверенного ввода |
 | Исполнение кода в контейнере сервиса даёт доступ к Anthropic | A25. Токен живёт 10 минут, наружу не выносится и ограничен одним workspace. Альтернатива — вернуть статический ключ, то есть заменить трудную и короткую угрозу на лёгкую и бессрочную | Появление в сервисе пути, исполняющего пользовательский ввод; расширение прав федеративного токена за пределы одного workspace |
 | Непрерывное сканирование образов выключено | Artifact Registry Container Scanning — платная функция ($0.26 за образ), и включать её на частном приложении сейчас нечем оправдать. Компенсация: собственные зависимости чисты (0 открытых алертов Dependabot, 0 critical/high в `requirements.txt`), а grype в `deploy.yml` показывает дельту на каждой выкладке. Чего не хватает — видимости CVE, опубликованной **после** сборки: между выкладками об образе не знает никто | Выход в свет; рост интервала между выкладками; появление critical/high в собственных зависимостях |
 | Immutable tags в Artifact Registry не включены | Выкладка идёт по digest (A48), поэтому перезапись тега не может подменить работающее — единственный вектор закрыт другим способом. Immutable tags защищали бы только человеческую трассировку «SHA-тег → образ», а ценой был бы запрет на повторный запуск выкладки для того же коммита: сборка не байт-в-байт воспроизводима, и повторный push дал бы конфликт тега | Появление второго обладателя `artifactregistry.writer`; отказ от выкладки по digest |
