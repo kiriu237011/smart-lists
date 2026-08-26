@@ -5,9 +5,9 @@ guard объекты первого tenant-контура применены в 
 проверены локально и прошли live catalog audit в Preview; Preview-only профили
 `UserDailyUsage`, `List + Item`, `Space + Groups` и финальный `tenant-full`
 включены и проверены; все восемь tenant-таблиц Preview защищены, Production
-прошёл первый gate `usage-canary`: `UserDailyUsage` защищён, остальные семь
-tenant-таблиц Production пока без enforcement
-**Дата:** 2026-08-25
+прошёл второй gate `list-item`: `UserDailyUsage`, `List` и `Item` защищены,
+остальные пять tenant-таблиц Production пока без enforcement
+**Дата:** 2026-08-26
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
 матрицу доступа и безопасный порядок внедрения. Текущее состояние приложения
@@ -751,6 +751,18 @@ DB-ошибок нет. Именованный rollback — `rollback-usage-cana
 отдельный gate — P2 `List + Item`; до его go/no-go Production остаётся на
 `usage-canary`.
 
+**Production gate P2 пройден 2026-08-26.** Автоматический backup
+`32866694333` успешно завершился от `main@03d5d3a2`. Preflight read-only audit
+`32915451362` подтвердил исходный профиль `usage-canary` на endpoint fingerprint
+`eec09bcdb874`. После отдельного go/no-go workflow `32915685539` выполнил точный
+переход `usage-canary → list-item`. Независимый post-apply audit `32915755104`
+подтвердил RLS и column guards ровно на `UserDailyUsage`, `List` и `Item`,
+отсутствие FORCE и прежний runtime/owner/migrator contract. Ручной Production
+smoke create/rename/delete списков, CRUD/порядка/переноса записей,
+owner/editor/stranger и Vercel logs прошёл без ошибок. Именованный rollback —
+`rollback-list-item`; следующий отдельный gate — P3 `Space + Groups`. До него
+Production остаётся на `list-item`.
+
 ## Модели вне первого RLS-контура
 
 | Таблицы | Решение первого цикла |
@@ -850,18 +862,19 @@ AI-сервиса расходует зарезервированную попы
    и Production; exact catalog contract и отрицательные Alice/Bob тесты
    зелёные. Preview live catalog audit `32446720820` совпал с контрактом; на
    момент этого gate live RLS ещё не был включён.
-6. **Enforcement — все четыре Preview gate и Production P1 включены.**
+6. **Enforcement — все четыре Preview gate и Production P1–P2 включены.**
    `UserDailyUsage`, исправленный профиль `List + Item`, затем `Space + Groups`
    прошли локальный integration gate, post-merge CI, транзакционный live apply,
    пользовательский smoke и независимый read-only audit. Финальный
    `tenant-full` добавил `ListShare + Attachment` после тех же локальных и live
-   gates. В Production первый профиль `usage-canary` отдельно прошёл apply,
-   audit и ручной smoke; остальные семь tenant-таблиц пока без enforcement.
+   gates. В Production профили `usage-canary` и `list-item` отдельно прошли
+   apply, audit и ручной smoke; остальные пять tenant-таблиц пока без
+   enforcement.
 7. **Проверка после включения — выполнена для всех восьми tenant-таблиц.** Exact
    role/catalog audit, функциональный smoke и повторный threat impact-check
    пройдены; rollback `tenant-full → space-groups` готов. Production rollback
-   `usage-canary → disabled` также готов; следующий отдельный gate — go/no-go
-   P2 `List + Item`.
+   `list-item → usage-canary` также готов; следующий отдельный gate — go/no-go
+   P3 `Space + Groups`.
 
 Каждая миграция должна быть совместима и со старой, и с новой версией
 приложения. RLS включается только после ухода старых инстансов, которые ещё не

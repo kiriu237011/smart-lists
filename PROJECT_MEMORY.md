@@ -2,9 +2,9 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-25 (первый tenant policy-контур полностью
-применён в Preview; Production прошёл первый gate `usage-canary`, следующие
-профили ещё не включены)
+**Последнее обновление:** 2026-08-26 (первый tenant policy-контур полностью
+применён в Preview; Production прошёл второй gate `list-item`, следующие два
+профиля ещё не включены)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -63,8 +63,8 @@ Smart Lists — локализованное веб-приложение для 
 
 - Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
   все восемь tenant-таблиц дополнительно ограничены RLS; в Production RLS и
-  guard включены для `UserDailyUsage`, остальные семь tenant-таблиц пока
-  сохраняют role-wide DML в рамках runtime ACL.
+  guard включены для `UserDailyUsage`, `List` и `Item`, остальные пять
+  tenant-таблиц пока сохраняют role-wide DML в рамках runtime ACL.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -153,7 +153,14 @@ Smart Lists — локализованное веб-приложение для 
   `32826844348` подтвердил RLS/guard только на `UserDailyUsage`, отсутствие
   FORCE и прежний ролевой контракт. Ручной smoke Google sign-in, reload,
   обычной мутации и AI insight прошёл без DB-ошибок. Rollback —
-  `rollback-usage-canary`; следующий отдельный gate — Production P2.
+  `rollback-usage-canary`.
+- Автоматический backup `32866694333` от актуального `main@03d5d3a2` и
+  preflight audit `32915451362` прошли перед Production P2. После отдельного
+  go/no-go run `32915685539` применил `usage-canary → list-item`; независимый
+  audit `32915755104` подтвердил RLS/guards ровно на `UserDailyUsage`, `List` и
+  `Item`, отсутствие FORCE и прежний ролевой контракт. Ручной smoke списков,
+  записей, owner/editor/stranger и Vercel logs прошёл без ошибок. Rollback —
+  `rollback-list-item`; следующий отдельный gate — Production P3.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -257,8 +264,8 @@ Smart Lists — локализованное веб-приложение для 
   специальный глобальный attachment-поток переведён на fail-closed helper.
   Policies и column guards уже находятся в обеих live-БД. В Preview RLS/guard
   включены на всех восьми tenant-таблицах. В Production RLS/guard включены для
-  `UserDailyUsage`; на остальных семи tenant-таблицах live-изоляцию пока
-  обеспечивают прикладные проверки.
+  `UserDailyUsage`, `List` и `Item`; на остальных пяти tenant-таблицах
+  live-изоляцию пока обеспечивают прикладные проверки.
 
 ### Авторизация
 
