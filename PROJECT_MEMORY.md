@@ -2,8 +2,8 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-26 (первый tenant policy-контур полностью
-применён и проверен в Preview и Production)
+**Последнее обновление:** 2026-08-26 (tenant-RLS полностью live; audit trail
+foundation подготовлен и локально проверен, но ещё не применён в средах)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -50,7 +50,8 @@ Smart Lists — локализованное веб-приложение для 
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
 - `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
   ручной read-only аудит catalog, именованные Preview/Production tenant-RLS
-  переходы, синхронизация Preview OAuth proxy и ежедневный бэкап БД в S3;
+  переходы, выключенный по умолчанию audit retention, синхронизация Preview
+  OAuth proxy и ежедневный бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
 - `DATABASE_SECURITY_PLAN.md` — staged-план Postgres least privilege и
@@ -75,6 +76,16 @@ Smart Lists — локализованное веб-приложение для 
   tenant-таблицах и восемь update guards. Exact policy/trigger/routine inventory
   закреплён в role configurators и выводится read-only аудитом. После четырёх
   успешных gates RLS и guard включены для всех восьми tenant-таблиц Preview.
+- Audit foundation добавляет `AuditEvent` без FK и прямого runtime-доступа.
+  Чувствительные Server Actions пишут action и технические actor/space/list/
+  target ID внутри той же транзакции; триггеры `AllowedEmail`/`AppSetting`
+  фиксируют DB-роль без email и значений. Контент, имена файлов и IP не пишутся.
+  Primary retention — 180 дней через фиксированную owner-функцию; runtime не
+  может читать, писать или очищать журнал. Weekly workflow разделён по
+  Environment/locks и до live go/no-go не запускается по расписанию без
+  repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
+  `ENABLE_PRODUCTION_AUDIT_RETENTION`. Дампы могут продлить фактическое хранение
+  события примерно до 210 дней.
 - 2026-08-21 базовая policy-миграция применена release-контурами в Preview и
   Production. Она только подготовила catalog; позже отдельный write-gate
   включил в Preview RLS/guard canary только для `UserDailyUsage`.
@@ -351,16 +362,14 @@ Smart Lists — локализованное веб-приложение для 
 - Видимость определяет `listInSpaceWhere(userId, spaceId)`: собственный список в пространстве либо share, размещённый в нём.
 - Редактор изменяет содержимое. Управление владением, удалением списка и участниками остаётся за владельцем.
 - `ListGroup` — личная организация внутри пространства. Список может находиться в разных группах у разных пользователей.
-- Сейчас изоляцию строк обеспечивает приложение через `listInSpaceWhere` и
-  эквивалентные ownership-проверки; RLS в БД не включён. Согласован staged-
-  переход: release migration вне Vercel, runtime без DDL, проверенный
-  транзакционный контекст и только затем tenant-RLS. Прикладные фильтры
-  сохраняются как обязательный первый слой.
+- Изоляцию строк обеспечивают два слоя: приложение через `listInSpaceWhere` и
+  эквивалентные ownership-проверки, а PostgreSQL — через RLS/column guards всех
+  восьми tenant-таблиц Preview и Production. Прикладные фильтры сохраняются как
+  обязательный первый слой.
 - В Neon `dev` и `production` создана SQL-роль `smartlists_runtime` без ownership, DDL,
   `BYPASSRLS`, `CREATEROLE`, membership и доступа к migration metadata. С
   2026-08-13 Vercel Preview и Production используют её отдельные pooled
-  credentials. Это ограничивает класс операций и таблиц, но ещё не изолирует
-  строки одного tenant от другого.
+  credentials; scoped context и tenant-RLS дополнительно изолируют строки.
 - Прикладными объектами обеих веток владеет `smartlists_owner` без login;
   release workflow входят через `smartlists_migrator`. Production backup
   использует отдельную `smartlists_backup` с точечным `SELECT` и `BYPASSRLS`,
@@ -605,6 +614,10 @@ Smart Lists — локализованное веб-приложение для 
   `GCP_WORKLOAD_IDENTITY_POOL_ID`, `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`,
   `GCP_SERVICE_ACCOUNT_EMAIL`;
 - логирование: необязательный `LOG_LEVEL`, по умолчанию `info`.
+- audit retention: секреты не добавляются; workflow переиспользует migrator
+  `DIRECT_URL`/`EXPECTED_DATABASE_HOST` соответствующего GitHub Environment.
+  Несекретные repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
+  `ENABLE_PRODUCTION_AUDIT_RETENTION` отдельно включают только cron-запуски.
 
 ## Разделение сред
 
@@ -730,9 +743,12 @@ AI-сервис вызывается с сервера и в политику н
 - `npm run db:configure-operational-roles` — plan-only configurator ролей
   `smartlists_owner`, `smartlists_migrator`, `smartlists_backup`; apply требует
   явного scope, exact host и отдельные пароли, не печатает credentials;
+- `npm run db:prune-audit-events -- --apply` — удалить только audit-events
+  старше фиксированных 180 дней; требует exact host, роль migrator и точную
+  confirmation-переменную;
 - `npm run test:integration:roles` — на чистой test-БД создаёт pre-existing
   runtime-роль, применяет миграции, повторно ротирует runtime/migrator/backup,
-  запускает no-op Prisma migration под migrator и 251 integration-тест под
+  запускает no-op Prisma migration под migrator и 299 integration-тестов под
   runtime, доказывает
   fail-closed отказ при лишнем owner-member и выполняет полный
   `pg_dump -> pg_restore` с проверкой контрольной строки;

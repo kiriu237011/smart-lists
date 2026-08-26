@@ -1,0 +1,96 @@
+name: Audit Trail Retention
+
+on:
+  schedule:
+    # Раз в неделю достаточно для 180-дневного срока. Задержка cron не влияет
+    # на security-смысл и не пересекается со штатным backup в 15:00 UTC.
+    - cron: '37 16 * * 0'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Database target
+        required: true
+        type: choice
+        options:
+          - preview
+          - Production
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.environment == 'preview') ||
+       (github.event_name == 'schedule' && vars.ENABLE_PREVIEW_AUDIT_RETENTION == 'true'))
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 10
+    concurrency:
+      group: preview-database-change
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Install не получает DB secret и не исполняет lifecycle hooks.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify Preview database target
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+        run: node scripts/verify-release-database.mjs
+
+      - name: Prune Preview audit trail
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+          EXPECTED_DATABASE_ROLE: smartlists_migrator
+          AUDIT_RETENTION_CONFIRMATION: delete-audit-events-older-than-180-days
+        run: npm run db:prune-audit-events -- --apply
+
+  production:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.environment == 'Production') ||
+       (github.event_name == 'schedule' && vars.ENABLE_PRODUCTION_AUDIT_RETENTION == 'true'))
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 10
+    concurrency:
+      group: production-database-release
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Install не получает DB secret и не исполняет lifecycle hooks.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify Production database target
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+        run: node scripts/verify-release-database.mjs
+
+      - name: Prune Production audit trail
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
+          EXPECTED_DATABASE_ROLE: smartlists_migrator
+          AUDIT_RETENTION_CONFIRMATION: delete-audit-events-older-than-180-days
+        run: npm run db:prune-audit-events -- --apply

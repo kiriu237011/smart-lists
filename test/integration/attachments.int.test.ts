@@ -542,6 +542,16 @@ describe("confirmUpload", () => {
     const updated = await prisma.attachment.findUniqueOrThrow({ where: { id: row.id } });
     expect(updated.status).toBe("UPLOADED");
     expect(updated.size).toBe(4096);
+    await expect(
+      adminPrisma.auditEvent.findFirstOrThrow({
+        where: { action: "ATTACHMENT_UPLOADED", targetId: row.id },
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: user.id,
+      listId: list.id,
+      spaceId: user.defaultSpaceId,
+      source: "APPLICATION",
+    });
   });
 
   it("оставляет PENDING, когда файла нет в S3", async () => {
@@ -715,6 +725,16 @@ describe("deleteAttachment", () => {
 
     expect(result).toEqual({ success: true });
     expect(await prisma.attachment.findUnique({ where: { id: row.id } })).toBeNull();
+    await expect(
+      adminPrisma.auditEvent.findFirstOrThrow({
+        where: { action: "ATTACHMENT_DELETED", targetId: row.id },
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: user.id,
+      listId: list.id,
+      spaceId: user.defaultSpaceId,
+      source: "APPLICATION",
+    });
     expect(vi.mocked(deleteObject)).toHaveBeenCalledWith("lists/x/f.png");
   });
 
