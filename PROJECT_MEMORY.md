@@ -3,8 +3,7 @@
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
 **Последнее обновление:** 2026-08-26 (первый tenant policy-контур полностью
-применён в Preview; Production прошёл третий gate `space-groups`, остался
-финальный профиль `tenant-full`)
+применён и проверен в Preview и Production)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -61,11 +60,9 @@ Smart Lists — локализованное веб-приложение для 
 
 ### Доступ к PostgreSQL
 
-- Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
-  все восемь tenant-таблиц дополнительно ограничены RLS; в Production RLS и
-  guard включены для `UserDailyUsage`, `List`, `Item`, `Space`, `ListGroup` и
-  `_ListGroupMembers`. Только `ListShare` и `Attachment` пока сохраняют
-  role-wide DML в рамках runtime ACL.
+- Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. Все восемь
+  tenant-таблиц Preview и Production дополнительно ограничены RLS и column
+  guards; runtime tenant-DML больше не остаётся role-wide.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -171,6 +168,14 @@ Smart Lists — локализованное веб-приложение для 
   групп, membership, reorder, cross-space separation и Vercel logs прошёл без
   ошибок. Rollback — `rollback-space-groups`; следующий и последний gate —
   Production P4 `tenant-full`.
+- Свежий backup `32922060782` от `main@ba5f272f` и preflight audit
+  `32922140192` прошли перед Production P4. После отдельного go/no-go run
+  `32922328738` применил `space-groups → tenant-full`; независимый audit
+  `32922419523` подтвердил RLS/guards на всех восьми tenant-таблицах, отсутствие
+  FORCE и прежний ролевой контракт. Ручной smoke owner invite, editor
+  attachment upload/read/delete, self-leave, повторного invite/owner revoke,
+  отказа доступа, cleanup и Vercel logs прошёл без ошибок. Rollback —
+  `rollback-tenant-full`; staged tenant-RLS rollout завершён в обеих средах.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -272,11 +277,9 @@ Smart Lists — локализованное веб-приложение для 
   per-action guard защищает 22 функции.
 - Обычный production tenant data plane теперь использует scoped API, а
   специальный глобальный attachment-поток переведён на fail-closed helper.
-  Policies и column guards уже находятся в обеих live-БД. В Preview RLS/guard
-  включены на всех восьми tenant-таблицах. В Production RLS/guard включены для
-  `UserDailyUsage`, `List`, `Item`, `Space`, `ListGroup` и
-  `_ListGroupMembers`; для `ListShare` и `Attachment` live-изоляцию пока
-  обеспечивают прикладные проверки.
+  Policies и column guards уже находятся в обеих live-БД. В Preview и
+  Production RLS/guard включены на всех восьми tenant-таблицах; прикладные
+  проверки остаются первым слоем, а БД независимо ограничивает строки.
 
 ### Авторизация
 

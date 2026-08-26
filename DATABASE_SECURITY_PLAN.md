@@ -2,18 +2,17 @@
 
 **Статус:** этапы 2a–2c и scoped Prisma API завершены; policy/helper/column-
 guard объекты первого tenant-контура применены в Preview и Production,
-проверены локально и прошли live catalog audit в Preview; Preview-only профили
+проверены локально и независимыми live catalog audits; профили
 `UserDailyUsage`, `List + Item`, `Space + Groups` и финальный `tenant-full`
-включены и проверены; все восемь tenant-таблиц Preview защищены, Production
-прошёл третий gate `space-groups`: RLS/guards включены на шести tenant-таблицах,
-без enforcement остаются только `ListShare` и `Attachment`
+последовательно включены и проверены в обеих средах.
+Все восемь tenant-таблиц Preview и Production защищены RLS и column guards
 **Дата:** 2026-08-26
 
 Этот документ задаёт целевую модель ролей PostgreSQL, границы первого RLS-контура,
 матрицу доступа и безопасный порядок внедрения. Текущее состояние приложения
-по-прежнему описывает `THREAT_MODEL.md`: сейчас изоляцию обеспечивают Auth.js,
+по-прежнему описывает `THREAT_MODEL.md`: изоляцию обеспечивают Auth.js,
 `listInSpaceWhere` и проверки Server Actions; дополнительный RLS-слой работает
-для всех восьми tenant-таблиц в Preview.
+для всех восьми tenant-таблиц в Preview и Production.
 
 ## Цель и границы
 
@@ -700,7 +699,7 @@ endpoint fingerprint `d95cc95b87c7`. Независимый `BEGIN READ ONLY` au
 расшаренному списку, загрузку/чтение/удаление вложений и отсутствие ошибок.
 Rollback `tenant-full → space-groups` готов; Production enforcement не менялся.
 
-## Production enforcement: подготовленный порядок
+## Production enforcement: выполненный порядок
 
 Read-only audit `32824670290` от актуального `main@8cd7988` 2026-08-25
 подтвердил Production endpoint fingerprint `eec09bcdb874`, соединение
@@ -776,6 +775,19 @@ runtime/owner/migrator contract сохранён. Ручной Production smoke 
 cross-space separation и Vercel logs прошёл без ошибок. Именованный rollback —
 `rollback-space-groups`; следующий и последний gate — P4
 `ListShare + Attachment`. До него Production остаётся на `space-groups`.
+
+**Production gate P4 пройден 2026-08-26.** Свежий backup `32922060782`
+успешно завершился от `main@ba5f272f`. Preflight read-only audit `32922140192`
+подтвердил исходный профиль `space-groups` на endpoint fingerprint
+`eec09bcdb874`. После отдельного go/no-go workflow `32922328738` выполнил
+точный переход `space-groups → tenant-full`. Независимый post-apply audit
+`32922419523` подтвердил RLS и column guards на всех восьми tenant-таблицах,
+отсутствие FORCE и прежний runtime/owner/migrator contract. Ручной Production
+smoke подтвердил owner invite, editor attachment upload/read/delete,
+self-leave, повторный invite и owner revoke, отказ доступа после выхода/отзыва,
+cleanup временного списка и отсутствие DB-ошибок в Vercel logs. Именованный
+rollback — `rollback-tenant-full`; staged tenant-RLS rollout Production
+завершён.
 
 ## Модели вне первого RLS-контура
 
@@ -876,19 +888,18 @@ AI-сервиса расходует зарезервированную попы
    и Production; exact catalog contract и отрицательные Alice/Bob тесты
    зелёные. Preview live catalog audit `32446720820` совпал с контрактом; на
    момент этого gate live RLS ещё не был включён.
-6. **Enforcement — все четыре Preview gate и Production P1–P3 включены.**
+6. **Enforcement — все четыре Preview и Production gate включены.**
    `UserDailyUsage`, исправленный профиль `List + Item`, затем `Space + Groups`
    прошли локальный integration gate, post-merge CI, транзакционный live apply,
    пользовательский smoke и независимый read-only audit. Финальный
    `tenant-full` добавил `ListShare + Attachment` после тех же локальных и live
-   gates. В Production профили `usage-canary`, `list-item` и `space-groups`
-   отдельно прошли apply, audit и ручной smoke; без enforcement остаются только
-   `ListShare` и `Attachment`.
+   gates. В Production профили `usage-canary`, `list-item`, `space-groups` и
+   `tenant-full` отдельно прошли apply, audit и ручной smoke; все восемь
+   tenant-таблиц защищены.
 7. **Проверка после включения — выполнена для всех восьми tenant-таблиц.** Exact
    role/catalog audit, функциональный smoke и повторный threat impact-check
-   пройдены; rollback `tenant-full → space-groups` готов. Production rollback
-   `space-groups → list-item` также готов; следующий отдельный gate — go/no-go
-   P4 `ListShare + Attachment`.
+   пройдены в обеих средах; rollback `tenant-full → space-groups` готов для
+   Preview и Production. Первый staged tenant-RLS rollout завершён.
 
 Каждая миграция должна быть совместима и со старой, и с новой версией
 приложения. RLS включается только после ухода старых инстансов, которые ещё не
