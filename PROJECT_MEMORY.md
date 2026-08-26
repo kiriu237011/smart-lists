@@ -3,8 +3,8 @@
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
 **Последнее обновление:** 2026-08-26 (первый tenant policy-контур полностью
-применён в Preview; Production прошёл второй gate `list-item`, следующие два
-профиля ещё не включены)
+применён в Preview; Production прошёл третий gate `space-groups`, остался
+финальный профиль `tenant-full`)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -63,8 +63,9 @@ Smart Lists — локализованное веб-приложение для 
 
 - Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
   все восемь tenant-таблиц дополнительно ограничены RLS; в Production RLS и
-  guard включены для `UserDailyUsage`, `List` и `Item`, остальные пять
-  tenant-таблиц пока сохраняют role-wide DML в рамках runtime ACL.
+  guard включены для `UserDailyUsage`, `List`, `Item`, `Space`, `ListGroup` и
+  `_ListGroupMembers`. Только `ListShare` и `Attachment` пока сохраняют
+  role-wide DML в рамках runtime ACL.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -161,6 +162,15 @@ Smart Lists — локализованное веб-приложение для 
   `Item`, отсутствие FORCE и прежний ролевой контракт. Ручной smoke списков,
   записей, owner/editor/stranger и Vercel logs прошёл без ошибок. Rollback —
   `rollback-list-item`; следующий отдельный gate — Production P3.
+- Свежий backup `32918964858` от `main@e09ab2e1` и preflight audit
+  `32919034052` прошли перед Production P3. После отдельного go/no-go run
+  `32919604840` применил `list-item → space-groups`; независимый audit
+  `32919666620` подтвердил RLS/guards ровно на `UserDailyUsage`, `List`, `Item`,
+  `Space`, `ListGroup`, `_ListGroupMembers`, disabled `ListShare`/`Attachment`,
+  отсутствие FORCE и прежний ролевой контракт. Ручной smoke пространств,
+  групп, membership, reorder, cross-space separation и Vercel logs прошёл без
+  ошибок. Rollback — `rollback-space-groups`; следующий и последний gate —
+  Production P4 `tenant-full`.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
@@ -264,8 +274,9 @@ Smart Lists — локализованное веб-приложение для 
   специальный глобальный attachment-поток переведён на fail-closed helper.
   Policies и column guards уже находятся в обеих live-БД. В Preview RLS/guard
   включены на всех восьми tenant-таблицах. В Production RLS/guard включены для
-  `UserDailyUsage`, `List` и `Item`; на остальных пяти tenant-таблицах
-  live-изоляцию пока обеспечивают прикладные проверки.
+  `UserDailyUsage`, `List`, `Item`, `Space`, `ListGroup` и
+  `_ListGroupMembers`; для `ListShare` и `Attachment` live-изоляцию пока
+  обеспечивают прикладные проверки.
 
 ### Авторизация
 
