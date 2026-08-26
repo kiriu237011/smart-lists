@@ -136,6 +136,7 @@ export async function flushAfter(): Promise<void> {
 
 /** Таблицы в порядке, безопасном для TRUNCATE ... CASCADE. */
 const TABLES = [
+  "AuditEvent",
   "Attachment",
   "Item",
   "ListShare",

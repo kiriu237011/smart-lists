@@ -143,6 +143,14 @@ describe("изоляция lifecycle списка по пространству"
         select: { title: true, aiEnabled: true },
       }),
     ).toEqual({ title: "Исходный", aiEnabled: true });
+    expect(
+      await adminPrisma.auditEvent.count({
+        where: {
+          listId: list.id,
+          action: { in: ["LIST_AI_ACCESS_CHANGED", "LIST_DELETED"] },
+        },
+      }),
+    ).toBe(0);
     await flushAfter();
     expect(vi.mocked(deleteObjects)).not.toHaveBeenCalled();
     expect(vi.mocked(notifyUsers)).not.toHaveBeenCalled();
@@ -246,6 +254,15 @@ describe("deleteList", () => {
     );
 
     expect(result).toEqual({ success: true });
+    await expect(
+      adminPrisma.auditEvent.findFirstOrThrow({
+        where: { action: "LIST_DELETED", listId: list.id },
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: owner.id,
+      spaceId: owner.defaultSpaceId,
+      source: "APPLICATION",
+    });
     expect(vi.mocked(deleteObjects)).toHaveBeenCalledWith([attachment.key]);
     expect(vi.mocked(notifyUsers)).not.toHaveBeenCalled();
     await flushAfter();

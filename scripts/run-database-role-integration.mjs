@@ -278,6 +278,26 @@ async function proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl) 
     "--apply",
     "--operation=rollback-list-item",
   ];
+  const enableSpaceGroupsArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=enable-space-groups",
+  ];
+  const rollbackSpaceGroupsArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=rollback-space-groups",
+  ];
+  const enableTenantFullArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=enable-tenant-full",
+  ];
+  const rollbackTenantFullArgs = [
+    "scripts/configure-tenant-enforcement.mjs",
+    "--apply",
+    "--operation=rollback-tenant-full",
+  ];
 
   run(process.execPath, enableArgs, enforcementEnv);
   run(process.execPath, enableArgs, enforcementEnv);
@@ -333,6 +353,114 @@ async function proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl) 
     await client.end();
   }
 
+  run(process.execPath, enableSpaceGroupsArgs, enforcementEnv);
+  run(process.execPath, enableSpaceGroupsArgs, enforcementEnv);
+  runExpectFailure(
+    process.execPath,
+    rollbackListItemArgs,
+    enforcementEnv,
+    "запрещена из профиля space-groups",
+  );
+
+  const spaceGroupsClient = new Client({ connectionString: migratorDatabaseUrl });
+  await spaceGroupsClient.connect();
+  try {
+    await spaceGroupsClient.query(
+      'ALTER POLICY app_list_group_select ON public."ListGroup" USING (true)',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackSpaceGroupsArgs,
+      enforcementEnv,
+      "ListGroup SELECT policy predicate не совпадает",
+    );
+    await spaceGroupsClient.query(
+      'ALTER POLICY app_list_group_select ON public."ListGroup" ' +
+        'USING ("userId" = NULLIF(current_setting(\'app.user_id\', true), \'\') ' +
+        'AND "spaceId" = NULLIF(current_setting(\'app.space_id\', true), \'\'))',
+    );
+
+    await spaceGroupsClient.query(
+      'ALTER TABLE public."Attachment" ENABLE ROW LEVEL SECURITY',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackSpaceGroupsArgs,
+      enforcementEnv,
+      "не соответствует известному rollout-профилю",
+    );
+  } finally {
+    await spaceGroupsClient.query(
+      'ALTER TABLE public."Attachment" DISABLE ROW LEVEL SECURITY',
+    );
+    await spaceGroupsClient.end();
+  }
+
+  run(process.execPath, enableTenantFullArgs, enforcementEnv);
+  run(process.execPath, enableTenantFullArgs, enforcementEnv);
+  runExpectFailure(
+    process.execPath,
+    rollbackSpaceGroupsArgs,
+    enforcementEnv,
+    "запрещена из профиля tenant-full",
+  );
+
+  const tenantFullClient = new Client({ connectionString: migratorDatabaseUrl });
+  await tenantFullClient.connect();
+  try {
+    await tenantFullClient.query(
+      'ALTER FUNCTION public.app_attachment_prepare_maintenance(text) STABLE',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackTenantFullArgs,
+      enforcementEnv,
+      "Routine app_attachment_prepare_maintenance(text) не соответствует enforcement contract",
+    );
+    await tenantFullClient.query(
+      'ALTER FUNCTION public.app_attachment_prepare_maintenance(text) VOLATILE',
+    );
+
+    await tenantFullClient.query(
+      'ALTER POLICY app_attachment_insert ON public."Attachment" WITH CHECK (true)',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackTenantFullArgs,
+      enforcementEnv,
+      "Attachment INSERT policy predicate не совпадает",
+    );
+    await tenantFullClient.query(
+      'ALTER POLICY app_attachment_insert ON public."Attachment" WITH CHECK (' +
+        'public.app_list_access("listId") IS NOT NULL ' +
+        'AND "uploadedById" = NULLIF(current_setting(\'app.user_id\', true), \'\') ' +
+        'AND status = \'PENDING\'::public."AttachmentStatus" ' +
+        'AND "cleanupToken" IS NULL ' +
+        'AND "cleanupRequestedById" IS NULL ' +
+        'AND "cleanupStartedAt" IS NULL)',
+    );
+
+    await tenantFullClient.query(
+      'ALTER TABLE public."ListShare" DISABLE TRIGGER app_tenant_update_columns_guard',
+    );
+    runExpectFailure(
+      process.execPath,
+      rollbackTenantFullArgs,
+      enforcementEnv,
+      "не соответствует известному rollout-профилю",
+    );
+  } finally {
+    await tenantFullClient.query(
+      'ALTER TABLE public."ListShare" ENABLE TRIGGER app_tenant_update_columns_guard',
+    );
+    await tenantFullClient.end();
+  }
+
+  run(process.execPath, rollbackTenantFullArgs, enforcementEnv);
+  run(process.execPath, rollbackTenantFullArgs, enforcementEnv);
+
+  run(process.execPath, rollbackSpaceGroupsArgs, enforcementEnv);
+  run(process.execPath, rollbackSpaceGroupsArgs, enforcementEnv);
   run(process.execPath, rollbackListItemArgs, enforcementEnv);
   run(process.execPath, rollbackListItemArgs, enforcementEnv);
   run(process.execPath, rollbackArgs, enforcementEnv);
@@ -417,8 +545,9 @@ async function main() {
     DIRECT_URL: migratorDatabaseUrl,
   });
 
-  // Rollout-гейт проходит disabled -> usage-canary -> list-item и обратно,
-  // идемпотентен и отвергает подменённые helper/policy и частичный профиль.
+  // Rollout-гейт проходит disabled -> usage-canary -> list-item -> space-groups
+  // и обратно, идемпотентен и отвергает подменённые helper/policy и частичный
+  // профиль.
   await proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl);
 
   run(

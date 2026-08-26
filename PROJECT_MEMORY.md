@@ -2,11 +2,8 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-21 (первый tenant policy-контур применён в
-Preview и Production; `UserDailyUsage` RLS/guard canary включён и проверен в
-live Preview; первый live apply `List + Item` откатан после регрессии
-`createList`, исправление подготовлено локально; остальные tenant-таблицы и
-Production без enforcement)
+**Последнее обновление:** 2026-08-26 (tenant-RLS полностью live; audit trail
+foundation подготовлен и локально проверен, но ещё не применён в средах)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -52,8 +49,9 @@ Smart Lists — локализованное веб-приложение для 
 - `next.config.ts` — next-intl и security headers;
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
 - `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
-  ручной read-only аудит catalog, синхронизация Preview OAuth proxy и ежедневный
-  бэкап БД в S3;
+  ручной read-only аудит catalog, именованные Preview/Production tenant-RLS
+  переходы, выключенный по умолчанию audit retention, синхронизация Preview
+  OAuth proxy и ежедневный бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
 - `DATABASE_SECURITY_PLAN.md` — staged-план Postgres least privilege и
@@ -63,9 +61,9 @@ Smart Lists — локализованное веб-приложение для 
 
 ### Доступ к PostgreSQL
 
-- Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. В Preview
-  `UserDailyUsage` дополнительно ограничена RLS; в Production и на остальных
-  разрешённых tenant-таблицах пока сохраняется role-wide DML.
+- Runtime уже использует отдельную роль без DDL/ownership/BYPASSRLS. Все восемь
+  tenant-таблиц Preview и Production дополнительно ограничены RLS и column
+  guards; runtime tenant-DML больше не остаётся role-wide.
 - `src/lib/scoped-db.ts` содержит foundation `withUserDb` и `withSpaceDb`:
   transaction-local GUC задаются параметризованно, space-контекст разрешается
   только после проверки `Space(id, userId)`, а callback получает только
@@ -76,8 +74,18 @@ Smart Lists — локализованное веб-приложение для 
   глобального Prisma Client.
 - Additive-миграция создаёт общий `app_list_access(text)`, 31 policy на восьми
   tenant-таблицах и восемь update guards. Exact policy/trigger/routine inventory
-  закреплён в role configurators и выводится read-only аудитом. После первого
-  gate RLS и guard включены только для `UserDailyUsage` в Preview.
+  закреплён в role configurators и выводится read-only аудитом. После четырёх
+  успешных gates RLS и guard включены для всех восьми tenant-таблиц Preview.
+- Audit foundation добавляет `AuditEvent` без FK и прямого runtime-доступа.
+  Чувствительные Server Actions пишут action и технические actor/space/list/
+  target ID внутри той же транзакции; триггеры `AllowedEmail`/`AppSetting`
+  фиксируют DB-роль без email и значений. Контент, имена файлов и IP не пишутся.
+  Primary retention — 180 дней через фиксированную owner-функцию; runtime не
+  может читать, писать или очищать журнал. Weekly workflow разделён по
+  Environment/locks и до live go/no-go не запускается по расписанию без
+  repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
+  `ENABLE_PRODUCTION_AUDIT_RETENTION`. Дампы могут продлить фактическое хранение
+  события примерно до 210 дней.
 - 2026-08-21 базовая policy-миграция применена release-контурами в Preview и
   Production. Она только подготовила catalog; позже отдельный write-gate
   включил в Preview RLS/guard canary только для `UserDailyUsage`.
@@ -111,16 +119,78 @@ Smart Lists — локализованное веб-приложение для 
   строку через `app_list_access(id)` внутри той же команды. Профиль немедленно
   откатан `list-item → usage-canary` run `32460715430`; read-only audit
   `32460792514` подтвердил восстановление. Production не менялся.
-- Исправление подготовлено новой additive migration
+- Исправление выпущено новой additive migration
   `20260821010000_fix_list_insert_returning_rls`: прямой owner/space predicate
   разрешает вернуть только собственную новую строку, а shared-доступ остаётся
   через `app_list_access`. Настоящий `createList` добавлен в partial-profile
   regression test; чистый restricted-role suite прошёл 21 integration-файл,
   290 DB-тестов, enable/rollback и backup/restore.
+- PR №110 merged в `main@b826f4f`; post-merge CI, E2E, обе catalog-миграции и
+  Preview deployment прошли. Повторный workflow `32699850399` выполнил
+  `usage-canary → list-item`, а независимый read-only audit `32699937238`
+  подтвердил RLS/guards ровно на `UserDailyUsage`, `List`, `Item`, безопасные
+  атрибуты runtime-роли и отсутствие FORCE RLS. Пользовательский smoke создания
+  третьего списка, CRUD записей, rename, reload и sharing прошёл без ошибок.
+  Rollback — `rollback-list-item`; Production enforcement не менялся.
+- PR №112 merged в `main@984322a`; post-merge CI, 118 E2E, integration,
+  CodeQL, Production no-op migration и Sync Preview Proxy прошли. Workflow
+  `32818823108` включил `space-groups`, независимый audit `32818934270`
+  подтвердил RLS/guards ровно на шести таблицах, отсутствие FORCE RLS и
+  disabled `ListShare`/`Attachment`. Пользовательский smoke пространств,
+  групп, membership и reorder прошёл без ошибок. Rollback —
+  `rollback-space-groups`; Production enforcement не менялся.
+- Финальный профиль `tenant-full` добавляет только `ListShare` и `Attachment`
+  к `space-groups`; разрешены лишь идемпотентный enable и rollback обратно.
+  Configurator проверяет exact predicates и контракты attachment maintenance
+  helpers до DDL. Локальный restricted-role suite прошёл 21 integration-файл/
+  294 DB-теста, включая настоящие owner invite/revoke, self-leave и
+  `PENDING → UPLOADED → delete`, tamper/partial-profile отказ и backup/restore.
+  PR №116 merged в `main@d64e9f75`; post-merge CI, 118 E2E, integration,
+  CodeQL, Production no-op migration и Sync Preview Proxy прошли. Workflow
+  `32822405891` включил `tenant-full`; независимый audit `32822519427`
+  подтвердил RLS/guards на всех восьми tenant-таблицах, отсутствие FORCE RLS и
+  прежний runtime ACL. Ручной smoke sharing/revoke/leave и полного attachment
+  flow прошёл без ошибок. Rollback — `rollback-tenant-full`; Production не
+  менялся.
+- Production read-only audit `32824670290` от `main@8cd7988` повторно
+  подтвердил endpoint fingerprint `eec09bcdb874`, точный owner/migrator/runtime
+  контракт, disabled RLS/guards и отсутствие FORCE. Отдельный Production
+  workflow подготовлен с Environment `Production`, точным typed confirmation,
+  линейными профилями и общим lock со штатной migration job. Workflow сам по
+  себе не меняет БД. После свежего backup `32826557777` и отдельного go/no-go
+  run `32826737964` применил `disabled → usage-canary`; независимый audit
+  `32826844348` подтвердил RLS/guard только на `UserDailyUsage`, отсутствие
+  FORCE и прежний ролевой контракт. Ручной smoke Google sign-in, reload,
+  обычной мутации и AI insight прошёл без DB-ошибок. Rollback —
+  `rollback-usage-canary`.
+- Автоматический backup `32866694333` от актуального `main@03d5d3a2` и
+  preflight audit `32915451362` прошли перед Production P2. После отдельного
+  go/no-go run `32915685539` применил `usage-canary → list-item`; независимый
+  audit `32915755104` подтвердил RLS/guards ровно на `UserDailyUsage`, `List` и
+  `Item`, отсутствие FORCE и прежний ролевой контракт. Ручной smoke списков,
+  записей, owner/editor/stranger и Vercel logs прошёл без ошибок. Rollback —
+  `rollback-list-item`; следующий отдельный gate — Production P3.
+- Свежий backup `32918964858` от `main@e09ab2e1` и preflight audit
+  `32919034052` прошли перед Production P3. После отдельного go/no-go run
+  `32919604840` применил `list-item → space-groups`; независимый audit
+  `32919666620` подтвердил RLS/guards ровно на `UserDailyUsage`, `List`, `Item`,
+  `Space`, `ListGroup`, `_ListGroupMembers`, disabled `ListShare`/`Attachment`,
+  отсутствие FORCE и прежний ролевой контракт. Ручной smoke пространств,
+  групп, membership, reorder, cross-space separation и Vercel logs прошёл без
+  ошибок. Rollback — `rollback-space-groups`; следующий и последний gate —
+  Production P4 `tenant-full`.
+- Свежий backup `32922060782` от `main@ba5f272f` и preflight audit
+  `32922140192` прошли перед Production P4. После отдельного go/no-go run
+  `32922328738` применил `space-groups → tenant-full`; независимый audit
+  `32922419523` подтвердил RLS/guards на всех восьми tenant-таблицах, отсутствие
+  FORCE и прежний ролевой контракт. Ручной smoke owner invite, editor
+  attachment upload/read/delete, self-leave, повторного invite/owner revoke,
+  отказа доступа, cleanup и Vercel logs прошёл без ошибок. Rollback —
+  `rollback-tenant-full`; staged tenant-RLS rollout завершён в обеих средах.
 - Локальный restricted-role suite временно включает подготовленные контроли и
   проверяет прямые нефильтрованные Alice/Bob-запросы на пуле размера 1,
   owner/editor/stranger, protected columns, Item transfer, sharing,
-  attribution и attachment transition. 290 DB-тестов и backup/restore зелёные.
+  attribution и attachment transition. 294 DB-теста и backup/restore зелёные.
 - Первой consumer-группой перенесён `src/lib/spaces.ts`: создание
   default-space и lookup используют user-контекст, а проверка доступа к списку
   — подтверждённый space-контекст.
@@ -218,10 +288,9 @@ Smart Lists — локализованное веб-приложение для 
   per-action guard защищает 22 функции.
 - Обычный production tenant data plane теперь использует scoped API, а
   специальный глобальный attachment-поток переведён на fail-closed helper.
-  Policies и column guards уже находятся в обеих live-БД. В Preview RLS/guard
-  включены только для `UserDailyUsage`; после неуспешного smoke `List + Item`
-  вернулся к этому профилю. Production остаётся без enforcement, поэтому для
-  остальных таблиц live-изоляцию по-прежнему обеспечивают прикладные проверки.
+  Policies и column guards уже находятся в обеих live-БД. В Preview и
+  Production RLS/guard включены на всех восьми tenant-таблицах; прикладные
+  проверки остаются первым слоем, а БД независимо ограничивает строки.
 
 ### Авторизация
 
@@ -293,16 +362,14 @@ Smart Lists — локализованное веб-приложение для 
 - Видимость определяет `listInSpaceWhere(userId, spaceId)`: собственный список в пространстве либо share, размещённый в нём.
 - Редактор изменяет содержимое. Управление владением, удалением списка и участниками остаётся за владельцем.
 - `ListGroup` — личная организация внутри пространства. Список может находиться в разных группах у разных пользователей.
-- Сейчас изоляцию строк обеспечивает приложение через `listInSpaceWhere` и
-  эквивалентные ownership-проверки; RLS в БД не включён. Согласован staged-
-  переход: release migration вне Vercel, runtime без DDL, проверенный
-  транзакционный контекст и только затем tenant-RLS. Прикладные фильтры
-  сохраняются как обязательный первый слой.
+- Изоляцию строк обеспечивают два слоя: приложение через `listInSpaceWhere` и
+  эквивалентные ownership-проверки, а PostgreSQL — через RLS/column guards всех
+  восьми tenant-таблиц Preview и Production. Прикладные фильтры сохраняются как
+  обязательный первый слой.
 - В Neon `dev` и `production` создана SQL-роль `smartlists_runtime` без ownership, DDL,
   `BYPASSRLS`, `CREATEROLE`, membership и доступа к migration metadata. С
   2026-08-13 Vercel Preview и Production используют её отдельные pooled
-  credentials. Это ограничивает класс операций и таблиц, но ещё не изолирует
-  строки одного tenant от другого.
+  credentials; scoped context и tenant-RLS дополнительно изолируют строки.
 - Прикладными объектами обеих веток владеет `smartlists_owner` без login;
   release workflow входят через `smartlists_migrator`. Production backup
   использует отдельную `smartlists_backup` с точечным `SELECT` и `BYPASSRLS`,
@@ -547,6 +614,10 @@ Smart Lists — локализованное веб-приложение для 
   `GCP_WORKLOAD_IDENTITY_POOL_ID`, `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`,
   `GCP_SERVICE_ACCOUNT_EMAIL`;
 - логирование: необязательный `LOG_LEVEL`, по умолчанию `info`.
+- audit retention: секреты не добавляются; workflow переиспользует migrator
+  `DIRECT_URL`/`EXPECTED_DATABASE_HOST` соответствующего GitHub Environment.
+  Несекретные repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
+  `ENABLE_PRODUCTION_AUDIT_RETENTION` отдельно включают только cron-запуски.
 
 ## Разделение сред
 
@@ -672,9 +743,12 @@ AI-сервис вызывается с сервера и в политику н
 - `npm run db:configure-operational-roles` — plan-only configurator ролей
   `smartlists_owner`, `smartlists_migrator`, `smartlists_backup`; apply требует
   явного scope, exact host и отдельные пароли, не печатает credentials;
+- `npm run db:prune-audit-events -- --apply` — удалить только audit-events
+  старше фиксированных 180 дней; требует exact host, роль migrator и точную
+  confirmation-переменную;
 - `npm run test:integration:roles` — на чистой test-БД создаёт pre-existing
   runtime-роль, применяет миграции, повторно ротирует runtime/migrator/backup,
-  запускает no-op Prisma migration под migrator и 251 integration-тест под
+  запускает no-op Prisma migration под migrator и 299 integration-тестов под
   runtime, доказывает
   fail-closed отказ при лишнем owner-member и выполняет полный
   `pg_dump -> pg_restore` с проверкой контрольной строки;

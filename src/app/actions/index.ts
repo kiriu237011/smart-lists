@@ -65,6 +65,7 @@ import {
 } from "@/lib/limits";
 import { consumeMutationBudget } from "@/lib/usage";
 import { withSpaceDb, type ScopedTransaction } from "@/lib/scoped-db";
+import { writeAuditEvent } from "@/lib/audit";
 
 /**
  * Шаг между позициями записей при добавлении в конец списка.
@@ -1551,6 +1552,12 @@ export async function deleteList(formData: FormData) {
         });
         if (deleted.count === 0) return null;
 
+        await writeAuditEvent(tx, {
+          action: "LIST_DELETED",
+          spaceId: space.id,
+          listId: result.data.listId,
+        });
+
         return {
           fileKeys: list.files.map((file) => file.key),
           userIds: [
@@ -1659,7 +1666,7 @@ export async function shareList(formData: FormData) {
       // устанавливать tenant-контекст другого пользователя. Составной FK
       // ListShare(spaceId, userId) остановит операцию fail-closed, если
       // инфраструктурный инвариант неожиданно нарушен.
-      await tx.listShare.createMany({
+      const created = await tx.listShare.createMany({
         data: [
           {
             listId: ownedList.id,
@@ -1669,6 +1676,14 @@ export async function shareList(formData: FormData) {
         ],
         skipDuplicates: true,
       });
+      if (created.count > 0) {
+        await writeAuditEvent(tx, {
+          action: "LIST_SHARE_GRANTED",
+          spaceId: space.id,
+          listId: ownedList.id,
+          subjectUserId: recipient.id,
+        });
+      }
 
       const shares = await tx.listShare.findMany({
         where: { listId: ownedList.id },
@@ -1771,6 +1786,14 @@ export async function removeSharedUser(formData: FormData) {
         const deleted = await tx.listShare.deleteMany({
           where: { listId: ownedList.id, userId: result.data.userId },
         });
+        if (deleted.count > 0) {
+          await writeAuditEvent(tx, {
+            action: "LIST_SHARE_REVOKED",
+            spaceId: space.id,
+            listId: ownedList.id,
+            subjectUserId: result.data.userId,
+          });
+        }
         const remainingShares = await tx.listShare.findMany({
           where: { listId: ownedList.id },
           select: { userId: true },
@@ -1855,6 +1878,13 @@ export async function leaveSharedList(formData: FormData) {
         });
         if (deleted.count === 0) return null;
 
+        await writeAuditEvent(tx, {
+          action: "LIST_SHARE_LEFT",
+          spaceId: space.id,
+          listId,
+          subjectUserId: userId,
+        });
+
         return [
           ...new Set([
             userId,
@@ -1934,6 +1964,12 @@ export async function setListAiEnabled(formData: FormData) {
           data: { aiEnabled },
         });
         if (updated.count === 0) return null;
+
+        await writeAuditEvent(tx, {
+          action: "LIST_AI_ACCESS_CHANGED",
+          spaceId: space.id,
+          listId,
+        });
 
         const list = await tx.list.findUniqueOrThrow({
           where: { id: listId },

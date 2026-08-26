@@ -20,6 +20,7 @@ import {
 } from "@/app/actions/spaces";
 import { LAST_SPACE_COOKIE, MAX_CUSTOM_SPACES } from "@/lib/spaces";
 import {
+  adminPrisma,
   clearSession,
   flushAfter,
   getCookie,
@@ -158,6 +159,15 @@ describe("deleteSpace", () => {
     expect(await prisma.space.findUnique({ where: { id: space.id } })).toBeNull();
     expect(await prisma.list.findUnique({ where: { id: list.id } })).toBeNull();
     expect(await prisma.listGroup.count({ where: { spaceId: space.id } })).toBe(0);
+    await expect(
+      adminPrisma.auditEvent.findFirstOrThrow({
+        where: { action: "SPACE_DELETED", spaceId: space.id },
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: user.id,
+      listId: null,
+      source: "APPLICATION",
+    });
   });
 
   it("убирает размещённые в пространстве чужие shares", async () => {

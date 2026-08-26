@@ -442,6 +442,69 @@ model AppSetting {
 }
 
 // =============================================================================
+// AUDIT TRAIL
+// =============================================================================
+
+/// Источник события аудита.
+///
+/// APPLICATION пишется только через ограниченную DB-функцию из scoped-
+/// транзакции. DATABASE_TRIGGER фиксирует прямые административные изменения
+/// глобальных таблиц, у которых нет Server Action.
+enum AuditEventSource {
+  APPLICATION
+  DATABASE_TRIGGER
+}
+
+/// Закрытый allowlist событий первой версии audit trail.
+/// Добавление нового события требует миграции и пересмотра privacy-контракта.
+enum AuditEventAction {
+  LIST_DELETED
+  LIST_SHARE_GRANTED
+  LIST_SHARE_REVOKED
+  LIST_SHARE_LEFT
+  LIST_AI_ACCESS_CHANGED
+  ATTACHMENT_UPLOADED
+  ATTACHMENT_DELETED
+  SPACE_DELETED
+  ALLOWED_EMAIL_CREATED
+  ALLOWED_EMAIL_UPDATED
+  ALLOWED_EMAIL_DELETED
+  APP_SETTING_CREATED
+  APP_SETTING_UPDATED
+  APP_SETTING_DELETED
+}
+
+/// Append-only журнал чувствительных изменений.
+///
+/// Намеренно без FK: удаление пользователя, списка или пространства не должно
+/// уничтожать историю. Пользовательское содержимое, email, IP, имена и значения
+/// настроек не сохраняются — только псевдонимные технические идентификаторы.
+/// Runtime не имеет прямых прав на таблицу и пишет только через
+/// `app_write_audit_event` внутри той же транзакции, что и мутация.
+model AuditEvent {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  occurredAt DateTime         @default(now()) @db.Timestamptz(3)
+  source     AuditEventSource
+  action     AuditEventAction
+
+  actorUserId   String?
+  subjectUserId String?
+  spaceId       String?
+  listId        String?
+  targetId      String?
+  databaseRole  String
+
+  /// Зарезервировано для следующего отдельного этапа корреляции Vercel ↔ Cloud Run.
+  requestId String? @db.VarChar(128)
+
+  @@index([occurredAt])
+  @@index([action, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([spaceId, occurredAt])
+  @@index([listId, occurredAt])
+}
+
+// =============================================================================
 // RATE LIMITING
 // =============================================================================
 

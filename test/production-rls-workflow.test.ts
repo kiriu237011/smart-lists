@@ -5,22 +5,22 @@ import { describe, expect, it } from "vitest";
 const readRepoFile = (path: string) =>
   readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), "utf8");
 
-const workflow = readRepoFile(".github/workflows/configure-preview-rls.yml");
-const previewSync = readRepoFile(".github/workflows/sync-preview.yml");
+const workflow = readRepoFile(".github/workflows/configure-production-rls.yml");
+const ciWorkflow = readRepoFile(".github/workflows/ci.yml");
 const configurator = readRepoFile(
   "scripts/configure-tenant-enforcement.mjs",
 );
 
-describe("Preview tenant RLS workflow", () => {
-  it("работает только из main и только с жёстко заданным Preview Environment", () => {
+describe("Production tenant RLS workflow", () => {
+  it("работает только из main и только с жёстко заданным Production Environment", () => {
     expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
-    expect(workflow).toContain("environment: preview");
+    expect(workflow).toContain("environment: Production");
     expect(workflow).not.toContain("environment: ${{");
-    expect(workflow).not.toContain("Production");
+    expect(workflow).not.toContain("environment: preview");
     expect(workflow).toContain("permissions:\n  contents: read");
   });
 
-  it("не принимает произвольную таблицу или операцию", () => {
+  it("принимает только именованные линейные переходы", () => {
     expect(workflow).toContain("- enable-usage-canary");
     expect(workflow).toContain("- rollback-usage-canary");
     expect(workflow).toContain("- enable-list-item");
@@ -34,9 +34,21 @@ describe("Preview tenant RLS workflow", () => {
     expect(configurator).not.toContain("FORCE ROW LEVEL SECURITY");
   });
 
-  it("сериализуется с Preview migration и не отменяет начатое изменение", () => {
-    expect(workflow).toContain("group: preview-database-change");
-    expect(previewSync).toContain("group: preview-database-change");
+  it("требует точное подтверждение до установки и доступа к DB secret", () => {
+    const confirmationStep = workflow.slice(
+      workflow.indexOf("- name: Verify explicit Production confirmation"),
+      workflow.indexOf("- name: Install dependencies"),
+    );
+    expect(workflow).toContain("description: Type APPLY PRODUCTION RLS");
+    expect(confirmationStep).toContain(
+      'test "${PRODUCTION_CONFIRMATION}" = "APPLY PRODUCTION RLS"',
+    );
+    expect(confirmationStep).not.toContain("DIRECT_URL");
+  });
+
+  it("сериализуется с Production migration и не отменяет начатое изменение", () => {
+    expect(workflow).toContain("group: production-database-release");
+    expect(ciWorkflow).toContain("group: production-database-release");
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).toMatch(/^ {4}timeout-minutes: \d+$/m);
   });
@@ -44,7 +56,7 @@ describe("Preview tenant RLS workflow", () => {
   it("не выдаёт DB secret установке и проверяет target до apply", () => {
     const installStep = workflow.slice(
       workflow.indexOf("- name: Install dependencies"),
-      workflow.indexOf("- name: Verify Preview database target"),
+      workflow.indexOf("- name: Verify Production database target"),
     );
     expect(installStep).toContain("npm ci --ignore-scripts");
     expect(installStep).not.toContain("DIRECT_URL");
@@ -56,18 +68,5 @@ describe("Preview tenant RLS workflow", () => {
     expect(workflow).toContain(
       "EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}",
     );
-  });
-
-  it("configurator меняет RLS и guard одной транзакцией и проверяет commit", () => {
-    expect(configurator).toContain('await client.query(apply ? "BEGIN"');
-    expect(configurator).toContain('await client.query("COMMIT")');
-    expect(configurator).toContain('await client.query("ROLLBACK")');
-    expect(configurator).toContain("Post-change enforcement profile");
-    expect(configurator).toContain("Committed enforcement profile");
-    expect(configurator).toContain('["UserDailyUsage", "List", "Item"]');
-    expect(configurator).toContain('"space-groups"');
-    expect(configurator).toContain('"tenant-full"');
-    expect(configurator).toContain("ROUTINE_CONTRACTS");
-    expect(configurator).toContain("POLICY_PREDICATES");
   });
 });

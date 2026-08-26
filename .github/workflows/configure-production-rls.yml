@@ -1,10 +1,12 @@
-name: Configure Preview Tenant RLS
+name: Configure Production Tenant RLS
+
+run-name: Production tenant RLS ${{ inputs.operation }} by @${{ github.actor }}
 
 on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Exact Preview rollout transition
+        description: Exact Production rollout transition
         required: true
         type: choice
         options:
@@ -16,23 +18,27 @@ on:
           - rollback-space-groups
           - enable-tenant-full
           - rollback-tenant-full
+      confirmation:
+        description: Type APPLY PRODUCTION RLS
+        required: true
+        type: string
 
 # Этот workflow намеренно не принимает Environment или произвольную группу:
 # опубликованный main может выполнить только именованный переход между
-# заранее проверенными rollout-профилями Preview.
+# заранее проверенными rollout-профилями Production.
 permissions:
   contents: read
 
-# Общий с Sync Preview Proxy лок исключает одновременную Preview-миграцию.
+# Общий лок с production migration исключает параллельные изменения catalog.
 concurrency:
-  group: preview-database-change
+  group: production-database-release
   cancel-in-progress: false
 
 jobs:
   configure:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: preview
+    environment: Production
     timeout-minutes: 10
 
     steps:
@@ -43,17 +49,23 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Подтверждение проверяется до установки и до появления DB secret.
+      - name: Verify explicit Production confirmation
+        env:
+          PRODUCTION_CONFIRMATION: ${{ inputs.confirmation }}
+        run: test "${PRODUCTION_CONFIRMATION}" = "APPLY PRODUCTION RLS"
+
       # Install не получает DB secret и не исполняет lifecycle hooks.
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Verify Preview database target
+      - name: Verify Production database target
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}
         run: node scripts/verify-release-database.mjs
 
-      - name: Apply exact Preview enforcement transition
+      - name: Apply exact Production enforcement transition
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           EXPECTED_DATABASE_HOST: ${{ secrets.EXPECTED_DATABASE_HOST }}

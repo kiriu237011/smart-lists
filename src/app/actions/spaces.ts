@@ -22,6 +22,7 @@ import {
   normalizeSpaceName,
 } from "@/lib/spaces";
 import { consumeMutationBudget } from "@/lib/usage";
+import { writeAuditEvent } from "@/lib/audit";
 
 const nameSchema = z.string().trim().min(1).max(50);
 const idSchema = z.string().min(1).max(100);
@@ -197,6 +198,10 @@ export async function deleteSpace(spaceId: string, confirmationName: string) {
       ];
 
       await tx.space.delete({ where: { id: spaceId } });
+      await writeAuditEvent(tx, {
+        action: "SPACE_DELETED",
+        spaceId,
+      });
       return { status: "deleted", keys, affectedUsers } as const;
     },
   ).catch((error) => {

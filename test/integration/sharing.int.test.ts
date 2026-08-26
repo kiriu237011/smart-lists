@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { leaveSharedList, removeSharedUser, shareList } from "@/app/actions";
 import { defaultSpaceId } from "@/lib/spaces";
-import { flushAfter, prisma, setSessionUser } from "./setup";
+import { adminPrisma, flushAfter, prisma, setSessionUser } from "./setup";
 import { formData, makeList, makeUser, shareList as seedShare } from "./factories";
 
 describe("shareList", () => {
@@ -38,6 +38,16 @@ describe("shareList", () => {
     });
     expect(share.spaceId).toBe(defaultSpaceId(recipient.id));
     expect(share.role).toBe("EDITOR");
+    await expect(
+      adminPrisma.auditEvent.findFirstOrThrow({
+        where: { action: "LIST_SHARE_GRANTED", listId: list.id },
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: owner.id,
+      subjectUserId: recipient.id,
+      spaceId: owner.defaultSpaceId,
+      source: "APPLICATION",
+    });
   });
 
   it("возвращает данные добавленного пользователя", async () => {
@@ -78,6 +88,11 @@ describe("shareList", () => {
     await share();
 
     expect(await prisma.listShare.count({ where: { listId: list.id } })).toBe(1);
+    expect(
+      await adminPrisma.auditEvent.count({
+        where: { action: "LIST_SHARE_GRANTED", listId: list.id },
+      }),
+    ).toBe(1);
   });
 
   it("fail-closed отказывает, если у получателя нарушен инвариант default-space", async () => {
@@ -205,6 +220,16 @@ describe("removeSharedUser (действует владелец)", () => {
 
     expect(result).toEqual({ success: true });
     expect(await prisma.listShare.count({ where: { listId: list.id } })).toBe(0);
+    await expect(
+      adminPrisma.auditEvent.findFirstOrThrow({
+        where: { action: "LIST_SHARE_REVOKED", listId: list.id },
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: owner.id,
+      subjectUserId: editor.id,
+      spaceId: owner.defaultSpaceId,
+      source: "APPLICATION",
+    });
   });
 
   it("участник не может отозвать доступ (это не его право)", async () => {
@@ -269,6 +294,16 @@ describe("leaveSharedList (действует участник)", () => {
 
     expect(result).toEqual({ success: true });
     expect(await prisma.listShare.count({ where: { listId: list.id } })).toBe(0);
+    await expect(
+      adminPrisma.auditEvent.findFirstOrThrow({
+        where: { action: "LIST_SHARE_LEFT", listId: list.id },
+      }),
+    ).resolves.toMatchObject({
+      actorUserId: editor.id,
+      subjectUserId: editor.id,
+      spaceId: editor.defaultSpaceId,
+      source: "APPLICATION",
+    });
   });
 
   it("выход удаляет только собственный share, не затрагивая других участников", async () => {

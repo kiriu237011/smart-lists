@@ -1,7 +1,23 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { addItem, createList, renameList } from "@/app/actions";
+import {
+  addItem,
+  addListToGroup,
+  createGroup,
+  createList,
+  leaveSharedList,
+  removeSharedUser,
+  renameGroup,
+  renameList,
+  shareList,
+} from "@/app/actions";
+import {
+  confirmUpload,
+  deleteAttachment,
+  requestUpload,
+} from "@/app/actions/attachments";
+import { createSpace } from "@/app/actions/spaces";
 import { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/lib/prisma-client";
 import { createScopedDatabase } from "@/lib/scoped-db";
@@ -24,6 +40,12 @@ const LIST_ITEM_PROFILE_TABLES = [
   "List",
   "Item",
   "UserDailyUsage",
+] as const;
+const SPACE_GROUPS_PROFILE_TABLES = [
+  ...LIST_ITEM_PROFILE_TABLES,
+  "Space",
+  "ListGroup",
+  "_ListGroupMembers",
 ] as const;
 
 const EXPECTED_POLICY_COMMANDS: Record<(typeof TENANT_TABLES)[number], string[]> = {
@@ -106,18 +128,41 @@ describe("tenant RLS catalog до enforcement", () => {
       ORDER BY relation.relname
     `;
 
-    expect(triggers).toHaveLength(GUARDED_TABLES.length);
-    expect(triggers.map(({ table }) => table).sort()).toEqual(
+    const guards = triggers.filter(
+      (trigger) => trigger.name === "app_tenant_update_columns_guard",
+    );
+    expect(guards).toHaveLength(GUARDED_TABLES.length);
+    expect(guards.map(({ table }) => table).sort()).toEqual(
       [...GUARDED_TABLES].sort(),
     );
     expect(
-      triggers.every(
+      guards.every(
         (trigger) =>
-          trigger.name === "app_tenant_update_columns_guard" &&
           trigger.function === "app_enforce_tenant_update_columns" &&
           trigger.enabled === "D",
       ),
     ).toBe(true);
+
+    expect(
+      triggers
+        .filter((trigger) => trigger.name === "app_audit_global_admin_change")
+        .map((trigger) => ({
+          table: trigger.table,
+          function: trigger.function,
+          enabled: trigger.enabled,
+        })),
+    ).toEqual([
+      {
+        table: "AllowedEmail",
+        function: "app_audit_global_admin_change",
+        enabled: "O",
+      },
+      {
+        table: "AppSetting",
+        function: "app_audit_global_admin_change",
+        enabled: "O",
+      },
+    ]);
   });
 });
 
@@ -137,10 +182,10 @@ async function seedFixture() {
     alice: "rls_alice",
     bob: "rls_bob",
     mallory: "rls_mallory",
-    aliceSpace: "rls_space_alice",
-    bobSpace: "rls_space_bob",
+    aliceSpace: "space_default_rls_alice",
+    bobSpace: "space_default_rls_bob",
     bobOtherSpace: "rls_space_bob_other",
-    mallorySpace: "rls_space_mallory",
+    mallorySpace: "space_default_rls_mallory",
     aliceSharedList: "rls_list_alice_shared",
     alicePrivateList: "rls_list_alice_private",
     bobList: "rls_list_bob",
@@ -458,6 +503,95 @@ runtimeDescribe("частичный Preview-профиль RLS List + Item", () 
   });
 });
 
+runtimeDescribe("частичный Preview-профиль RLS Space + Groups", () => {
+  beforeAll(async () => {
+    await setTablesEnforcement(SPACE_GROUPS_PROFILE_TABLES, true);
+  });
+
+  afterAll(async () => {
+    await setTablesEnforcement(SPACE_GROUPS_PROFILE_TABLES, false);
+  });
+
+  it("фильтрует Space/groups/memberships, оставляя финальные таблицы выключенными", async () => {
+    const ids = await seedFixture();
+
+    const rows = await withSpaceDb(ids.bob, ids.bobSpace, async (tx) => {
+      const [spaces, groups, memberships, attachments] = await Promise.all([
+        tx.space.findMany({ select: { id: true } }),
+        tx.listGroup.findMany({ select: { id: true } }),
+        tx.listGroupMembership.findMany({
+          select: { groupId: true, listId: true },
+        }),
+        tx.attachment.findMany({ select: { id: true } }),
+      ]);
+      return { spaces, groups, memberships, attachments };
+    });
+
+    expect(rows.spaces.map(({ id }) => id).sort()).toEqual(
+      [ids.bobSpace, ids.bobOtherSpace].sort(),
+    );
+    expect(rows.groups).toEqual([{ id: ids.bobGroup }]);
+    expect(rows.memberships).toEqual([
+      { groupId: ids.bobGroup, listId: ids.aliceSharedList },
+    ]);
+    expect(rows.attachments).toHaveLength(3);
+  });
+
+  it("создаёт Space, Group и membership через настоящие Server Actions", async () => {
+    const ids = await seedFixture();
+    setSessionUser(ids.bob);
+
+    expect(await createSpace("Работа под RLS")).toMatchObject({ success: true });
+    const groupResult = await createGroup(
+      formData({ name: "Группа под RLS", spaceId: ids.bobSpace }),
+    );
+    expect(groupResult).toMatchObject({
+      success: true,
+      group: { name: "Группа под RLS" },
+    });
+    if (!groupResult.success || !groupResult.group) {
+      throw new Error("Группа не создана под RLS");
+    }
+    const groupId = groupResult.group.id;
+
+    expect(
+      await renameGroup(
+        formData({
+          groupId,
+          name: "Переименовано под RLS",
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toEqual({ success: true });
+    expect(
+      await addListToGroup(
+        formData({
+          groupId,
+          listId: ids.aliceSharedList,
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toEqual({ success: true });
+
+    expect(
+      await enforcementAdminPrisma.listGroup.findUnique({
+        where: { id: groupId },
+        select: { name: true },
+      }),
+    ).toEqual({ name: "Переименовано под RLS" });
+    expect(
+      await enforcementAdminPrisma.listGroupMembership.findUnique({
+        where: {
+          listId_groupId: {
+            listId: ids.aliceSharedList,
+            groupId,
+          },
+        },
+      }),
+    ).not.toBeNull();
+  });
+});
+
 runtimeDescribe("tenant RLS под restricted runtime-ролью", () => {
   beforeAll(async () => {
     await setEnforcement(true);
@@ -651,6 +785,109 @@ runtimeDescribe("tenant RLS под restricted runtime-ролью", () => {
         }),
       ),
     ).rejects.toThrow();
+  });
+
+  it("проводит owner invite/revoke и self-leave через настоящие Server Actions", async () => {
+    const ids = await seedFixture();
+
+    setSessionUser(ids.bob);
+    expect(
+      await shareList(
+        formData({
+          listId: ids.bobList,
+          email: "rls-mallory@test.local",
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toMatchObject({
+      success: true,
+      user: { id: ids.mallory, email: "rls-mallory@test.local" },
+    });
+    expect(
+      await enforcementAdminPrisma.listShare.findUnique({
+        where: {
+          listId_userId: { listId: ids.bobList, userId: ids.mallory },
+        },
+      }),
+    ).not.toBeNull();
+
+    expect(
+      await removeSharedUser(
+        formData({
+          listId: ids.bobList,
+          userId: ids.mallory,
+          spaceId: ids.bobSpace,
+        }),
+      ),
+    ).toEqual({ success: true });
+    expect(
+      await enforcementAdminPrisma.listShare.findUnique({
+        where: {
+          listId_userId: { listId: ids.bobList, userId: ids.mallory },
+        },
+      }),
+    ).toBeNull();
+
+    expect(
+      await leaveSharedList(
+        formData({ listId: ids.aliceSharedList, spaceId: ids.bobSpace }),
+      ),
+    ).toEqual({ success: true });
+    expect(
+      await enforcementAdminPrisma.listShare.findUnique({
+        where: {
+          listId_userId: { listId: ids.aliceSharedList, userId: ids.bob },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("проводит PENDING → UPLOADED → delete через настоящие attachment Actions", async () => {
+    const ids = await seedFixture();
+
+    setSessionUser(ids.bob);
+    const requested = await requestUpload({
+      listId: ids.aliceSharedList,
+      spaceId: ids.bobSpace,
+      fileName: "rls-upload.png",
+      contentType: "image/png",
+      size: 100,
+    });
+    expect(requested).toMatchObject({ success: true });
+    if (!requested.success || !requested.upload) {
+      throw new Error("PENDING-вложение не создано под tenant-full RLS");
+    }
+
+    const { headObject } = await import("@/lib/s3");
+    vi.mocked(headObject).mockResolvedValueOnce({
+      contentLength: 4096,
+      contentType: "image/png",
+    });
+    expect(
+      await confirmUpload({
+        attachmentId: requested.upload.attachmentId,
+        spaceId: ids.bobSpace,
+      }),
+    ).toEqual({ success: true });
+    expect(
+      await enforcementAdminPrisma.attachment.findUnique({
+        where: { id: requested.upload.attachmentId },
+        select: { status: true, size: true, uploadedById: true },
+      }),
+    ).toEqual({ status: "UPLOADED", size: 4096, uploadedById: ids.bob });
+
+    setSessionUser(ids.alice);
+    expect(
+      await deleteAttachment({
+        attachmentId: requested.upload.attachmentId,
+        spaceId: ids.aliceSpace,
+      }),
+    ).toEqual({ success: true });
+    expect(
+      await enforcementAdminPrisma.attachment.findUnique({
+        where: { id: requested.upload.attachmentId },
+      }),
+    ).toBeNull();
   });
 });
 
