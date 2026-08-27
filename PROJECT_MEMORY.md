@@ -2,8 +2,8 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-26 (tenant-RLS полностью live; audit trail
-foundation подготовлен и локально проверен, но ещё не применён в средах)
+**Последнее обновление:** 2026-08-27 (tenant-RLS и audit trail полностью live;
+scheduled retention включён после ручной проверки обеих сред)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -50,7 +50,7 @@ Smart Lists — локализованное веб-приложение для 
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
 - `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
   ручной read-only аудит catalog, именованные Preview/Production tenant-RLS
-  переходы, выключенный по умолчанию audit retention, синхронизация Preview
+  переходы, opt-in audit retention, синхронизация Preview
   OAuth proxy и ежедневный бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
@@ -76,16 +76,24 @@ Smart Lists — локализованное веб-приложение для 
   tenant-таблицах и восемь update guards. Exact policy/trigger/routine inventory
   закреплён в role configurators и выводится read-only аудитом. После четырёх
   успешных gates RLS и guard включены для всех восьми tenant-таблиц Preview.
-- Audit foundation добавляет `AuditEvent` без FK и прямого runtime-доступа.
+- Live audit trail использует `AuditEvent` без FK и прямого runtime-доступа.
   Чувствительные Server Actions пишут action и технические actor/space/list/
   target ID внутри той же транзакции; триггеры `AllowedEmail`/`AppSetting`
   фиксируют DB-роль без email и значений. Контент, имена файлов и IP не пишутся.
   Primary retention — 180 дней через фиксированную owner-функцию; runtime не
   может читать, писать или очищать журнал. Weekly workflow разделён по
-  Environment/locks и до live go/no-go не запускается по расписанию без
-  repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
-  `ENABLE_PRODUCTION_AUDIT_RETENTION`. Дампы могут продлить фактическое хранение
-  события примерно до 210 дней.
+  Environment/locks; repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
+  `ENABLE_PRODUCTION_AUDIT_RETENTION` включены после успешных ручных запусков в
+  обеих средах. Дампы могут продлить фактическое хранение события примерно до
+  210 дней.
+- 2026-08-27 PR №123 merged в `main@b2a18741`. Свежий Production backup
+  `32940054034`, post-merge CI с Production migration `32940313066`, Sync
+  Preview Proxy с Preview migration `32940577751` и оба Vercel deployment
+  завершились успешно. Read-only audits `32940738136` (Preview) и `32940740825`
+  (Production) подтвердили audit schema, owner-only prune и отсутствие прямого
+  runtime-доступа; пользовательский smoke обеих сред прошёл. Ручные retention
+  runs `33025415884` и `33025570196` успешно удалили по 0 событий старше 180
+  дней, после чего оба cron-флага включены.
 - 2026-08-21 базовая policy-миграция применена release-контурами в Preview и
   Production. Она только подготовила catalog; позже отдельный write-gate
   включил в Preview RLS/guard canary только для `UserDailyUsage`.
@@ -617,7 +625,8 @@ Smart Lists — локализованное веб-приложение для 
 - audit retention: секреты не добавляются; workflow переиспользует migrator
   `DIRECT_URL`/`EXPECTED_DATABASE_HOST` соответствующего GitHub Environment.
   Несекретные repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
-  `ENABLE_PRODUCTION_AUDIT_RETENTION` отдельно включают только cron-запуски.
+  `ENABLE_PRODUCTION_AUDIT_RETENTION` имеют значение `true` с 2026-08-27 и
+  отдельно включают только еженедельные cron-запуски.
 
 ## Разделение сред
 
