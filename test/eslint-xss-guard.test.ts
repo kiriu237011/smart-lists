@@ -29,6 +29,25 @@ async function ruleIdsFor(code: string, filePath: string): Promise<string[]> {
 }
 
 describe("защита от сырого HTML", () => {
+  it("не допускает запрещённые XSS-конструкции в актуальном src", async () => {
+    const results = await eslint.lintFiles(["src/**/*.{ts,tsx}"]);
+    const violations = results.flatMap((result) =>
+      result.messages
+        .filter((message) =>
+          ["react/no-danger", "no-restricted-imports"].includes(
+            message.ruleId ?? "",
+          ),
+        )
+        .map((message) => ({
+          filePath: result.filePath,
+          line: message.line,
+          ruleId: message.ruleId,
+        })),
+    );
+
+    expect(violations).toEqual([]);
+  }, 30_000);
+
   it("запрещает dangerouslySetInnerHTML в коде приложения", async () => {
     const code = `export function Danger({ html }: { html: string }) {
   return <div dangerouslySetInnerHTML={{ __html: html }} />;

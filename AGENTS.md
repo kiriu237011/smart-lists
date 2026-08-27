@@ -92,6 +92,7 @@
 
 - Минимальная статическая проверка: `npm run lint` и `npm run typecheck`.
 - `npm test` — юнит-тесты Vitest. Прогон не требует БД и секретов, поэтому запускай его всегда.
+- `npm run test:security:static` — отдельный быстрый gate статических security-контрактов. Он не заменяет `npm test`; запускай его при изменении security-контролей, CI или его manifest.
 - Меняя чистую функцию или Zod-схему в `src/lib`, обнови или дополни соседний `*.test.ts`.
 - Меняя Server Action или логику доступа, прогони и дополни интеграционные тесты: `npm run test:integration:db` (поднять Docker-БД), затем `npm run test:integration`. Файлы — `test/integration/*.int.test.ts`.
 - Для существенных изменений дополнительно проверь `npm run build`, если доступно безопасное окружение.

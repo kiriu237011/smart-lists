@@ -3,7 +3,7 @@
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
 **Последнее обновление:** 2026-08-27 (tenant-RLS и audit trail полностью live;
-scheduled retention включён после ручной проверки обеих сред)
+scheduled retention включён; security-проверки разделены и проаудированы)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -751,6 +751,8 @@ AI-сервис вызывается с сервера и в политику н
   `src/generated/prisma`; не требует `DIRECT_URL`;
 - `npm run typecheck` — `tsc --noEmit`, быстрая проверка типов без сборки;
 - `npm test` — прогон юнит-тестов Vitest;
+- `npm run test:security:static` — быстрый отдельный прогон статических
+  security-контрактов; набор намеренно остаётся частью полного `npm test`;
 - `npm run test:watch` — те же тесты в watch-режиме;
 - `npm run test:integration:db` — поднять тестовый PostgreSQL в Docker
   (порт 5433 доступен только через `127.0.0.1`);
@@ -971,16 +973,26 @@ OAuth. Следствие: колбэк `signIn` E2E не покрывает —
 
 ### CI
 
-`.github/workflows/ci.yml` запускает четыре job на каждый push обычной ветки и
-на pull request из форка или от Dependabot. Для внутренних пользовательских
-веток pull_request-прогон пропускается как дубль push-прогона; для
-`dependabot/**`, наоборот, push отключён, потому что бот его не создаёт, и
-используется pull_request-прогон.
-`checks` — lint, typecheck, юнит-тесты и `npm run build` с заведомо нерабочими
-`DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_PUSHER_*` (сборка в БД не ходит и
-`DIRECT_URL` не получает).
+`.github/workflows/ci.yml` запускает пять основных job на каждый push обычной
+ветки и на pull request из форка или от Dependabot. Для внутренних
+пользовательских веток pull_request-прогон этих job пропускается как дубль
+push-прогона; для `dependabot/**`, наоборот, push отключён, потому что бот его
+не создаёт, и используется pull_request-прогон. На каждом PR отдельно работает
+`dependency-review`.
+`security-static` — явно перечисленный в `vitest.security.config.ts` быстрый
+набор project-specific security-контрактов без БД и внешних сервисов. Он виден
+отдельным gate, но пока намеренно остаётся и в полном `npm test`: разделение
+нужно для наблюдаемости и владения контролями, а не для ослабления общего
+прогона. Production migration на `main` ждёт его через `needs`.
+`checks` — lint, typecheck, полный набор юнит-тестов и `npm run build` с
+заведомо нерабочими `DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_PUSHER_*`
+(сборка в БД не ходит и `DIRECT_URL` не получает).
 `integration` — интеграционные тесты против service-контейнера `postgres:17`;
-`prisma migrate deploy` там применяется только к эфемерной базе раннера.
+`prisma migrate deploy` там применяется только к эфемерной базе раннера. Job
+остаётся общей функционально-security проверкой: одни и те же сценарии
+одновременно доказывают бизнес-поведение, ownership, tenant isolation, RLS и
+ролевой контракт БД, поэтому физическое дублирование набора не добавило бы
+независимого контроля.
 `e2e` — Playwright с Chromium против такого же service-контейнера на порту 5434;
 при падении отчёт со скриншотами и видео выгружается артефактом. Загрузка
 браузера и установка системных пакетов разнесены по разным шагам: apt в раннере
@@ -992,6 +1004,17 @@ Chromium там уже есть, а скриншотных сравнений в
 ждёт его через `needs` и не получает отказа.
 `secrets` — gitleaks по всей истории (`fetch-depth: 0`), потому что секрет,
 добавленный и удалённый внутри одного PR, остаётся в промежуточных коммитах.
+`dependency-review` — read-only SCA на границе PR: action закреплён полным SHA,
+не делает checkout и не исполняет код PR, проверяет runtime, development и
+unknown scopes и блокирует новые high/critical advisory. Уже известные проблемы
+по-прежнему отслеживает Dependabot; это не заменяет разбор достижимости.
+GitHub CodeQL default setup остаётся generic SAST для JavaScript/TypeScript и
+Actions, а secret scanning с push protection — внешним от workflow слоем.
+Аудит 2026-08-27 не выявил пробела, который оправдывал бы второй generic SAST:
+Semgrep сейчас не добавлен, а `security-extended` CodeQL не включён из-за более
+низкой точности дополнительных запросов. Решение пересматривается при новом
+классе исполняемого ввода, доказанном false negative CodeQL или существенном
+изменении границ доверия.
 По умолчанию боевые ресурсы не затрагиваются: production migration job
 fail-closed пропускается без repository variable
 `ENABLE_PRODUCTION_MIGRATION=true`, а Preview migration — без
