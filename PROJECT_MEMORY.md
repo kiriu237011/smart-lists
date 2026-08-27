@@ -2,8 +2,8 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-26 (tenant-RLS полностью live; audit trail
-foundation подготовлен и локально проверен, но ещё не применён в средах)
+**Последнее обновление:** 2026-08-27 (tenant-RLS и audit trail полностью live;
+scheduled retention включён; security-проверки разделены и проаудированы)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -50,7 +50,7 @@ Smart Lists — локализованное веб-приложение для 
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
 - `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
   ручной read-only аудит catalog, именованные Preview/Production tenant-RLS
-  переходы, выключенный по умолчанию audit retention, синхронизация Preview
+  переходы, opt-in audit retention, синхронизация Preview
   OAuth proxy и ежедневный бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
@@ -76,16 +76,24 @@ Smart Lists — локализованное веб-приложение для 
   tenant-таблицах и восемь update guards. Exact policy/trigger/routine inventory
   закреплён в role configurators и выводится read-only аудитом. После четырёх
   успешных gates RLS и guard включены для всех восьми tenant-таблиц Preview.
-- Audit foundation добавляет `AuditEvent` без FK и прямого runtime-доступа.
+- Live audit trail использует `AuditEvent` без FK и прямого runtime-доступа.
   Чувствительные Server Actions пишут action и технические actor/space/list/
   target ID внутри той же транзакции; триггеры `AllowedEmail`/`AppSetting`
   фиксируют DB-роль без email и значений. Контент, имена файлов и IP не пишутся.
   Primary retention — 180 дней через фиксированную owner-функцию; runtime не
   может читать, писать или очищать журнал. Weekly workflow разделён по
-  Environment/locks и до live go/no-go не запускается по расписанию без
-  repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
-  `ENABLE_PRODUCTION_AUDIT_RETENTION`. Дампы могут продлить фактическое хранение
-  события примерно до 210 дней.
+  Environment/locks; repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
+  `ENABLE_PRODUCTION_AUDIT_RETENTION` включены после успешных ручных запусков в
+  обеих средах. Дампы могут продлить фактическое хранение события примерно до
+  210 дней.
+- 2026-08-27 PR №123 merged в `main@b2a18741`. Свежий Production backup
+  `32940054034`, post-merge CI с Production migration `32940313066`, Sync
+  Preview Proxy с Preview migration `32940577751` и оба Vercel deployment
+  завершились успешно. Read-only audits `32940738136` (Preview) и `32940740825`
+  (Production) подтвердили audit schema, owner-only prune и отсутствие прямого
+  runtime-доступа; пользовательский smoke обеих сред прошёл. Ручные retention
+  runs `33025415884` и `33025570196` успешно удалили по 0 событий старше 180
+  дней, после чего оба cron-флага включены.
 - 2026-08-21 базовая policy-миграция применена release-контурами в Preview и
   Production. Она только подготовила catalog; позже отдельный write-gate
   включил в Preview RLS/guard canary только для `UserDailyUsage`.
@@ -514,6 +522,12 @@ Smart Lists — локализованное веб-приложение для 
 
 - Server Action получает список из БД и проверяет доступ в текущем пространстве.
 - Внешний сервис вызывается через `INSIGHTS_SERVICE_URL`. Аутентификация двухслойная и полностью на ID-токене: Cloud Run проверяет его до контейнера, а сервис — повторно и независимо, по подписи, `aud` и email вызывающего. Статических секретов на этом пути нет.
+- Образы сервиса хранятся в Artifact Registry `smart-lists`. Cleanup policy
+  сохраняет все версии моложе 30 дней и не меньше 10 последних; с 2026-08-20
+  она работает в dry-run. С 2026-08-27 для
+  `artifactregistry.googleapis.com` включён только audit-log `DATA_WRITE`,
+  чтобы проверить `BatchDeleteVersions` с `validateOnly=true` до перехода к
+  реальному удалению.
 - Токен едет в обычном `Authorization`. Cloud Run принимает и `X-Serverless-Authorization`, но из него вырезает подпись перед передачей контейнеру — сервис получил бы claims, которые не может проверить. Из `Authorization` токен доходит целым, и второй слой становится настоящим.
 - Токен выпускает `src/lib/gcp-auth.ts`: OIDC-токен Vercel меняется в Workload Identity Federation на право говорить от имени `vercel-insights-invoker`, тот выпускает ID-токен с audience равным базовому URL сервиса. Долгоживущих ключей нет. Провайдер пускает ровно одну среду — `production` этого проекта, — а у service account есть право звать единственный сервис `insights-api`.
 - Без токена запрос не отправляется вовсе: Action возвращает ошибку конфигурации. Отправлять было бы бессмысленно — Cloud Run откажет гарантированно, — а в логе должна быть видна сломанная федерация, а не безымянный 403 из сети.
@@ -617,7 +631,8 @@ Smart Lists — локализованное веб-приложение для 
 - audit retention: секреты не добавляются; workflow переиспользует migrator
   `DIRECT_URL`/`EXPECTED_DATABASE_HOST` соответствующего GitHub Environment.
   Несекретные repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
-  `ENABLE_PRODUCTION_AUDIT_RETENTION` отдельно включают только cron-запуски.
+  `ENABLE_PRODUCTION_AUDIT_RETENTION` имеют значение `true` с 2026-08-27 и
+  отдельно включают только еженедельные cron-запуски.
 
 ## Разделение сред
 
@@ -736,6 +751,8 @@ AI-сервис вызывается с сервера и в политику н
   `src/generated/prisma`; не требует `DIRECT_URL`;
 - `npm run typecheck` — `tsc --noEmit`, быстрая проверка типов без сборки;
 - `npm test` — прогон юнит-тестов Vitest;
+- `npm run test:security:static` — быстрый отдельный прогон статических
+  security-контрактов; набор намеренно остаётся частью полного `npm test`;
 - `npm run test:watch` — те же тесты в watch-режиме;
 - `npm run test:integration:db` — поднять тестовый PostgreSQL в Docker
   (порт 5433 доступен только через `127.0.0.1`);
@@ -956,16 +973,26 @@ OAuth. Следствие: колбэк `signIn` E2E не покрывает —
 
 ### CI
 
-`.github/workflows/ci.yml` запускает четыре job на каждый push обычной ветки и
-на pull request из форка или от Dependabot. Для внутренних пользовательских
-веток pull_request-прогон пропускается как дубль push-прогона; для
-`dependabot/**`, наоборот, push отключён, потому что бот его не создаёт, и
-используется pull_request-прогон.
-`checks` — lint, typecheck, юнит-тесты и `npm run build` с заведомо нерабочими
-`DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_PUSHER_*` (сборка в БД не ходит и
-`DIRECT_URL` не получает).
+`.github/workflows/ci.yml` запускает пять основных job на каждый push обычной
+ветки и на pull request из форка или от Dependabot. Для внутренних
+пользовательских веток pull_request-прогон этих job пропускается как дубль
+push-прогона; для `dependabot/**`, наоборот, push отключён, потому что бот его
+не создаёт, и используется pull_request-прогон. На каждом PR отдельно работает
+`dependency-review`.
+`security-static` — явно перечисленный в `vitest.security.config.ts` быстрый
+набор project-specific security-контрактов без БД и внешних сервисов. Он виден
+отдельным gate, но пока намеренно остаётся и в полном `npm test`: разделение
+нужно для наблюдаемости и владения контролями, а не для ослабления общего
+прогона. Production migration на `main` ждёт его через `needs`.
+`checks` — lint, typecheck, полный набор юнит-тестов и `npm run build` с
+заведомо нерабочими `DATABASE_URL`, `AUTH_SECRET`, `NEXT_PUBLIC_PUSHER_*`
+(сборка в БД не ходит и `DIRECT_URL` не получает).
 `integration` — интеграционные тесты против service-контейнера `postgres:17`;
-`prisma migrate deploy` там применяется только к эфемерной базе раннера.
+`prisma migrate deploy` там применяется только к эфемерной базе раннера. Job
+остаётся общей функционально-security проверкой: одни и те же сценарии
+одновременно доказывают бизнес-поведение, ownership, tenant isolation, RLS и
+ролевой контракт БД, поэтому физическое дублирование набора не добавило бы
+независимого контроля.
 `e2e` — Playwright с Chromium против такого же service-контейнера на порту 5434;
 при падении отчёт со скриншотами и видео выгружается артефактом. Загрузка
 браузера и установка системных пакетов разнесены по разным шагам: apt в раннере
@@ -977,6 +1004,17 @@ Chromium там уже есть, а скриншотных сравнений в
 ждёт его через `needs` и не получает отказа.
 `secrets` — gitleaks по всей истории (`fetch-depth: 0`), потому что секрет,
 добавленный и удалённый внутри одного PR, остаётся в промежуточных коммитах.
+`dependency-review` — read-only SCA на границе PR: action закреплён полным SHA,
+не делает checkout и не исполняет код PR, проверяет runtime, development и
+unknown scopes и блокирует новые high/critical advisory. Уже известные проблемы
+по-прежнему отслеживает Dependabot; это не заменяет разбор достижимости.
+GitHub CodeQL default setup остаётся generic SAST для JavaScript/TypeScript и
+Actions, а secret scanning с push protection — внешним от workflow слоем.
+Аудит 2026-08-27 не выявил пробела, который оправдывал бы второй generic SAST:
+Semgrep сейчас не добавлен, а `security-extended` CodeQL не включён из-за более
+низкой точности дополнительных запросов. Решение пересматривается при новом
+классе исполняемого ввода, доказанном false negative CodeQL или существенном
+изменении границ доверия.
 По умолчанию боевые ресурсы не затрагиваются: production migration job
 fail-closed пропускается без repository variable
 `ENABLE_PRODUCTION_MIGRATION=true`, а Preview migration — без
