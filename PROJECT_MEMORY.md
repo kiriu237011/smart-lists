@@ -93,8 +93,9 @@ Smart Lists — локализованное веб-приложение для 
   NUL; добавление, удаление, rename, symlink, исполняемый mode, смешанный или
   ошибочный diff дают полный CI. Docs PR сохраняет Gitleaks, Dependency Review
   и CodeQL, а aggregate `gate` с `always()` принимает skipped тяжёлые job только
-  в доказанном docs-режиме. До добавления `gate` в ruleset fast path закрыт
-  repository variable `ENABLE_DOCS_ONLY_CI` и фактически работает как полный CI.
+  в доказанном docs-режиме. После зелёных PR №128 и post-merge run `33133159737`
+  `gate` добавлен седьмым required check без удаления прежних шести, а repository
+  variable `ENABLE_DOCS_ONLY_CI=true` включает быстрый путь.
 - 2026-08-27 PR №123 merged в `main@b2a18741`. Свежий Production backup
   `32940054034`, post-merge CI с Production migration `32940313066`, Sync
   Preview Proxy с Preview migration `32940577751` и оба Vercel deployment
