@@ -3,7 +3,8 @@
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
 **Последнее обновление:** 2026-08-28 (Next.js обновлён до security-релиза `16.3.3`;
-добавлена runtime-валидация ответа AI-сервиса)
+добавлена runtime-валидация ответа AI-сервиса; приняты выдержанные patch-
+обновления OIDC, UI/i18n и AWS SDK)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -18,12 +19,13 @@ Smart Lists — локализованное веб-приложение для 
 ## Актуальный стек
 
 - Next.js `16.3.3`, App Router, Server Components и Server Actions;
-- React `19.2.8`, TypeScript strict, Tailwind CSS 4, Framer Motion и dnd-kit;
-- Auth.js v5 с Google OAuth и Prisma Adapter;
+- React `19.2.8`, TypeScript strict, Tailwind CSS 4, Framer Motion `13.1.1` и dnd-kit;
+- Auth.js v5 с Google OAuth, Prisma Adapter и `@vercel/oidc` `3.8.5`;
 - Prisma `7.9.1`, генератор `prisma-client`, `@prisma/adapter-pg` и PostgreSQL;
 - runtime-пул `pg`: максимум 5 соединений на экземпляр, connect timeout 5 секунд, idle timeout 10 секунд;
-- `next-intl`: `ru`, `vi`, `en`, `ja`; default locale — `en`;
-- Pusher, приватный S3-бакет и внешний FastAPI-сервис AI-инсайтов;
+- `next-intl` `4.13.7`: `ru`, `vi`, `en`, `ja`; default locale — `en`;
+- Pusher, приватный S3-бакет через AWS SDK `3.1115.0` и внешний FastAPI-сервис
+  AI-инсайтов;
 - Zod, Pino, React Hot Toast, `next-themes` и `lucide-react`;
 - Vitest — юнит-тесты чистых функций и схем валидации;
 - React Markdown — только для ответов AI-инсайтов; остальной пользовательский текст разметку не разбирает;
@@ -1168,6 +1170,14 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-28: после семидневной выдержки и ручной сверки опубликованных
+  артефактов слиты Dependabot PR №127 (`@vercel/oidc` `3.8.5`, Framer Motion
+  `13.1.1`, `next-intl` `4.13.7`) и №114 (AWS SDK S3 `3.1115.0`). Обновления
+  применены последовательно; каждый merge прошёл полный CI, Dependency Review,
+  CodeQL и Vercel deployment. Runtime-код `@vercel/oidc` не изменился, а S3-
+  контракт приложения сохранил явные credentials, presigned TTL 5 минут и
+  `HeadObject` перед `UPLOADED`. Новых сервисов, прав и границ доверия нет;
+  реальный S3-поток остаётся ручным smoke-тестом внешней интеграции.
 - 2026-08-21: PR №103 слит в `main` как `e15d883`. Production CI run
   `32443454219` и Preview sync run `32443735539` прошли target guards и
   применили attachment maintenance плюс tenant policy migration. Первая
