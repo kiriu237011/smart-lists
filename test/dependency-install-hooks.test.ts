@@ -4,7 +4,7 @@
  *
  * `preinstall`/`postinstall` исполняются от самого факта установки — до любого
  * импорта, до любого теста и до того, как кто-либо прочитает дифф. В нашем
- * дереве 906 пакетов при 38 прямых, поэтому защитой служит не ревью, а флаг.
+ * дереве 889 пакетов при 38 прямых, поэтому защитой служит не ревью, а флаг.
  *
  * Проверка репозиторная, а не пофайловая, и это главное в ней. `ci.yml` был
  * переведён на `--ignore-scripts` целиком, а `sync-preview.yml` остался с голым
@@ -13,6 +13,15 @@
  * пропущенной оказалась худшая из них — единственная с write-token и боевым
  * `DIRECT_URL`. Отсюда форма теста: он смотрит на все workflow сразу, чтобы
  * новый job не мог добавить установку с хуками незаметно.
+ *
+ * Второй раз та же ошибка повторилась на уровень выше и была найдена аудитом
+ * 2026-08-28. Тест закрывал каталог workflow целиком и потому считался полным,
+ * но установок в проекте не пять, а шесть: шестую выполняет сборщик Vercel, и
+ * `vercel.json` — не workflow, поэтому в область проверки не попадал. Хуки там
+ * исполнялись. Отсюда правило: контракт описывает **все места, где ставятся
+ * зависимости**, а не один каталог. Сейчас таких мест два, и оба перечислены
+ * ниже явно — новое придётся добавить сюда руками, но тогда об этом хотя бы
+ * будет видно из диффа.
  */
 
 import { readFileSync, readdirSync } from "node:fs";
@@ -21,6 +30,10 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const workflowsDir = `${repoRoot}.github/workflows`;
+
+const packageJson = JSON.parse(
+  readFileSync(`${repoRoot}package.json`, "utf8"),
+) as { scripts?: Record<string, string> };
 
 // Комментарии отбрасываются до разбора: контракт описывает то, что исполняется.
 // Иначе упоминание команды в пояснении рядом ломает проверку — ровно так этот
@@ -72,5 +85,36 @@ describe("установка зависимостей не исполняет ч
     expect([...(file?.body ?? "").matchAll(INSTALL_COMMAND)]).not.toHaveLength(
       0,
     );
+  });
+});
+
+describe("сборка на Vercel ставит зависимости без хуков", () => {
+  const vercel = JSON.parse(
+    readFileSync(`${repoRoot}vercel.json`, "utf8"),
+  ) as Partial<{ installCommand: string; buildCommand: string }>;
+
+  // Умолчание Vercel — установка с хуками. Пока команда не задана явно,
+  // контроль на этой поверхности отсутствует, и отсутствует молча: в диффе
+  // видно только то, что строки нет.
+  it("задаёт installCommand явно и без install-хуков", () => {
+    expect(vercel.installCommand).toBeDefined();
+
+    const installs = [
+      ...(vercel.installCommand ?? "").matchAll(INSTALL_COMMAND),
+    ].map((match) => match[0]);
+
+    expect(installs).not.toHaveLength(0);
+    for (const install of installs) {
+      expect(install).toContain("--ignore-scripts");
+    }
+  });
+
+  // Следствие предыдущего: `--ignore-scripts` гасит и наш собственный
+  // postinstall, поэтому генерация клиента обязана быть вызвана явно. Без этой
+  // проверки контракт можно было бы «починить» удалением postinstall — сборка
+  // сломалась бы, — или вернуть хуки, чтобы сборка снова заработала.
+  it("компенсирует погашенный postinstall явной генерацией", () => {
+    expect(packageJson.scripts?.postinstall).toBe("prisma generate");
+    expect(vercel.buildCommand).toContain("prisma generate");
   });
 });
