@@ -2,10 +2,10 @@
 
 **Дата составления:** 2026-08-09
 
-**Последняя сверка с кодом:** 2026-08-13 (полная); 2026-08-27 — актуальный
-`main@aeb7408` и security diff: scoped DB-контур, tenant policy/column-guard
-объекты, live audit trail, attachment/AI privacy-потоки, dependency/SAST/secret
-gates и live-профиль Preview/Production `tenant-full`
+**Последняя сверка с кодом:** 2026-08-13 (полная); 2026-08-28 — актуальный
+security diff: scoped DB-контур, tenant policy/column-guard объекты, live audit
+trail, attachment/AI privacy-потоки, dependency/SAST/secret gates,
+Preview/Production `tenant-full` и fail-closed docs-only CI
 
 **Последняя проверка живой инфраструктуры:** 2026-08-13 (полная); 2026-08-19 —
 точечно: сетевые настройки проекта Neon и доступ к аккаунту Neon; 2026-08-21 —
@@ -324,8 +324,8 @@ release-миграции вне Vercel → runtime least privilege → тран�
 каждого шага статус контроля не повышается. RLS остаётся вторым слоем рядом с
 `listInSpaceWhere` и не считается защитой от RCE или украденного runtime-
 credential: роль приложения способна установить custom GUC самостоятельно.
-Полная матрица, специальные потоки, go/no-go и откат находятся в
-`DATABASE_SECURITY_PLAN.md`.
+Полная матрица, специальные потоки, правила изменения схемы и откат находятся
+в `DATABASE_SECURITY.md`.
 
 **Policy-объекты применены 2026-08-21, статус T не повышен.** Миграция
 создаёт одну fail-closed `SECURITY DEFINER` access-функцию с fixed
@@ -931,7 +931,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | A22 | Ветка `production` не может быть удалена | Мгновенная потеря боевой БД | ❌ **невозможно на текущем тарифе**: защита веток — платная функция. Риск принят, компенсация — проверенные дампы |
 | A42 | Сетевой доступ к endpoint Neon чем-то ограничен помимо знания credential | Утёкшая строка подключения работает сразу и с любого адреса: до попытки аутентификации нет ни барьера, ни точки, где попытка была бы видна. Ролевые ограничения сужают ущерб, но не достижимость | ❌ **проверено 08-19** через Neon API: `allowed_ips.ips` пуст, `block_public_connections: false`, `block_vpc_connections: false`. IP Allow и Private Networking — платные функции, на `free_v3` включить нечем; в консоли раздел не отображается вовсе, поэтому проверять допущение можно только через API. Риск принят, компенсации — TLS `verify-full`, least privilege `smartlists_runtime`, отсутствие владельческого credential в приложении (A31). Перепроверить при смене тарифа вместе с A21 и A22, а при публикации приложения — по разделу «При выходе в свет» |
 | A23 | Рабочая машина доверена | Токен `neonctl` с правами ADMIN лежит файлом и читается любым процессом пользователя | ⚠️ опирается на A12/A19; отдельной защиты нет. Браузерная сессия на той же машине даёт те же права, поэтому CLI не расширяет поверхность — но пересматривать эту строку надо вместе с A12 |
-| A43 | Пароли ролей PostgreSQL известны только тому, кто их создавал | `DATABASE_SECURITY_PLAN.md` строит гарантию на том, что пароль жил только в памяти процесса. Если control plane хранит его сам, доступ к консоли или API-ключу выдаёт готовый credential, а не право его сбросить — то есть тихо, без следа в виде смены пароля | ⚠️ **найдено 08-19**: у проекта `store_passwords: true`. `smartlists_runtime`, `smartlists_migrator` и `smartlists_backup` созданы SQL в обход control plane и под reveal, вероятно, не попадают, а `neondb_owner` заведён консолью. Точная проверка требует раскрытия живого пароля, поэтому статус остаётся `unknown`. Практический вывод не зависит от исхода: доступ к Neon Console считать равным компрометации БД — см. A23 и A44 |
+| A43 | Пароли ролей PostgreSQL известны только тому, кто их создавал | `DATABASE_SECURITY.md` строит гарантию на том, что пароль жил только в памяти процесса. Если control plane хранит его сам, доступ к консоли или API-ключу выдаёт готовый credential, а не право его сбросить — то есть тихо, без следа в виде смены пароля | ⚠️ **найдено 08-19**: у проекта `store_passwords: true`. `smartlists_runtime`, `smartlists_migrator` и `smartlists_backup` созданы SQL в обход control plane и под reveal, вероятно, не попадают, а `neondb_owner` заведён консолью. Точная проверка требует раскрытия живого пароля, поэтому статус остаётся `unknown`. Практический вывод не зависит от исхода: доступ к Neon Console считать равным компрометации БД — см. A23 и A44 |
 | A11 | Веток Neon от прода не существует | Неучтённая копия продовых данных | ✅ **проверено 08-09**: только `production` и `dev` |
 | A12 | Круг пользователей мал и все друг другу доверяют | Рушится обоснование половины принятых рисков | ✅ `AllowedEmail` |
 | A13 | Обычные CI checks и dependency install не получают `DIRECT_URL` | Расширение поверхности supply chain | ✅ реальный credential доступен только guarded migration steps и backup workflow; обычные checks работают без него, placeholder тоже удалён |
@@ -944,6 +944,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | A52 | Новая версия зависимости не принимается в день публикации | Вредоносный релиз живёт часы: скомпрометированные `axios` 1.14.1 и 0.30.4 сняли с npm примерно через три часа. Кто обновляется мгновенно — попадает в это окно; кто выдерживает неделю, не видит его вовсе. Обратной стороной выдержка почти ничего не стоит: исправление в версии никуда не денется | ✅ **введено 08-20**: `.github/dependabot.yml` в обоих репозиториях с `cooldown.default-days: 7`. Cooldown действует только на version updates — security-обновления приходят без задержки, и это намеренно. Автомержа нет нигде: зелёный CI закладку не ловит, потому что вредонос ничего не ломает. Мажоры исключены из автоматического потока и делаются вручную |
 | A53 | Audit trail не становится вторым хранилищем пользовательского содержимого и недоступен runtime для чтения/произвольной записи | Журнал сам создаёт privacy blast radius либо позволяет приложению подделать/стереть след | ✅ schema хранит только enum action, timestamp, технические ID, DB role и зарезервированный request ID; writer берёт actor/space из GUC и проверяет форму action, table DML/SELECT и prune runtime запрещены. 180-дневный primary cutoff фиксирован в DB-функции; backups расширяют возможный фактический горизонт примерно до 210 дней. Live catalog audits `32940738136`/`32940740825` и retention runs `33025415884`/`33025570196` подтвердили контроль; оба cron-флага включены |
 | A54 | Security-контроль не теряется внутри общего тестового прогона | Регрессия выглядит как обычный функциональный сбой, а отдельный gate остаётся зелёным из-за неполного набора | ✅ `vitest.security.config.ts` хранит явный manifest control → test; self-contract проверяет существование файлов, npm-команду, CI job, release `needs` и read-only Dependency Review. DB authorization/RLS осознанно остаются в required `integration`, потому что те же сценарии одновременно проверяют функциональность и границы доступа |
+| A55 | Разрешённые docs-only файлы не являются входами build/runtime и не могут подменить исполняемый CI-артефакт | Ошибка классификации дала бы коду новый SHA с пропущенными build, security-static, integration и E2E | ✅ Точный allowlist из шести существующих root-файлов принимает только status `M`, mode `100644`, UTF-8/LF без NUL и полный PR merge-result; add/delete/rename/symlink/executable/смешанный или ошибочный diff дают `full`. Gitleaks, Dependency Review и CodeQL сохраняются. Aggregate `gate` с `always()` разрешает skipped тяжёлые job только в `docs`; classifier и gate покрыты `ci-docs-fast-path.test.ts`. Fast path дополнительно opt-in через `ENABLE_DOCS_ONLY_CI`; инструкции `AGENTS.md`/`CLAUDE.md` всё ещё требуют человеческого ревью, потому что влияют на будущую работу агентов, а не на runtime |
 | A14 | `DEBUG` в Cloud Run не выставлен в `true` | Публикуются `/docs` и `/redoc` | ✅ **проверено 08-09**: переменной нет, `/docs` → 404. Но защиты не даёт — см. A18 |
 | A15 | Процесс FastAPI работает не под root | Сужение ущерба при RCE внутри контейнера | ✅ **закрыто 08-09**: `USER appuser` (uid 10001) в `Dockerfile`. Не путать с изоляцией: metadata-сервер доступен при любом UID — см. A25 |
 | A16 | Число попыток к Anthropic ограничено дефолтом SDK — два повтора | Одна входящая заявка удерживает воркер дольше расчётного | ❌ ничем; меняется вместе с версией `anthropic`. **Перепроверено 08-10** на 0.121.0: по-прежнему два |
@@ -984,7 +985,8 @@ STRIDE спрашивает «может ли злоумышленник что-
 |---|---|---|
 | Секреты | required `secrets`: Gitleaks по всей истории; GitHub secret scanning и push protection включены | non-provider patterns зависят от Gitleaks; уже выданный секрет требует отзыва вручную |
 | Generic SAST | CodeQL default setup для JavaScript/TypeScript и Actions; required threshold — errors/high-or-higher. Последний просмотренный анализ: 87 JS/TS и 17 Actions queries, alerts нет | бизнес-правила ownership/space и состояние внешних консолей generic SAST не понимает |
-| Project-specific static controls | required `security-static`: явный manifest из 23 файлов, на снимке 219 тестов; XSS guard теперь линтит реальный `src` | набор надо осознанно расширять вместе с новым security-контролем; self-contract защищает форму, но не доказывает полноту человеческой классификации |
+| Project-specific static controls | required `security-static`: явный manifest control → test; XSS guard линтит реальный `src`, docs classifier/gate имеют отдельный fail-closed контракт | набор надо осознанно расширять вместе с новым security-контролем; self-contract защищает форму, но не доказывает полноту человеческой классификации |
+| CI routing | aggregate `gate` с `always()` проверяет весь результат; docs-only skip разрешён только точным classifier после opt-in | allowlist опирается на A55; изменения инструкций агентов всё равно требуют содержательного человеческого review |
 | Dependency changes | PR-only Dependency Review, read-only, без checkout/исполнения PR-кода; high/critical блокируются во всех scopes. Dependabot следит за уже известными advisory | неизвестная уязвимость и намеренная закладка без advisory проходят; достижимость известной CVE всё равно требует разбора |
 | Authorization, tenant isolation, RLS | required `integration` и role-integration против настоящего PostgreSQL | job общая, а не отдельная security: это осознанно, потому что те же сценарии доказывают и бизнес-результат, и запрет чужого доступа |
 | Браузерные границы | required `e2e` проверяет OAuth/session surrogate, редиректы, роли и UI-права в полном потоке | настоящий Google OAuth, Pusher transport, S3 и AI provider требуют ручной/целевой проверки |
@@ -1201,7 +1203,7 @@ audit trail rollout завершены и из backlog удалены:
    не постепенно, а ровно в момент снятия whitelist. Поэтому пересматривается
    не сама строка, а список тех, кто на неё опирался.
 2. **Повторно проверить tenant-RLS** и триггеры пересмотра из
-   `DATABASE_SECURITY_PLAN.md`. DB-изоляция уже live, но при изменении модели или
+   `DATABASE_SECURITY.md`. DB-изоляция уже live, но при изменении модели или
    новых прямых запросах её catalog и scoped-контекст надо расширять синхронно.
 3. **Расширить видимость.** Бизнес-аудит уже фиксирует покрытые мутации, но
    подключение с украденным credential может не оставить отдельного следа:

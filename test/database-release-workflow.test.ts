@@ -17,7 +17,7 @@ describe("database release workflow", () => {
       "vars.ENABLE_PRODUCTION_MIGRATION == 'true'",
     );
     expect(ci).toContain(
-      "needs: [security-static, checks, integration, e2e, secrets]",
+      "needs: [security-static, checks, integration, e2e, secrets, gate]",
     );
     expect(productionJob).not.toContain("uses: ./.github/workflows/");
   });

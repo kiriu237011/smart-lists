@@ -50,8 +50,10 @@ describe("static security suite", () => {
     expect(ci).toContain("  security-static:");
     expect(ci).toContain("run: npm run test:security:static");
     expect(ci).toContain(
-      "needs: [security-static, checks, integration, e2e, secrets]",
+      "needs: [security-static, checks, integration, e2e, secrets, gate]",
     );
+    expect(ci).toContain("  gate:");
+    expect(ci).toContain("if: ${{ always() }}");
   });
 
   it("оставляет dependency review только на PR и без write-permissions", () => {
