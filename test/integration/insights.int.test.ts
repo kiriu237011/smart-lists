@@ -440,6 +440,57 @@ describe("контекст AI — границы состава", () => {
   });
 });
 
+describe("контракт ответа AI-сервиса", () => {
+  async function makeAccessibleList() {
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    setSessionUser(user.id);
+    return { user, list };
+  }
+
+  it.each([
+    ["без поля insight", {}],
+    ["с полем другого типа", { insight: 42 }],
+    ["с пустой строкой", { insight: "   " }],
+    ["со строкой длиннее лимита", { insight: "x".repeat(20_001) }],
+  ])("отклоняет ответ %s", async (_caseName, responseData) => {
+    const { user, list } = await makeAccessibleList();
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => responseData,
+    });
+
+    const result = await getListInsight(
+      list.id,
+      undefined,
+      user.defaultSpaceId,
+    );
+
+    expect(result).toEqual({ error: "Service error" });
+  });
+
+  it("не относит невалидный JSON к сетевой ошибке", async () => {
+    const { user, list } = await makeAccessibleList();
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError("invalid JSON");
+      },
+    });
+
+    const result = await getListInsight(
+      list.id,
+      undefined,
+      user.defaultSpaceId,
+    );
+
+    expect(result).toEqual({ error: "Service error" });
+  });
+});
+
 describe("контекст AI — группы", () => {
   it("шлёт группы вызывающего в том порядке, в каком тот их видит", async () => {
     const user = await makeUser();
