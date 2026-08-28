@@ -2,8 +2,10 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-28 (Next.js обновлён до security-релиза `16.3.3`;
-добавлена runtime-валидация ответа AI-сервиса)
+**Последнее обновление:** 2026-08-28 (аудит цепочки поставок, SBOM и лицензий:
+проприетарные `LICENSE`, установка без хуков на сборке Vercel, тесты на дрейф
+пинов и requirements, выровненные Dependency Review и ruleset обоих
+репозиториев)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -18,12 +20,13 @@ Smart Lists — локализованное веб-приложение для 
 ## Актуальный стек
 
 - Next.js `16.3.3`, App Router, Server Components и Server Actions;
-- React `19.2.8`, TypeScript strict, Tailwind CSS 4, Framer Motion и dnd-kit;
-- Auth.js v5 с Google OAuth и Prisma Adapter;
+- React `19.2.8`, TypeScript strict, Tailwind CSS 4, Framer Motion `13.1.1` и dnd-kit;
+- Auth.js v5 с Google OAuth, Prisma Adapter и `@vercel/oidc` `3.8.5`;
 - Prisma `7.9.1`, генератор `prisma-client`, `@prisma/adapter-pg` и PostgreSQL;
 - runtime-пул `pg`: максимум 5 соединений на экземпляр, connect timeout 5 секунд, idle timeout 10 секунд;
-- `next-intl`: `ru`, `vi`, `en`, `ja`; default locale — `en`;
-- Pusher, приватный S3-бакет и внешний FastAPI-сервис AI-инсайтов;
+- `next-intl` `4.13.7`: `ru`, `vi`, `en`, `ja`; default locale — `en`;
+- Pusher, приватный S3-бакет через AWS SDK `3.1115.0` и внешний FastAPI-сервис
+  AI-инсайтов;
 - Zod, Pino, React Hot Toast, `next-themes` и `lucide-react`;
 - Vitest — юнит-тесты чистых функций и схем валидации;
 - React Markdown — только для ответов AI-инсайтов; остальной пользовательский текст разметку не разбирает;
@@ -1130,6 +1133,41 @@ lock `npm ci` на раннере падает с «Missing … from lock file»
 Устанавливать в контейнере нужно в его собственную ФС, а не в смонтированный
 Windows-том: bind-mount в Docker Desktop пишет тысячи файлов мучительно долго.
 
+### Цепочка поставок и лицензии
+
+- Зависимости ставятся без install-хуков на **всех шести** поверхностях: пять
+  workflow через `npm ci --ignore-scripts` и сборка Vercel через
+  `installCommand` в `vercel.json`. Флаг гасит и собственный `postinstall`,
+  поэтому `buildCommand` вызывает `prisma generate` явно. Генерация к БД не
+  подключается; миграции по-прежнему только в release-job.
+- Все `uses:` в обоих репозиториях закреплены полным SHA с комментарием версии.
+  Закреплено тестами `workflow-action-pins.test.ts` и `TestActionPins`, а не
+  договорённостью: до 08-28 пины стояли, но добавить плавающий тег ничто не
+  мешало.
+- Dependency Review работает на PR в обоих репозиториях: `fail-on-severity:
+  high`, все scopes, `deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0, SSPL-1.0`.
+  LGPL намеренно не запрещена — под ней идут 13 пакетов
+  `@img/sharp-libvips-*`, которые тянет `next`, а при хостинге copyleft
+  обязательств не создаёт.
+- Ruleset `Protect main` выровнен между репозиториями 08-28: PR обязателен,
+  bypass-акторов нет, контексты привязаны к GitHub Actions через
+  `integration_id`, `strict` требует актуальной базы, CodeQL блокирует мерж по
+  порогу errors/high-or-higher. Ruleset живёт в настройках GitHub и в
+  репозитории не хранится — сверять вручную.
+- Оба репозитория публичны и проприетарны: `LICENSE` с «все права защищены» и
+  отказом от гарантий, `"license": "SEE LICENSE IN LICENSE"` в `package.json`.
+  `LICENSE` и `README.md` — единственные файлы на английском.
+- Известные пробелы: provenance не проверяется нигде; уязвимость, опубликованная
+  между выкладками образа сервиса, не видна никому. Второе ведётся отдельной
+  задачей из четырёх этапов в `THREAT_MODEL.md`, первый этап — еженедельный
+  `grype` по расписанию.
+- `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
+  опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
+  432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
+  они не попадают — проверено по trace-файлам output file tracing. Важно другое:
+  GitHub классифицирует такие алерты как `development` и гасит их
+  преднастроенным правилом Dependabot.
+
 ### Бэкап базы
 
 `.github/workflows/backup.yml` ежедневно снимает `pg_dump -Fc` и кладёт его в
@@ -1168,6 +1206,14 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-28: после семидневной выдержки и ручной сверки опубликованных
+  артефактов слиты Dependabot PR №127 (`@vercel/oidc` `3.8.5`, Framer Motion
+  `13.1.1`, `next-intl` `4.13.7`) и №114 (AWS SDK S3 `3.1115.0`). Обновления
+  применены последовательно; каждый merge прошёл полный CI, Dependency Review,
+  CodeQL и Vercel deployment. Runtime-код `@vercel/oidc` не изменился, а S3-
+  контракт приложения сохранил явные credentials, presigned TTL 5 минут и
+  `HeadObject` перед `UPLOADED`. Новых сервисов, прав и границ доверия нет;
+  реальный S3-поток остаётся ручным smoke-тестом внешней интеграции.
 - 2026-08-21: PR №103 слит в `main` как `e15d883`. Production CI run
   `32443454219` и Preview sync run `32443735539` прошли target guards и
   применили attachment maintenance плюс tenant policy migration. Первая
