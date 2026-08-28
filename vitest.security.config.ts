@@ -47,6 +47,7 @@ export const staticSecuritySuites = [
     controls: ["tenant-rls-release"],
   },
   { path: "test/vercel-build-cutover.test.ts", controls: ["A31", "A32"] },
+  { path: "test/workflow-action-pins.test.ts", controls: ["A60"] },
 ] as const;
 
 export const staticSecurityTestPaths = staticSecuritySuites.map(
