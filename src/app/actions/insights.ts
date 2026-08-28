@@ -23,6 +23,8 @@
 
 "use server";
 
+import { z } from "zod";
+
 import { auth } from "@/auth";
 import { listInSpaceWhere } from "@/lib/spaces";
 import { getCloudRunIdToken } from "@/lib/gcp-auth";
@@ -44,6 +46,13 @@ import {
 
 /** Максимальная длина пользовательского вопроса (символов). */
 const MAX_USER_MESSAGE_LENGTH = 500;
+
+/** Запас над ожидаемым ответом Anthropic при `max_tokens=2048`. */
+const MAX_INSIGHT_RESPONSE_LENGTH = 20_000;
+
+const insightResponseSchema = z.object({
+  insight: z.string().trim().min(1).max(MAX_INSIGHT_RESPONSE_LENGTH),
+});
 
 /** Максимальное количество AI-инсайтов в день на пользователя. */
 const DAILY_INSIGHT_LIMIT = 15;
@@ -414,10 +423,29 @@ export async function getListInsight(
       return { error: "Service error" };
     }
 
-    const data = (await response.json()) as { insight: string };
+    let responseData: unknown;
+    try {
+      responseData = await response.json();
+    } catch {
+      logger.error(
+        { uid: hashId(userId), listId, action: "getListInsight" },
+        "AI-сервис вернул невалидный JSON",
+      );
+      return { error: "Service error" };
+    }
+
+    const parsedResponse = insightResponseSchema.safeParse(responseData);
+    if (!parsedResponse.success) {
+      logger.error(
+        { uid: hashId(userId), listId, action: "getListInsight" },
+        "AI-сервис вернул ответ вне контракта",
+      );
+      return { error: "Service error" };
+    }
+
     logger.info({ uid: hashId(userId), listId, action: "getListInsight" }, "AI-инсайт получен");
     return {
-      insight: data.insight,
+      insight: parsedResponse.data.insight,
       notesContext: { includedItemNotes, omittedItemNotes },
     };
   } catch (error) {

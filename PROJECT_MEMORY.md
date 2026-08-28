@@ -2,8 +2,8 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-27 (tenant-RLS и audit trail полностью live;
-scheduled retention включён; security-проверки разделены и проаудированы)
+**Последнее обновление:** 2026-08-28 (Next.js обновлён до security-релиза `16.3.3`;
+добавлена runtime-валидация ответа AI-сервиса)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -17,7 +17,7 @@ Smart Lists — локализованное веб-приложение для 
 
 ## Актуальный стек
 
-- Next.js `16.3.1`, App Router, Server Components и Server Actions;
+- Next.js `16.3.3`, App Router, Server Components и Server Actions;
 - React `19.2.8`, TypeScript strict, Tailwind CSS 4, Framer Motion и dnd-kit;
 - Auth.js v5 с Google OAuth и Prisma Adapter;
 - Prisma `7.9.1`, генератор `prisma-client`, `@prisma/adapter-pg` и PostgreSQL;
@@ -48,14 +48,14 @@ Smart Lists — локализованное веб-приложение для 
 - `src/proxy.ts` — locale middleware-механизм Next.js 16;
 - `next.config.ts` — next-intl и security headers;
 - `vitest.config.ts` и `test/stubs/` — конфигурация юнит-тестов;
-- `.github/workflows/` — CI-проверки, fail-closed подготовка release-миграций,
-  ручной read-only аудит catalog, именованные Preview/Production tenant-RLS
-  переходы, opt-in audit retention, синхронизация Preview
-  OAuth proxy и ежедневный бэкап БД в S3;
+- `.github/workflows/` — полный post-merge CI и fail-closed быстрый путь PR с
+  изменениями только разрешённой документации, release-миграции, read-only
+  catalog audit, Preview/Production tenant-RLS переходы, audit retention,
+  синхронизация Preview OAuth proxy и ежедневный бэкап БД в S3;
 - `THREAT_MODEL.md` — модель угроз (STRIDE + LINDDUN), реестр допущений и план;
   ведётся вместе с кодом, правила — в `AGENTS.md`.
-- `DATABASE_SECURITY_PLAN.md` — staged-план Postgres least privilege и
-  tenant-RLS: матрица доступа, специальные потоки, go/no-go и откат.
+- `DATABASE_SECURITY.md` — действующие Postgres least-privilege/RLS инварианты,
+  специальные потоки, правила изменения схемы и аварийный откат.
 
 ## Модель данных и права доступа
 
@@ -86,6 +86,16 @@ Smart Lists — локализованное веб-приложение для 
   `ENABLE_PRODUCTION_AUDIT_RETENTION` включены после успешных ручных запусков в
   обеих средах. Дампы могут продлить фактическое хранение события примерно до
   210 дней.
+- 2026-08-28 CI feature-веток переведён с проверки каждого push на полный diff
+  `pull_request`; post-merge push в `main` по-прежнему всегда проходит полный
+  release gate. Классификатор разрешает быстрый путь только для обычной
+  модификации шести точных root Markdown-файлов с mode `100644`, UTF-8/LF и без
+  NUL; добавление, удаление, rename, symlink, исполняемый mode, смешанный или
+  ошибочный diff дают полный CI. Docs PR сохраняет Gitleaks, Dependency Review
+  и CodeQL, а aggregate `gate` с `always()` принимает skipped тяжёлые job только
+  в доказанном docs-режиме. После зелёных PR №128 и post-merge run `33133159737`
+  `gate` добавлен седьмым required check без удаления прежних шести, а repository
+  variable `ENABLE_DOCS_ONLY_CI=true` включает быстрый путь.
 - 2026-08-27 PR №123 merged в `main@b2a18741`. Свежий Production backup
   `32940054034`, post-merge CI с Production migration `32940313066`, Sync
   Preview Proxy с Preview migration `32940577751` и оба Vercel deployment
@@ -543,6 +553,12 @@ Smart Lists — локализованное веб-приложение для 
   адресована участнику, который список не создавал: узнать об отправке ему
   больше неоткуда.
 - Вопрос ограничен 500 символами.
+- Ответ FastAPI проверяется Zod-схемой после JSON-разбора: `insight` обязан быть
+  непустой строкой не длиннее 20 000 символов. Невалидный JSON и нарушение
+  контракта дают общую ошибку сервиса без записи тела ответа в лог. Это не
+  потоковый лимит HTTP-body: тело целиком читает `response.json()`; остаточный
+  риск принят для приватного IAM-защищённого сервиса, где генерация Anthropic
+  дополнительно ограничена `max_tokens=2048`.
 - В контекст входят группы, в которых состоит список, — до 20 названий по 100
   символов. Только группы вызывающего: группы персональные, и без фильтра по
   `userId` личная организация одного участника расшаренного списка уехала бы в
@@ -973,12 +989,27 @@ OAuth. Следствие: колбэк `signIn` E2E не покрывает —
 
 ### CI
 
-`.github/workflows/ci.yml` запускает пять основных job на каждый push обычной
-ветки и на pull request из форка или от Dependabot. Для внутренних
-пользовательских веток pull_request-прогон этих job пропускается как дубль
-push-прогона; для `dependabot/**`, наоборот, push отключён, потому что бот его
-не создаёт, и используется pull_request-прогон. На каждом PR отдельно работает
-`dependency-review`.
+`.github/workflows/ci.yml` проверяет feature-ветки только по событию
+`pull_request`, чтобы решение относилось ко всему итоговому diff PR, а не к
+последнему push. Событие `push` ограничено `main` и остаётся полным post-merge
+release gate; `workflow_dispatch` также всегда полный.
+
+Первая job `classify` по умолчанию возвращает `full`. Быстрый режим требует
+repository variable `ENABLE_DOCS_ONLY_CI=true`, события `pull_request` и только
+обычных модификаций точного allowlist: `AGENTS.md`, `CLAUDE.md`,
+`DATABASE_SECURITY.md`, `PROJECT_MEMORY.md`, `README.md`, `THREAT_MODEL.md`.
+Проверяется полный merge-result относительно base SHA, status `M`, mode
+`100644`, UTF-8, LF, отсутствие NUL и размер до 1 MiB. Ошибка Git, пустой diff,
+новый/удалённый/переименованный файл, symlink, executable mode или любой другой
+путь fail-closed выбирают `full`.
+
+В режиме `docs` отдельная job выполняет `git diff --check`, продолжают работать
+`secrets`, `dependency-review` и внешний CodeQL, а `security-static`, `checks`,
+`integration` и `e2e` получают `skipped`. Job `gate` запускается с `always()` и
+проверяет результаты явно: skipped тяжёлой job допустим только в `docs`, а в
+`full` каждая обязана иметь `success`. Production migration на `main` ждёт и
+прежние gates, и новый aggregate `gate`.
+
 `security-static` — явно перечисленный в `vitest.security.config.ts` быстрый
 набор project-specific security-контрактов без БД и внешних сервисов. Он виден
 отдельным gate, но пока намеренно остаётся и в полном `npm test`: разделение
@@ -1319,7 +1350,7 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   credential. Отдельно учтены default-space получателя при шаринге, DB-free
   realtime `after()`, stale `PENDING` attachments и Auth.js до появления
   пользовательского контекста. Детали и откат — в
-  `DATABASE_SECURITY_PLAN.md`.
+  `DATABASE_SECURITY.md`.
 - 2026-08-13: подготовлен этап runtime least privilege без RLS. По фактическим
   Prisma/Auth.js/raw SQL обращениям зафиксирована точная DML-матрица; runtime
   не получает DDL, ownership, role attributes, membership, доступ к
@@ -1350,7 +1381,7 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
   последовательных Preview, Production и backup cutovers. Локальный тест
   подтвердил ownership новых объектов, сохранение runtime ACL и полный dump
   при forced RLS. Инфраструктура на design-подэтапе не менялась; точный порядок
-  и rollback записаны в `DATABASE_SECURITY_PLAN.md`.
+  и rollback записаны в `DATABASE_SECURITY.md`.
 - 2026-08-13: implementation-подэтап owner/migrator/backup подготовлен без
   изменения Neon. Единый fail-closed contract перечисляет 15 таблиц, три enum
   и пустые разрешённые наборы sequences/views/routines/domains; новая сущность

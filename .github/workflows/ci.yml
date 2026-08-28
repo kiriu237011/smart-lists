@@ -1,20 +1,12 @@
 name: CI
 
-# Проверка каждой ветки и каждого PR. По умолчанию ничего не деплоит и не
-# трогает боевые ресурсы. Подготовленная production migration job доступна
-# только для push в main, после всех проверок и при явном repository flag.
-# Vercel build не применяет миграции и ждёт эту job через Deployment Check.
-#
-# Обычная ветка внутри репозитория уже покрыта событием `push`, поэтому её PR
-# иначе дал бы второй прогон того же коммита. Исключение — ветки Dependabot:
-# бот не создаёт для них push-прогон, поэтому `push` для префикса отключён, а
-# `pull_request` разрешён. Он также остаётся для форков, где push недоступен.
-# Статус виден в PR, потому что проверки привязаны к коммиту, а не к событию.
+# Feature-ветки проверяются по полному итоговому diff PR, а не по последнему
+# push: иначе code commit с последующим docs commit мог бы получить быстрый
+# статус на новом SHA. Push в main остаётся полным post-merge release gate.
+# По умолчанию workflow ничего не деплоит и не трогает боевые ресурсы.
 on:
   push:
-    # Dependabot не создаёт отдельный push-прогон, а ручной коммит в его ветку
-    # иначе дал бы дубль вместе с разрешённым ниже pull_request-прогоном.
-    branches-ignore: ['dependabot/**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -28,13 +20,53 @@ permissions:
   contents: read
 
 jobs:
+  # Классификатор работает fail-closed и использует полный merge-result PR.
+  # До отдельного включения repository variable любой diff считается полным:
+  # это позволяет сначала влить и сделать `gate` обязательным, не открывая окно
+  # между кодом workflow и внешней настройкой ruleset.
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+      reason: ${{ steps.classify.outputs.reason }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Classify complete change set
+        id: classify
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_DOCS_FAST_PATH_ENABLED: ${{ vars.ENABLE_DOCS_ONLY_CI }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.sha }}
+        run: node scripts/ci-policy.mjs classify
+
+  docs:
+    runs-on: ubuntu-latest
+    needs: classify
+    if: needs.classify.outputs.mode == 'docs'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate documentation diff
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.sha }}
+        run: git diff --check "${CI_BASE_SHA}" "${CI_HEAD_SHA}" --
+
   # Быстрые project-specific security-контракты видны отдельно от обычных
   # unit-тестов. Пока набор намеренно дублируется в npm test: сначала gate
   # должен доказать стабильность, и только потом можно обсуждать оптимизацию.
   security-static:
     runs-on: ubuntu-latest
-    # Та же дедупликация, что у обычных проверок ниже.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
+    needs: classify
+    if: needs.classify.outputs.mode == 'full'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,8 +84,8 @@ jobs:
 
   checks:
     runs-on: ubuntu-latest
-    # Свои ветки проверяет `push`; здесь остаются PR из форков и от Dependabot.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
+    needs: classify
+    if: needs.classify.outputs.mode == 'full'
 
     # Заведомо нерабочие значения. DATABASE_URL нужен импортируемому runtime-
     # коду, а Next при сборке подставляет NEXT_PUBLIC_* в бандл.
@@ -103,8 +135,8 @@ jobs:
   # эфемерной базе service-контейнера, а не к боевой.
   integration:
     runs-on: ubuntu-latest
-    # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
+    needs: classify
+    if: needs.classify.outputs.mode == 'full'
 
     services:
       postgres:
@@ -147,8 +179,8 @@ jobs:
   # тоже эфемерный service-контейнер; боевые ресурсы не затрагиваются.
   e2e:
     runs-on: ubuntu-latest
-    # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
+    needs: classify
+    if: needs.classify.outputs.mode == 'full'
 
     # Здоровый прогон укладывается в 3 минуты. Потолок нужен не ради экономии,
     # а чтобы зависший шаг падал сам: без него job ждёт отмены руками, а
@@ -235,8 +267,6 @@ jobs:
   # проверка нужна и на PR со стороны.
   secrets:
     runs-on: ubuntu-latest
-    # Дедупликация прогонов — см. комментарий к триггерам вверху файла.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login == 'dependabot[bot]'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -282,6 +312,39 @@ jobs:
           fail-on-scopes: runtime, development, unknown
           comment-summary-in-pr: never
 
+  # Единственная агрегирующая точка принимает skipped тяжёлые job только после
+  # fail-closed docs-классификации. `always()` не даёт GitHub автоматически
+  # пропустить required gate после падения или skip одной из зависимостей.
+  gate:
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - classify
+      - docs
+      - security-static
+      - checks
+      - integration
+      - e2e
+      - secrets
+      - dependency-review
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify aggregate CI result
+        env:
+          CI_MODE: ${{ needs.classify.outputs.mode }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_CLASSIFY_RESULT: ${{ needs.classify.result }}
+          CI_DOCS_RESULT: ${{ needs.docs.result }}
+          CI_SECURITY_STATIC_RESULT: ${{ needs['security-static'].result }}
+          CI_CHECKS_RESULT: ${{ needs.checks.result }}
+          CI_INTEGRATION_RESULT: ${{ needs.integration.result }}
+          CI_E2E_RESULT: ${{ needs.e2e.result }}
+          CI_SECRETS_RESULT: ${{ needs.secrets.result }}
+          CI_DEPENDENCY_REVIEW_RESULT: ${{ needs['dependency-review'].result }}
+        run: node scripts/ci-policy.mjs gate
+
   # Release-job включается только явной repository variable. Она встроена в
   # этот workflow: первый main-прогон показал, что Environment secrets внутри
   # reusable workflow пришли пустыми. Здесь environment и потребляющие секреты
@@ -293,7 +356,7 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       vars.ENABLE_PRODUCTION_MIGRATION == 'true'
-    needs: [security-static, checks, integration, e2e, secrets]
+    needs: [security-static, checks, integration, e2e, secrets, gate]
     permissions:
       contents: read
     environment: Production
