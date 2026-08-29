@@ -555,6 +555,10 @@ Smart Lists — локализованное веб-приложение для 
   `application/vnd.cyclonedx+json`. Отдельной истории нет: при удалении image
   cleanup удаляет и его SBOM. Это опись, не подпись; provenance остаётся
   отдельной задачей.
+- Первый production run с этим контролем — `33251609209` от 2026-08-29 —
+  создал attachment для `sha256:b5e2b41c…41a6` до успешного Cloud Run deploy.
+  Скачанный обратно файл: CycloneDX 1.6, Syft 1.51.0, 2858 components,
+  1 083 779 байт; `metadata.component.version` точно совпадает с target digest.
 - Первый ручной run `33238953019` от 2026-08-29 проверил рабочий digest
   `sha256:990201…9263`: WIF, обновление Grype DB, чтение Cloud Run и Artifact
   Registry прошли; gate ожидаемо красный на 7 Critical + 20 High совпадениях
