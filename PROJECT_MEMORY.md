@@ -2,10 +2,9 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-28 (аудит цепочки поставок, SBOM и лицензий:
-проприетарные `LICENSE`, установка без хуков на сборке Vercel, тесты на дрейф
-пинов и requirements, выровненные Dependency Review и ruleset обоих
-репозиториев)
+**Последнее обновление:** 2026-08-29 (этап 1 SBOM-плана: периодический
+fail-closed Grype по работающим Cloud Run digest, отдельная read-only GCP
+identity и полный IAM-инвентарь AI-сервиса)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -541,6 +540,17 @@ Smart Lists — локализованное веб-приложение для 
   `artifactregistry.googleapis.com` включён только audit-log `DATA_WRITE`,
   чтобы проверить `BatchDeleteVersions` с `validateOnly=true` до перехода к
   реальному удалению.
+- Еженедельный `image-scan.yml` FastAPI-репозитория читает фактически
+  обслуживающие traffic/tagged revisions Cloud Run и сканирует каждый
+  уникальный immutable digest свежей базой Grype. High/Critical и техническая
+  ошибка делают job красной; JSON-отчёты хранятся 30 дней. Для job создан
+  keyless `github-image-scanner`: только `run.viewer` и repository-level
+  `artifactregistry.reader`, без deploy/write.
+- IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
+  `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
+  `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
+  ключей нет. У deployer удалён лишний `serviceAccountUser` на Default Compute
+  SA и оставлен только на `insights-api-runtime`.
 - Токен едет в обычном `Authorization`. Cloud Run принимает и `X-Serverless-Authorization`, но из него вырезает подпись перед передачей контейнеру — сервис получил бы claims, которые не может проверить. Из `Authorization` токен доходит целым, и второй слой становится настоящим.
 - Токен выпускает `src/lib/gcp-auth.ts`: OIDC-токен Vercel меняется в Workload Identity Federation на право говорить от имени `vercel-insights-invoker`, тот выпускает ID-токен с audience равным базовому URL сервиса. Долгоживущих ключей нет. Провайдер пускает ровно одну среду — `production` этого проекта, — а у service account есть право звать единственный сервис `insights-api`.
 - Без токена запрос не отправляется вовсе: Action возвращает ошибку конфигурации. Отправлять было бы бессмысленно — Cloud Run откажет гарантированно, — а в логе должна быть видна сломанная федерация, а не безымянный 403 из сети.
@@ -1157,10 +1167,11 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
 - Оба репозитория публичны и проприетарны: `LICENSE` с «все права защищены» и
   отказом от гарантий, `"license": "SEE LICENSE IN LICENSE"` в `package.json`.
   `LICENSE` и `README.md` — единственные файлы на английском.
-- Известные пробелы: provenance не проверяется нигде; уязвимость, опубликованная
-  между выкладками образа сервиса, не видна никому. Второе ведётся отдельной
-  задачей из четырёх этапов в `THREAT_MODEL.md`, первый этап — еженедельный
-  `grype` по расписанию.
+- Известный пробел: provenance не проверяется нигде и остаётся отдельной
+  задачей. Видимость CVE между выкладками закрывает этап 1 SBOM-плана —
+  еженедельный fail-closed Grype по фактическим Cloud Run digest. Следующий
+  этап, ещё не начатый, — CycloneDX JSON 1.6 attachment от Syft без отдельной
+  истории удалённых образов; Dependency-Track сознательно не внедряется.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
