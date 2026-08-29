@@ -546,6 +546,11 @@ Smart Lists — локализованное веб-приложение для 
   ошибка делают job красной; JSON-отчёты хранятся 30 дней. Для job создан
   keyless `github-image-scanner`: только `run.viewer` и repository-level
   `artifactregistry.reader`, без deploy/write.
+- Первый ручной run `33238953019` от 2026-08-29 проверил рабочий digest
+  `sha256:990201…9263`: WIF, обновление Grype DB, чтение Cloud Run и Artifact
+  Registry прошли; gate ожидаемо красный на 7 Critical + 20 High совпадениях
+  (6 и 15 уникальных CVE). Все относятся к базовым Debian-пакетам и имеют
+  `not-fixed`/`wont-fix`; JSON-отчёт успешно сохранён. Исключений ещё нет.
 - IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
   `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
   `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
