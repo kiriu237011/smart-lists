@@ -2,9 +2,8 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-29 (этап 1 SBOM-плана: периодический
-fail-closed Grype по работающим Cloud Run digest, отдельная read-only GCP
-identity и полный IAM-инвентарь AI-сервиса)
+**Последнее обновление:** 2026-08-29 (этап 2 SBOM-плана: CycloneDX JSON 1.6
+по FastAPI image digest и Artifact Registry attachment до deploy)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -546,6 +545,16 @@ Smart Lists — локализованное веб-приложение для 
   ошибка делают job красной; JSON-отчёты хранятся 30 дней. Для job создан
   keyless `github-image-scanner`: только `run.viewer` и repository-level
   `artifactregistry.reader`, без deploy/write.
+- В FastAPI deploy после push и до Cloud Run Syft 1.51.0 строит CycloneDX JSON
+  1.6 из `${IMAGE}@${digest}`. Workflow проверяет checksum инструмента, формат,
+  непустой состав и связь metadata с тем же digest, затем fail-closed
+  прикрепляет документ к canonical Artifact Registry Version. Новых IAM-прав
+  нет: это делает существующий `github-deployer` с уже необходимым для image
+  push `artifactregistry.writer`.
+- Attachment идемпотентен для digest и имеет media type
+  `application/vnd.cyclonedx+json`. Отдельной истории нет: при удалении image
+  cleanup удаляет и его SBOM. Это опись, не подпись; provenance остаётся
+  отдельной задачей.
 - Первый ручной run `33238953019` от 2026-08-29 проверил рабочий digest
   `sha256:990201…9263`: WIF, обновление Grype DB, чтение Cloud Run и Artifact
   Registry прошли; gate ожидаемо красный на 7 Critical + 20 High совпадениях
@@ -1174,9 +1183,9 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   `LICENSE` и `README.md` — единственные файлы на английском.
 - Известный пробел: provenance не проверяется нигде и остаётся отдельной
   задачей. Видимость CVE между выкладками закрывает этап 1 SBOM-плана —
-  еженедельный fail-closed Grype по фактическим Cloud Run digest. Следующий
-  этап, ещё не начатый, — CycloneDX JSON 1.6 attachment от Syft без отдельной
-  истории удалённых образов; Dependency-Track сознательно не внедряется.
+  еженедельный fail-closed Grype по фактическим Cloud Run digest. Этап 2
+  реализует CycloneDX JSON 1.6 attachment от Syft без отдельной истории
+  удалённых образов; Dependency-Track сознательно не внедряется.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
@@ -1222,6 +1231,13 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-29: SBOM FastAPI строится из финального immutable image digest, а не
+  из checkout или `requirements.txt`, поэтому в опись входит и базовый Debian.
+  Проверенный CycloneDX JSON 1.6 прикрепляется к самой версии образа до deploy;
+  attachment живёт ровно столько же, сколько target. Новый service account не
+  создан: существующий `github-deployer` уже имел необходимые права внутри
+  `smart-lists`. Artifact Registry attachments пока Pre-GA и становятся
+  fail-closed зависимостью deploy — это принято ради запрета выкладки без SBOM.
 - 2026-08-28: после семидневной выдержки и ручной сверки опубликованных
   артефактов слиты Dependabot PR №127 (`@vercel/oidc` `3.8.5`, Framer Motion
   `13.1.1`, `next-intl` `4.13.7`) и №114 (AWS SDK S3 `3.1115.0`). Обновления
