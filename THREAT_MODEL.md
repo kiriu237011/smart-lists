@@ -15,7 +15,8 @@ OIDC, UI/i18n и AWS SDK S3 без изменения границ довери�
 2026-08-29 — этапы 1–3 SBOM-плана: recurring scan, CycloneDX attachment и
 репозиторная политика VEX/waiver с exact-match gate; 2026-08-30 — production
 проверка этапа 3 на новом digest и сохранение raw/policy/summary artifact,
-этап 4 — эксплуатационный runbook и policy-only rescan без смены digest
+этап 4 — эксплуатационный runbook и policy-only rescan без смены digest;
+2026-08-30 — offline runtime evidence конфигурации и rootfs exact FastAPI digest
 
 **Последняя проверка живой инфраструктуры:** 2026-08-13 (полная); 2026-08-19 —
 точечно: сетевые настройки проекта Neon и доступ к аккаунту Neon; 2026-08-21 —
@@ -60,7 +61,8 @@ Default Compute SA
 - цепочка поставок: установка не исполняет чужой код на всех шести поверхностях,
   Actions закреплены по SHA под тестом, Dependency Review и merge gating есть в
   обоих репозиториях. Уязвимости образа между выкладками видит периодический
-  Grype; доказанные `not_affected` и временно принятый риск разделены VEX/waiver.
+  Grype; факты для `not_affected` снимаются с exact image без его запуска, а
+  доказанные `not_affected` и временно принятый риск разделены VEX/waiver.
   Открыто — provenance не проверяется;
 - полный deployment-time разбор не выполнен: границы GitHub Actions рассмотрены
   для бэкапов, автоматической синхронизации Preview OAuth proxy, Preview tenant-
@@ -200,7 +202,7 @@ FastAPI к базе не обращается: весь контекст соб�
 
 **Почему `production-migration` не разнесена на две job.** Идея разносить установку зависимостей и шаги с `DIRECT_URL` разбиралась 2026-08-20 и отклонена как не дающая выигрыша. Разбор по фактам: установка после A51 не исполняет чужой код вовсе; guard-скрипт `verify-release-database.mjs` — 49 строк без единого импорта, то есть шаг с боевым credential не трогает `node_modules`; единственный шаг, исполняющий чужой код с `DIRECT_URL`, — сама `prisma migrate deploy`, и она обязана. «Установлено» при этом не равно «исполнено»: в job ставится 754 пакета из 889 записей lock, а загружается только дерево prisma. Целостность установленного проверяет `npm ci` по `integrity` sha512, которые есть у 883 записи из 889 — без них ровно шесть, все вложены в опциональный `@tailwindcss/oxide-wasm32-wasi` и из этой job недостижимы. Остаточный риск — принятие вредоносной новой версии prisma — закрывается выдержкой A52, а не разнесением job.
 
-**Путь образа сервиса** — отдельный участок той же границы: `Dockerfile` → GitHub Actions → Artifact Registry → Cloud Run. Разобран 2026-08-20 сканированием фактически собранного и фактически задеплоенного образа. Строки реестра A46–A48 и A50 фиксируют результат: происхождение образов в compose, актуальность пакетов базового Debian, адресацию выкладки по digest и целостность артефактов зависимостей. С 2026-08-29 второй путь идёт в обратную сторону: scheduled GitHub job читает фактически обслуживающие ревизии Cloud Run, разрешает их только в ожидаемые immutable digest и сканирует каждый образ свежей базой Grype; см. A62. Перед новым deploy тот же immutable digest теперь становится источником CycloneDX 1.6 SBOM, а проверенный документ прикрепляется к версии в Artifact Registry; см. TB12/A64.
+**Путь образа сервиса** — отдельный участок той же границы: `Dockerfile` → GitHub Actions → Artifact Registry → Cloud Run. Разобран 2026-08-20 сканированием фактически собранного и фактически задеплоенного образа. Строки реестра A46–A48 и A50 фиксируют результат: происхождение образов в compose, актуальность пакетов базового Debian, адресацию выкладки по digest и целостность артефактов зависимостей. С 2026-08-29 второй путь идёт в обратную сторону: scheduled GitHub job читает фактически обслуживающие ревизии Cloud Run, разрешает их только в ожидаемые immutable digest и сканирует каждый образ свежей базой Grype; см. A62. С 2026-08-30 тот же job без `docker run` читает inspect и exported rootfs exact digest, чтобы VEX опирался на байты образа, а не checkout; см. A66. Перед новым deploy тот же immutable digest становится источником CycloneDX 1.6 SBOM, а проверенный документ прикрепляется к версии в Artifact Registry; см. TB12/A64.
 
 С 2026-08-20 cleanup policy реестра работает в dry-run: сохраняет всё моложе
 30 дней и не меньше 10 последних версий, остальные версии только отмечает к
@@ -226,7 +228,7 @@ Cloud Run развёрнут по свежему digest и защищён обе
 | TB8 | GitHub Actions → S3 / прод | OIDC, `sub` привязан к `main`, роль только `s3:PutObject` |
 | TB9 | GitHub Actions → ветка `preview` → Vercel Preview | отдельный workflow без секретов; только успешный `push`-CI на `main`; merge ровно проверенного SHA; явный push только в `preview` |
 | TB10 | GitHub Actions → Neon Preview enforcement | только `main`, жёсткий Environment `preview`, exact-host guard, именованные однотабличные enable/rollback операции, полный catalog/role contract, транзакция и общий lock с Preview migration |
-| TB11 | GitHub Actions → Cloud Run metadata / Artifact Registry image | OIDC только из repository ID `1199475908` и `main`; отдельный `github-image-scanner` с `run.viewer` и repository-level `artifactregistry.reader`; digest обязан принадлежать ожидаемому image path |
+| TB11 | GitHub Actions → Cloud Run metadata / Artifact Registry image | OIDC только из repository ID `1199475908` и `main`; отдельный `github-image-scanner` с `run.viewer` и repository-level `artifactregistry.reader`; digest обязан принадлежать ожидаемому image path; образ только скачивается и offline-инспектируется, но не запускается |
 | TB12 | GitHub deploy job → Artifact Registry SBOM attachment | существующий keyless `github-deployer`; SBOM строится только по build digest, проверяется как CycloneDX 1.6 и как container component того же digest; attachment target сверяется с canonical Version resource name до Cloud Run deploy |
 
 ### IAM-identities AI-сервиса
@@ -1012,6 +1014,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | A63 | Деплойная identity может назначить контейнеру только предназначенный runtime service account | `serviceAccountUser` на более сильной identity позволяет обойти её прямые ограничения простым `--service-account` при deploy | ✅ **проверено и сужено 08-29.** У `github-deployer` оставлен `serviceAccountUser` только на `insights-api-runtime`; историческое разрешение на Default Compute SA удалено после проверки: Cloud Run service один и использует runtime-SA, jobs нет, Compute Engine API выключен. `deploy.yml` передаёт runtime-SA явно; внешний IAM остаётся ручным состоянием и проверяется по триггеру |
 | A64 | У каждой новой версии FastAPI-образа до deploy есть машиночитаемая опись именно её финальных байтов | SBOM из checkout/requirements пропустил бы Debian-слой, SBOM по тегу мог бы описать другой образ, а непроверенный JSON был бы описью только по имени | ✅ **реализовано и проверено 08-29.** Syft 1.51.0 с проверяемым release checksum читает `${IMAGE}@${DIGEST}` после push и до deploy; gate требует CycloneDX JSON 1.6, непустые components, container metadata и тот же digest. Canonical Version target разрешается через Artifact Registry; детерминированный attachment проверяется по target/type/namespace/files и создаётся fail-closed. `TestCycloneDxSbom` фиксирует контракт. Production run `33251609209` создал attachment для `sha256:b5e2b41c…41a6`, затем успешно развернул этот digest. Файл скачан обратно: 1 083 779 байт, 2858 components, Syft 1.51.0, точное совпадение `metadata.component.version`. Отдельного архива и provenance нет |
 | A65 | Исключение из image gate не превращается в blanket bypass | Общий ignore, `under_investigation` или ложный `not_affected` позволили бы владельцу убрать красный статус без разбора exploit path; waiver без срока стал бы постоянным принятием риска | ✅ **реализовано 08-29, production-проверка 08-30.** `scripts/evaluate_image_scan.py` принимает только репозиторный CycloneDX 1.6 VEX со статусом `not_affected`, точными CVE/package/version/purl/image digest, evidence и review PR. Реальный риск живёт отдельно в `security/waivers.json`: owner/approver, причина, remediation plan, evidence и срок максимум 30 дней; истёкшая запись не подавляет. Совпадение — только полное равенство, VEX и активный waiver не могут покрывать одну находку одновременно. Повреждённая политика, отчёт или техническая ошибка Grype остаются fail-closed. Набор `test_scan_policy.py` проверяет positive/negative path; run `33285372815` на production digest `sha256:5238cf…2dda1` выдал 0 исключений, поэтому 7 Critical + 20 High остались блокирующими; raw/policy/summary artifact сохранён на 30 дней |
+| A66 | VEX о недостижимом runtime path опирается на фактический production image, а не на исходники или память проверяющего | Checkout может отличаться от обслуживаемого digest; название Debian-пакета не доказывает наличие уязвимого модуля; запуск недоверенного образа в security-job сам создавал бы поверхность атаки | ✅ **реализовано в коде 08-30; живая проверка ожидается после merge.** `image-scan.yml` скачивает каждый exact serving digest, выполняет только `docker image inspect/create/export` и передаёт конфигурацию/rootfs в stdlib-скрипт. Fail-closed проверяются RepoDigest, `amd64`, `appuser`, точный Uvicorn CMD, dpkg status, релевантные Perl-пути и AST всех `/app/app/*.py`; pyc/pyo/native application modules запрещены. JSON artifact связывает 18 неглибсишных CVE с поддерживающими checks, но `checksPassed` ничего не подавляет: advisory-review и exact CycloneDX VEX обязательны отдельно. Три glibc CVE намеренно исключены до анализа native call path. Контракт и негативные случаи закреплены `tests/test_image_evidence.py` и `TestRecurringImageScan` |
 
 **Техника, которая работает лучше регулярных ревью:** привязывать допущение к автоматической проверке. Допущение в документе живёт до первого человека, который документ не прочитал. Допущение в тесте живёт, пока кто-то осознанно не удалит тест. A1 и A3 — уже сделанные примеры; они не были задуманы как контроли threat model, но являются ими.
 
@@ -1077,6 +1080,7 @@ negative CodeQL, появлении нового пути исполнения �
 | High/critical, опубликованная после deploy, не остаётся невидимой | еженедельный fail-closed Grype по фактическим Cloud Run digest, fresh DB, ручной запуск | A62 |
 | Собранный образ имеет переносимую опись всех обнаруженных компонентов | Syft CycloneDX JSON 1.6 по immutable digest; проверенный attachment на Artifact Registry Version до deploy | A64 |
 | Исключение из image gate требует доказательства или ограниченного по времени принятия риска | exact CycloneDX VEX `not_affected`; отдельный waiver максимум на 30 дней; policy evaluator и негативные тесты | A65 |
+| VEX о runtime path подтверждается фактическими байтами production image | offline inspect/export exact digest; fail-closed JSON evidence; контейнер не запускается; PASS сам CVE не подавляет | A66 |
 | Copyleft с сетевой оговоркой не входит в дерево незаметно | `deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0, SSPL-1.0` в Dependency Review обоих репозиториев | — |
 | Обычные CI job не держат боевых credential | placeholder-значения, `DIRECT_URL` только в guarded steps | A13 |
 | Секрет не нужен вовсе там, где раньше был | федерация вместо `ANTHROPIC_API_KEY` | A8 |
@@ -1306,7 +1310,8 @@ audit trail rollout завершены и из backlog удалены:
 - изменение любого GCP service account, WIF provider или IAM binding AI-сервиса
   (ломает инвентарь identities, A62/A63); отсутствие успешного image scan более
   восьми дней;
-- изменение threshold, схемы CycloneDX VEX/waiver или evaluator image scan;
+- изменение threshold, схемы CycloneDX VEX/waiver, evaluator image scan либо
+  набора runtime-evidence checks/claims;
   появление второго участника с write-доступом (ломает допущение self-approval
   из A65);
 - перевод image-scan из operational alert в обязательный release gate;
