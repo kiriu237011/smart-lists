@@ -2,8 +2,8 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-29 (этап 2 SBOM-плана: CycloneDX JSON 1.6
-по FastAPI image digest и Artifact Registry attachment до deploy)
+**Последнее обновление:** 2026-08-30 (этап 3 SBOM-плана: exact CycloneDX VEX
+и отдельный временный waiver для FastAPI image gate)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -545,6 +545,13 @@ Smart Lists — локализованное веб-приложение для 
   ошибка делают job красной; JSON-отчёты хранятся 30 дней. Для job создан
   keyless `github-image-scanner`: только `run.viewer` и repository-level
   `artifactregistry.reader`, без deploy/write.
+- Сырой Grype JSON оценивает репозиторный `evaluate_image_scan.py`. CycloneDX
+  1.6 VEX из `security/vex` подавляет только доказанный `not_affected` при
+  точном совпадении CVE, package/version/purl и image digest, с evidence и
+  review PR. Реальный принятый риск хранится отдельно в `security/waivers.json`:
+  owner/approver, причина, remediation plan, evidence и срок максимум 30 дней.
+  Истёкший waiver, `in_triage`, wildcard, повреждённая политика и техническая
+  ошибка Grype не подавляются.
 - В FastAPI deploy после push и до Cloud Run Syft 1.51.0 строит CycloneDX JSON
   1.6 из `${IMAGE}@${digest}`. Workflow проверяет checksum инструмента, формат,
   непустой состав и связь metadata с тем же digest, затем fail-closed
@@ -564,6 +571,14 @@ Smart Lists — локализованное веб-приложение для 
   Registry прошли; gate ожидаемо красный на 7 Critical + 20 High совпадениях
   (6 и 15 уникальных CVE). Все относятся к базовым Debian-пакетам и имеют
   `not-fixed`/`wont-fix`; JSON-отчёт успешно сохранён. Исключений ещё нет.
+- Перед включением политики текущий production digest `sha256:387964…4dd0`
+  повторно проверен локально закреплённым Grype 0.117.0 со свежей базой:
+  7 Critical + 20 High, подавлено VEX=0 и waiver=0, gate остался красным.
+- После слияния политики production run `33285245880` создал SBOM и развернул
+  `sha256:5238cf…2dda1`. Контрольный image-scan `33285372815` применил policy
+  evaluator к этому digest: до политики 7 Critical + 20 High, VEX=0, waiver=0,
+  после политики 7 Critical + 20 High, gate `BLOCKED`. Raw Grype JSON, policy
+  JSON и Markdown-сводка сохранены одним artifact на 30 дней.
 - IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
   `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
   `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
@@ -1189,7 +1204,8 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   задачей. Видимость CVE между выкладками закрывает этап 1 SBOM-плана —
   еженедельный fail-closed Grype по фактическим Cloud Run digest. Этап 2
   реализует CycloneDX JSON 1.6 attachment от Syft без отдельной истории
-  удалённых образов; Dependency-Track сознательно не внедряется.
+  удалённых образов; этап 3 — репозиторные VEX/waiver с exact policy gate.
+  Dependency-Track сознательно не внедряется.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
@@ -1235,6 +1251,14 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-29: VEX и waiver намеренно разделены. CycloneDX VEX означает только
+  технически доказанный `not_affected`; временное принятие реальной CVE не
+  маскируется этим статусом и ограничено 30 днями. Grype 0.117.0 напрямую
+  читает OpenVEX/CSAF, поэтому выбранный CycloneDX-профиль применяет небольшой
+  stdlib evaluator к JSON-отчёту. Новых сервисов, IAM-прав и зависимостей нет.
+  Один владелец может формально быть и owner, и approver, но PR, evidence,
+  exact digest/package и expiry обязательны; при втором участнике правило
+  пересматривается в пользу раздельного approval.
 - 2026-08-29: SBOM FastAPI строится из финального immutable image digest, а не
   из checkout или `requirements.txt`, поэтому в опись входит и базовый Debian.
   Проверенный CycloneDX JSON 1.6 прикрепляется к самой версии образа до deploy;
