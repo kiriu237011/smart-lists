@@ -2,8 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-30 (этап 4 SBOM-плана: эксплуатационный
-runbook и границы FastAPI image gate)
+**Последнее обновление:** 2026-08-30 (runtime evidence exact FastAPI image)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -545,6 +544,16 @@ Smart Lists — локализованное веб-приложение для 
   ошибка делают job красной; JSON-отчёты хранятся 30 дней. Для job создан
   keyless `github-image-scanner`: только `run.viewer` и repository-level
   `artifactregistry.reader`, без deploy/write.
+- Перед Grype тот же job без запуска контейнера получает `docker image inspect`
+  и exported rootfs каждого exact digest. Fail-closed evidence сверяет digest,
+  `amd64`, `appuser`, Uvicorn CMD, dpkg status, релевантные Perl-модули и AST
+  `/app/app/*.py`; JSON сохраняется в общем artifact. Автоматические checks
+  поддерживают разбор 18 неглибсишных CVE, но сами ничего не подавляют. Три
+  glibc CVE вынесены в отдельный анализ native call path.
+- Production run `33297043344` развернул `sha256:082760…52fe3`, после чего
+  контрольный image-scan `33297174858` подтвердил evidence `PASS`: 18/18 checks,
+  18/18 candidate claims, `amd64`, `appuser`, 15 Python-файлов и отсутствие
+  запуска контейнера. Gate независимо остался `BLOCKED` на 7 Critical + 20 High.
 - Сырой Grype JSON оценивает репозиторный `evaluate_image_scan.py`. CycloneDX
   1.6 VEX из `security/vex` подавляет только доказанный `not_affected` при
   точном совпадении CVE, package/version/purl и image digest, с evidence и
@@ -574,11 +583,11 @@ Smart Lists — локализованное веб-приложение для 
 - Перед включением политики текущий production digest `sha256:387964…4dd0`
   повторно проверен локально закреплённым Grype 0.117.0 со свежей базой:
   7 Critical + 20 High, подавлено VEX=0 и waiver=0, gate остался красным.
-- После слияния политики production run `33285245880` создал SBOM и развернул
-  `sha256:5238cf…2dda1`. Контрольный image-scan `33285372815` применил policy
-  evaluator к этому digest: до политики 7 Critical + 20 High, VEX=0, waiver=0,
-  после политики 7 Critical + 20 High, gate `BLOCKED`. Raw Grype JSON, policy
-  JSON и Markdown-сводка сохранены одним artifact на 30 дней.
+- Текущий production digest `sha256:082760…52fe3` получил новый SBOM в run
+  `33297043344`. Контрольный image-scan `33297174858` применил runtime evidence
+  и policy evaluator: до политики 7 Critical + 20 High, VEX=0, waiver=0, после
+  политики 7 Critical + 20 High, gate `BLOCKED`. Raw Grype JSON, policy JSON,
+  Markdown-сводка и evidence JSON сохранены одним artifact на 30 дней.
 - IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
   `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
   `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
@@ -1208,8 +1217,10 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   Этап 4 фиксирует эксплуатационный порядок в FastAPI
   `security/SBOM_RUNBOOK.md`: `BLOCKED` — operational alert, а не required PR
   check/release gate; policy-only merge повторно сканирует тот же digest без
-  пересборки. Dependency-Track, Next.js/Vercel artifact SBOM и provenance
-  сознательно не входят в этот контур.
+  пересборки. Runtime evidence теперь снимается offline с exact production
+  image, а не с checkout; его PASS остаётся только входом для advisory-review и
+  не создаёт VEX автоматически. Dependency-Track, Next.js/Vercel artifact SBOM
+  и provenance сознательно не входят в этот контур.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
@@ -1255,6 +1266,11 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-30: техническое доказательство для VEX снимается с конфигурации и
+  rootfs exact serving FastAPI digest через `inspect/create/export`, без запуска
+  контейнера. Evidence fail-closed и хранится рядом со scan reports, однако
+  `checksPassed` не означает `not_affected`: условия advisory и VEX проходят
+  отдельный review. Новых зависимостей, сервисов и IAM-прав нет.
 - 2026-08-29: VEX и waiver намеренно разделены. CycloneDX VEX означает только
   технически доказанный `not_affected`; временное принятие реальной CVE не
   маскируется этим статусом и ограничено 30 днями. Grype 0.117.0 напрямую
