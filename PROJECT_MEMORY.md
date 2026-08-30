@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-30 (runtime evidence exact FastAPI image)
+**Последнее обновление:** 2026-08-30 (reviewed VEX exact FastAPI image)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -553,7 +553,10 @@ Smart Lists — локализованное веб-приложение для 
 - Production run `33297043344` развернул `sha256:082760…52fe3`, после чего
   контрольный image-scan `33297174858` подтвердил evidence `PASS`: 18/18 checks,
   18/18 candidate claims, `amd64`, `appuser`, 15 Python-файлов и отсутствие
-  запуска контейнера. Gate независимо остался `BLOCKED` на 7 Critical + 20 High.
+  запуска контейнера. Review-PR FastAPI №38 выдал exact CycloneDX VEX на 18 CVE
+  / 21 package match: только после сверки официальных advisory с этими facts.
+  Post-merge scan `33298309218` по тому же digest подтвердил VEX=21, waiver=0 и
+  оставил `BLOCKED` только 2 Critical + 4 High — шесть match трёх glibc CVE.
 - Сырой Grype JSON оценивает репозиторный `evaluate_image_scan.py`. CycloneDX
   1.6 VEX из `security/vex` подавляет только доказанный `not_affected` при
   точном совпадении CVE, package/version/purl и image digest, с evidence и
@@ -587,7 +590,11 @@ Smart Lists — локализованное веб-приложение для 
   `33297043344`. Контрольный image-scan `33297174858` применил runtime evidence
   и policy evaluator: до политики 7 Critical + 20 High, VEX=0, waiver=0, после
   политики 7 Critical + 20 High, gate `BLOCKED`. Raw Grype JSON, policy JSON,
-  Markdown-сводка и evidence JSON сохранены одним artifact на 30 дней.
+  Markdown-сводка и evidence JSON сохранены одним artifact на 30 дней. После
+  merge VEX PR №38 policy-only run `33298309218` не пересобирал образ, повторно
+  получил evidence `PASS`, подавил 21 exact match и оставил 2 Critical + 4 High:
+  только `CVE-2026-5435`, `CVE-2026-5450` и `CVE-2026-5928` на `libc6` и
+  `libc-bin`. Waiver остался пуст.
 - IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
   `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
   `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
