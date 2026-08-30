@@ -547,9 +547,10 @@ Smart Lists — локализованное веб-приложение для 
 - Перед Grype тот же job без запуска контейнера получает `docker image inspect`
   и exported rootfs каждого exact digest. Fail-closed evidence сверяет digest,
   `amd64`, `appuser`, Uvicorn CMD, dpkg status, релевантные Perl-модули и AST
-  `/app/app/*.py`; JSON сохраняется в общем artifact. Автоматические checks
-  поддерживают разбор 18 неглибсишных CVE, но сами ничего не подавляют. Три
-  glibc CVE вынесены в отдельный анализ native call path.
+  `/app/app/*.py`; для glibc дополнительно разбирает undefined dynamic symbols
+  всех ELF64 exact rootfs и проверяет условия трёх advisory. JSON сохраняется
+  в общем artifact. Автоматические checks поддерживают разбор 21 CVE, но сами
+  ничего не подавляют.
 - Production run `33297043344` развернул `sha256:082760…52fe3`, после чего
   контрольный image-scan `33297174858` подтвердил evidence `PASS`: 18/18 checks,
   18/18 candidate claims, `amd64`, `appuser`, 15 Python-файлов и отсутствие
@@ -557,6 +558,11 @@ Smart Lists — локализованное веб-приложение для 
   / 21 package match: только после сверки официальных advisory с этими facts.
   Post-merge scan `33298309218` по тому же digest подтвердил VEX=21, waiver=0 и
   оставил `BLOCKED` только 2 Critical + 4 High — шесть match трёх glibc CVE.
+  Evidence PR №39 и run `33299518793` затем подтвердили 22/22 checks, 21/21
+  claims и статический разбор 754 ELF. Review-PR №40 добавил шесть точных glibc
+  statements; локальная оценка exact raw report теперь даёт VEX=27, waiver=0,
+  Critical=0, High=0 и `PASS`. Post-merge run `33308851706` запущен и
+  проверяется отдельным финальным шагом.
 - Сырой Grype JSON оценивает репозиторный `evaluate_image_scan.py`. CycloneDX
   1.6 VEX из `security/vex` подавляет только доказанный `not_affected` при
   точном совпадении CVE, package/version/purl и image digest, с evidence и
@@ -594,7 +600,10 @@ Smart Lists — локализованное веб-приложение для 
   merge VEX PR №38 policy-only run `33298309218` не пересобирал образ, повторно
   получил evidence `PASS`, подавил 21 exact match и оставил 2 Critical + 4 High:
   только `CVE-2026-5435`, `CVE-2026-5450` и `CVE-2026-5928` на `libc6` и
-  `libc-bin`. Waiver остался пуст.
+  `libc-bin`. После native-разбора PR №40 добавил оставшиеся шесть exact
+  statements: всего 21 CVE / 27 match, waiver остался пуст. Локальный evaluator
+  даёт `PASS`; production-подтверждение run `33308851706` относится к
+  следующему шагу.
 - IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
   `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
   `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
@@ -1275,9 +1284,11 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 - 2026-08-30: техническое доказательство для VEX снимается с конфигурации и
   rootfs exact serving FastAPI digest через `inspect/create/export`, без запуска
-  контейнера. Evidence fail-closed и хранится рядом со scan reports, однако
-  `checksPassed` не означает `not_affected`: условия advisory и VEX проходят
-  отдельный review. Новых зависимостей, сервисов и IAM-прав нет.
+  контейнера. Для glibc проверяются все ELF64, отсутствие вызывающих DNS-print
+  symbols, scanf `%mc` с шириной больше 1024 и путь `ungetwc` из runtime.
+  Evidence fail-closed и хранится рядом со scan reports, однако `checksPassed`
+  не означает `not_affected`: условия advisory и VEX проходят отдельный review.
+  Новых зависимостей, сервисов и IAM-прав нет.
 - 2026-08-29: VEX и waiver намеренно разделены. CycloneDX VEX означает только
   технически доказанный `not_affected`; временное принятие реальной CVE не
   маскируется этим статусом и ограничено 30 днями. Grype 0.117.0 напрямую
