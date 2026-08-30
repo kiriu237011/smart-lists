@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-29 (этап 3 SBOM-плана: exact CycloneDX VEX
+**Последнее обновление:** 2026-08-30 (этап 3 SBOM-плана: exact CycloneDX VEX
 и отдельный временный waiver для FastAPI image gate)
 **Состояние:** активная разработка
 
@@ -574,6 +574,11 @@ Smart Lists — локализованное веб-приложение для 
 - Перед включением политики текущий production digest `sha256:387964…4dd0`
   повторно проверен локально закреплённым Grype 0.117.0 со свежей базой:
   7 Critical + 20 High, подавлено VEX=0 и waiver=0, gate остался красным.
+- После слияния политики production run `33285245880` создал SBOM и развернул
+  `sha256:5238cf…2dda1`. Контрольный image-scan `33285372815` применил policy
+  evaluator к этому digest: до политики 7 Critical + 20 High, VEX=0, waiver=0,
+  после политики 7 Critical + 20 High, gate `BLOCKED`. Raw Grype JSON, policy
+  JSON и Markdown-сводка сохранены одним artifact на 30 дней.
 - IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
   `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
   `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
