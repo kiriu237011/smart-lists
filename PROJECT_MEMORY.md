@@ -2,8 +2,8 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-30 (этап 3 SBOM-плана: exact CycloneDX VEX
-и отдельный временный waiver для FastAPI image gate)
+**Последнее обновление:** 2026-08-30 (этап 4 SBOM-плана: эксплуатационный
+runbook и границы FastAPI image gate)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -1205,7 +1205,11 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   еженедельный fail-closed Grype по фактическим Cloud Run digest. Этап 2
   реализует CycloneDX JSON 1.6 attachment от Syft без отдельной истории
   удалённых образов; этап 3 — репозиторные VEX/waiver с exact policy gate.
-  Dependency-Track сознательно не внедряется.
+  Этап 4 фиксирует эксплуатационный порядок в FastAPI
+  `security/SBOM_RUNBOOK.md`: `BLOCKED` — operational alert, а не required PR
+  check/release gate; policy-only merge повторно сканирует тот же digest без
+  пересборки. Dependency-Track, Next.js/Vercel artifact SBOM и provenance
+  сознательно не входят в этот контур.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
