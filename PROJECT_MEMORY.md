@@ -550,6 +550,10 @@ Smart Lists — локализованное веб-приложение для 
   `/app/app/*.py`; JSON сохраняется в общем artifact. Автоматические checks
   поддерживают разбор 18 неглибсишных CVE, но сами ничего не подавляют. Три
   glibc CVE вынесены в отдельный анализ native call path.
+- Production run `33297043344` развернул `sha256:082760…52fe3`, после чего
+  контрольный image-scan `33297174858` подтвердил evidence `PASS`: 18/18 checks,
+  18/18 candidate claims, `amd64`, `appuser`, 15 Python-файлов и отсутствие
+  запуска контейнера. Gate независимо остался `BLOCKED` на 7 Critical + 20 High.
 - Сырой Grype JSON оценивает репозиторный `evaluate_image_scan.py`. CycloneDX
   1.6 VEX из `security/vex` подавляет только доказанный `not_affected` при
   точном совпадении CVE, package/version/purl и image digest, с evidence и
@@ -579,11 +583,11 @@ Smart Lists — локализованное веб-приложение для 
 - Перед включением политики текущий production digest `sha256:387964…4dd0`
   повторно проверен локально закреплённым Grype 0.117.0 со свежей базой:
   7 Critical + 20 High, подавлено VEX=0 и waiver=0, gate остался красным.
-- После слияния политики production run `33285245880` создал SBOM и развернул
-  `sha256:5238cf…2dda1`. Контрольный image-scan `33285372815` применил policy
-  evaluator к этому digest: до политики 7 Critical + 20 High, VEX=0, waiver=0,
-  после политики 7 Critical + 20 High, gate `BLOCKED`. Raw Grype JSON, policy
-  JSON и Markdown-сводка сохранены одним artifact на 30 дней.
+- Текущий production digest `sha256:082760…52fe3` получил новый SBOM в run
+  `33297043344`. Контрольный image-scan `33297174858` применил runtime evidence
+  и policy evaluator: до политики 7 Critical + 20 High, VEX=0, waiver=0, после
+  политики 7 Critical + 20 High, gate `BLOCKED`. Raw Grype JSON, policy JSON,
+  Markdown-сводка и evidence JSON сохранены одним artifact на 30 дней.
 - IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
   `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
   `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
