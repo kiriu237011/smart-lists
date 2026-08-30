@@ -561,8 +561,9 @@ Smart Lists — локализованное веб-приложение для 
   Evidence PR №39 и run `33299518793` затем подтвердили 22/22 checks, 21/21
   claims и статический разбор 754 ELF. Review-PR №40 добавил шесть точных glibc
   statements; локальная оценка exact raw report теперь даёт VEX=27, waiver=0,
-  Critical=0, High=0 и `PASS`. Post-merge run `33308851706` запущен и
-  проверяется отдельным финальным шагом.
+  Critical=0, High=0 и `PASS`. Финальный post-merge run `33308851706`
+  подтвердил это на serving digest: evidence 22/22, claims 21/21, VEX=27,
+  waiver=0, осталось Critical=0 и High=0, `Gate: PASS`.
 - Сырой Grype JSON оценивает репозиторный `evaluate_image_scan.py`. CycloneDX
   1.6 VEX из `security/vex` подавляет только доказанный `not_affected` при
   точном совпадении CVE, package/version/purl и image digest, с evidence и
@@ -602,8 +603,8 @@ Smart Lists — локализованное веб-приложение для 
   только `CVE-2026-5435`, `CVE-2026-5450` и `CVE-2026-5928` на `libc6` и
   `libc-bin`. После native-разбора PR №40 добавил оставшиеся шесть exact
   statements: всего 21 CVE / 27 match, waiver остался пуст. Локальный evaluator
-  даёт `PASS`; production-подтверждение run `33308851706` относится к
-  следующему шагу.
+  и production run `33308851706` дали одинаковый `PASS`: исходные 7 Critical +
+  20 High полностью покрыты VEX, waiver и истёкших waiver match нет.
 - IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
   `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
   `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
