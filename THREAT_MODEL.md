@@ -18,7 +18,9 @@ OIDC, UI/i18n и AWS SDK S3 без изменения границ довери�
 этап 4 — эксплуатационный runbook и policy-only rescan без смены digest;
 2026-08-30 — offline runtime evidence конфигурации, Python и ELF exact FastAPI
 digest, production-проверка на serving digest и reviewed VEX по 21 CVE / 27
-package match; финальный post-merge rescan подтвердил `Gate: PASS`
+package match; финальный post-merge rescan подтвердил `Gate: PASS`;
+2026-08-30 — определён доверенный provenance-контракт FastAPI image, выпуск
+и fail-closed проверка attestation ещё не реализованы
 
 **Последняя проверка живой инфраструктуры:** 2026-08-13 (полная); 2026-08-19 —
 точечно: сетевые настройки проекта Neon и доступ к аккаунту Neon; 2026-08-21 —
@@ -65,7 +67,8 @@ Default Compute SA
   обоих репозиториях. Уязвимости образа между выкладками видит периодический
   Grype; факты для `not_affected` снимаются с exact image без его запуска, а
   доказанные `not_affected` и временно принятый риск разделены VEX/waiver.
-  Открыто — provenance не проверяется;
+  Для FastAPI image зафиксирован точный provenance-контракт; открыты выпуск
+  attestation и её fail-closed проверка до deploy;
 - полный deployment-time разбор не выполнен: границы GitHub Actions рассмотрены
   для бэкапов, автоматической синхронизации Preview OAuth proxy, Preview tenant-
   enforcement, staged Production tenant-enforcement и пути образа
@@ -1017,6 +1020,7 @@ STRIDE спрашивает «может ли злоумышленник что-
 | A64 | У каждой новой версии FastAPI-образа до deploy есть машиночитаемая опись именно её финальных байтов | SBOM из checkout/requirements пропустил бы Debian-слой, SBOM по тегу мог бы описать другой образ, а непроверенный JSON был бы описью только по имени | ✅ **реализовано и проверено 08-29.** Syft 1.51.0 с проверяемым release checksum читает `${IMAGE}@${DIGEST}` после push и до deploy; gate требует CycloneDX JSON 1.6, непустые components, container metadata и тот же digest. Canonical Version target разрешается через Artifact Registry; детерминированный attachment проверяется по target/type/namespace/files и создаётся fail-closed. `TestCycloneDxSbom` фиксирует контракт. Production run `33251609209` создал attachment для `sha256:b5e2b41c…41a6`, затем успешно развернул этот digest. Файл скачан обратно: 1 083 779 байт, 2858 components, Syft 1.51.0, точное совпадение `metadata.component.version`. Отдельного архива и provenance нет |
 | A65 | Исключение из image gate не превращается в blanket bypass | Общий ignore, `under_investigation` или ложный `not_affected` позволили бы владельцу убрать красный статус без разбора exploit path; waiver без срока стал бы постоянным принятием риска | ✅ **реализовано 08-29, production-проверка 08-30.** `scripts/evaluate_image_scan.py` принимает только репозиторный CycloneDX 1.6 VEX со статусом `not_affected`, точными CVE/package/version/purl/image digest, evidence и review PR. Реальный риск живёт отдельно в `security/waivers.json`: owner/approver, причина, remediation plan, evidence и срок максимум 30 дней; истёкшая запись не подавляет. Совпадение — только полное равенство, VEX и активный waiver не могут покрывать одну находку одновременно. Повреждённая политика, отчёт или техническая ошибка Grype остаются fail-closed. Набор `test_scan_policy.py` проверяет positive/negative path и валидирует закоммиченные документы. Review-PR FastAPI №38 добавил 18 CVE / 21 package match, а №40 — после отдельного native-review ещё шесть exact glibc statements: итог 21 CVE / 27 match, waiver=0. Production rescan `33308851706` подтвердил evidence 22/22 и итог политики: Critical=0, High=0, истёкших waiver match 0, `Gate: PASS` |
 | A66 | VEX о недостижимом runtime path опирается на фактический production image, а не на исходники или память проверяющего | Checkout может отличаться от обслуживаемого digest; название Debian-пакета не доказывает наличие уязвимого модуля; запуск недоверенного образа в security-job сам создавал бы поверхность атаки | ✅ **реализовано и production-проверено 08-30.** `image-scan.yml` скачивает каждый exact serving digest, выполняет только `docker image inspect/create/export` и передаёт конфигурацию/rootfs в stdlib-скрипт. Fail-closed проверяются RepoDigest, `amd64`, `appuser`, точный Uvicorn CMD, dpkg status, Perl-пути и AST `/app/app/*.py`; pyc/pyo/native application modules запрещены. Для glibc stdlib-анализатор разбирает undefined dynamic symbols каждого ELF64 и ищет условия advisory: вызывающие DNS-print symbols, scanf `%mc` с шириной больше 1024 и runtime-путь к `ungetwc`/`libstdc++`. Run `33299518793` на serving `sha256:082760…52fe3` дал evidence `PASS`: 22/22 checks, 21/21 claims, 754 ELF, контейнер не запускался. JSON сам ничего не подавляет; шесть statements добавлены только отдельным review-PR №40. Контракт и негативные случаи закреплены `tests/test_image_evidence.py` и `TestRecurringImageScan` |
+| A67 | Cloud Run получает только image digest с проверяемым происхождением из доверенного production workflow | SHA-тег и доступ к Artifact Registry не доказывают, что байты собраны из ожидаемого commit именно разрешённым pipeline; подмена или чужая сборка может выглядеть как обычный образ | 🧭 **контракт определён 08-30, контроль ещё не реализован.** Раздел provenance FastAPI `security/SBOM_RUNBOOK.md` требует exact subject name/digest из build output, signer repository `kzhirikhin/smart-lists-fastapi-service`, `.github/workflows/deploy.yml`, `push` в `refs/heads/main`, Environment `production` и source SHA, равный `${{ github.sha }}`. Выбраны BuildKit SLSA provenance `mode=max` плюс keyless GitHub Artifact Attestation через OIDC/Sigstore; отсутствие, несовпадение или техническая ошибка будущего verifier должны блокировать deploy. Нового долгоживущего ключа и service account не требуется. До этапов выпуска и проверки строка остаётся открытой |
 
 **Техника, которая работает лучше регулярных ревью:** привязывать допущение к автоматической проверке. Допущение в документе живёт до первого человека, который документ не прочитал. Допущение в тесте живёт, пока кто-то осознанно не удалит тест. A1 и A3 — уже сделанные примеры; они не были задуманы как контроли threat model, но являются ими.
 
@@ -1138,6 +1142,19 @@ VEX и waiver пусты, поэтому подавлено ровно 0 и gate
 `docker/build-push-action` есть вход `provenance: mode=max`, и это естественный
 попутчик этапа 2 — но он закрывает другой вопрос («тот ли пайплайн собрал
 образ»), а не тот, ради которого задача заведена.
+
+### Provenance и attestation FastAPI image (план реализации)
+
+| Этап | Действие | Критерий завершения |
+|---|---|---|
+| 1 | Определить доверенный subject и builder identity | ✅ Выполнено 08-30. Раздел provenance FastAPI `security/SBOM_RUNBOOK.md` фиксирует exact registry name/digest, repository, workflow, `push`, `refs/heads/main`, Environment `production`, commit SHA и fail-closed ошибки. Неподписанный OCI metadata не считается доказательством |
+| 2 | Включить BuildKit SLSA provenance `mode=max` при build/push | Новый image digest содержит подробное provenance сборки; до включения подтверждено отсутствие чувствительных build args/secret IDs |
+| 3 | Выпустить keyless GitHub Artifact Attestation и проверить её до deploy | Exact digest криптографически проверен по trusted root, signer repository/workflow и всем полям политики; отсутствие/несовпадение блокирует Cloud Run deploy. Action закреплён SHA, долговременных signing keys нет |
+| 4 | Проверить production и эксплуатационный контур | Реальный новый digest прошёл attestation → SBOM → Cloud Run; негативные проверки ловят подмену digest, signer и отсутствие attestation; документация и recurring-проверка serving digest приведены к фактическому решению |
+
+Это отдельный FastAPI-контур. Next.js/Vercel artifact не включён: полный
+финальный runtime формирует Vercel, поэтому локальная опись или attestation
+checkout не доказывала бы происхождение всего обслуживаемого deployment.
 
 ### Лицензии
 

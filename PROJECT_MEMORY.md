@@ -1226,8 +1226,13 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
 - Оба репозитория публичны и проприетарны: `LICENSE` с «все права защищены» и
   отказом от гарантий, `"license": "SEE LICENSE IN LICENSE"` в `package.json`.
   `LICENSE` и `README.md` — единственные файлы на английском.
-- Известный пробел: provenance не проверяется нигде и остаётся отдельной
-  задачей. Видимость CVE между выкладками закрывает этап 1 SBOM-плана —
+- Для provenance FastAPI image определён точный контракт, но выпуск и проверка
+  attestation ещё не реализованы. Доверенный subject — exact Artifact Registry
+  digest из build output; builder ограничен FastAPI-репозиторием, `deploy.yml`,
+  `push` в `main`, Environment `production` и тем же commit SHA. Выбраны
+  BuildKit SLSA `mode=max` и keyless GitHub Artifact Attestation; будущая
+  проверка до deploy fail-closed. Видимость CVE между выкладками закрывает этап
+  1 SBOM-плана —
   еженедельный fail-closed Grype по фактическим Cloud Run digest. Этап 2
   реализует CycloneDX JSON 1.6 attachment от Syft без отдельной истории
   удалённых образов; этап 3 — репозиторные VEX/waiver с exact policy gate.
@@ -1237,7 +1242,8 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   пересборки. Runtime evidence теперь снимается offline с exact production
   image, а не с checkout; его PASS остаётся только входом для advisory-review и
   не создаёт VEX автоматически. Dependency-Track, Next.js/Vercel artifact SBOM
-  и provenance сознательно не входят в этот контур.
+  и provenance сознательно не входят в SBOM-контур; provenance ведётся
+  отдельным четырёхэтапным планом только для FastAPI image.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
