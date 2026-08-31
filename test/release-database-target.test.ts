@@ -6,7 +6,7 @@ describe("verifyReleaseDatabaseTarget", () => {
   it("принимает точный direct host и не возвращает credentials", () => {
     expect(
       verifyReleaseDatabaseTarget(
-        "postgresql://owner:secret@ep-prod.ap-southeast-1.aws.neon.tech/neondb?sslmode=require",
+        "postgresql://owner:secret@ep-prod.ap-southeast-1.aws.neon.tech/neondb?sslmode=verify-full",
         "ep-prod.ap-southeast-1.aws.neon.tech",
       ),
     ).toEqual({
@@ -41,5 +41,43 @@ describe("verifyReleaseDatabaseTarget", () => {
     ["postgresql://owner:secret@ep-prod.neon.tech/neondb", ""],
   ])("fail-closed для некорректной конфигурации %#", (url, host) => {
     expect(() => verifyReleaseDatabaseTarget(url, host)).toThrow();
+  });
+
+  it.each([["require"], ["prefer"], ["verify-ca"], ["disable"], ["no-verify"]])(
+    "отклоняет sslmode=%s",
+    (mode) => {
+      // На этом пути клиент — libpq, где всё, кроме verify-full, оставляет
+      // соединение без проверки сертификата.
+      expect(() =>
+        verifyReleaseDatabaseTarget(
+          `postgresql://owner:secret@ep-prod.ap-southeast-1.aws.neon.tech/neondb?sslmode=${mode}`,
+          "ep-prod.ap-southeast-1.aws.neon.tech",
+        ),
+      ).toThrow("sslmode=verify-full");
+    },
+  );
+
+  it("отклоняет строку без sslmode", () => {
+    expect(() =>
+      verifyReleaseDatabaseTarget(
+        "postgresql://owner:secret@ep-prod.ap-southeast-1.aws.neon.tech/neondb",
+        "ep-prod.ap-southeast-1.aws.neon.tech",
+      ),
+    ).toThrow("sslmode=verify-full");
+  });
+
+  it("не раскрывает credentials в сообщении об ошибке", () => {
+    // Скрипт исполняется в CI, где сообщение попадает в общедоступный лог job.
+    try {
+      verifyReleaseDatabaseTarget(
+        "postgresql://owner:secret@ep-prod.ap-southeast-1.aws.neon.tech/neondb?sslmode=require",
+        "ep-prod.ap-southeast-1.aws.neon.tech",
+      );
+      expect.unreachable("ожидалась ошибка");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).not.toContain("secret");
+      expect(message).not.toContain("neon.tech");
+    }
   });
 });

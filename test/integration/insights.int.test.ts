@@ -24,7 +24,9 @@ import { makeItem, makeList, makeUser, shareList } from "./factories";
  * запрос уходит с токеном и без него.
  */
 const { idTokenMock } = vi.hoisted(() => ({
-  idTokenMock: vi.fn<() => Promise<string | null>>(),
+  // Сигнатура повторяет настоящую: audience — часть контракта, и тест на связку
+  // адреса с токеном читает именно этот аргумент.
+  idTokenMock: vi.fn<(audience: string) => Promise<string | null>>(),
 }));
 
 vi.mock("@/lib/gcp-auth", () => ({
@@ -50,10 +52,15 @@ type InsightRequest = {
   user_message: string | null;
 };
 
+/** Живая форма адреса Cloud Run — та же, что проверяет `insights-service-url`. */
+const SERVICE_URL = "https://insights-api-912709146180.us-central1.run.app";
+
 let fetchSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  process.env.INSIGHTS_SERVICE_URL = "https://insights.test";
+  // Адрес обязан быть настоящей формы: с 08-31 Action проверяет его до отправки
+  // (A68), и произвольный тестовый хост запрос бы не выпустил.
+  process.env.INSIGHTS_SERVICE_URL = SERVICE_URL;
   process.env.INSIGHTS_SERVICE_SECRET = "test-secret";
 
   // По умолчанию токен выпускается: это нормальное состояние, и без него
@@ -327,7 +334,46 @@ describe("аутентификация вызова Cloud Run", () => {
     await getListInsight(list.id, undefined, user.defaultSpaceId);
 
     // Cloud Run сверяет `aud` с адресом сервиса; `/insights` в нём быть не должно.
-    expect(idTokenMock).toHaveBeenCalledWith("https://insights.test");
+    expect(idTokenMock).toHaveBeenCalledWith(SERVICE_URL);
+  });
+
+  it("токен выписывается ровно на тот хост, куда уходит запрос", async () => {
+    idTokenMock.mockResolvedValue("id-token-value");
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    setSessionUser(user.id);
+
+    await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    // Сторож против «наведения порядка» в будущем. Сейчас `audience` выводится
+    // из того же значения, что и адрес запроса, и именно это делает утёкший
+    // токен бесполезным: он выписан на хост получателя, поэтому настоящему
+    // сервису его не предъявить. Рефакторинг, выносящий audience в отдельную
+    // константу или переменную, вернул бы токен, годный для повторного
+    // использования, и выглядел бы в диффе как аккуратное улучшение.
+    // Ожидание берётся из фактических вызовов, а не из литерала: связка должна
+    // ломать тест при любых значениях, а не только при этих.
+    const [requestUrl] = fetchSpy.mock.calls[0] as [string, unknown];
+    const [audience] = idTokenMock.mock.calls[0] as [string];
+    expect(requestUrl).toBe(`${audience}/insights`);
+  });
+
+  it("не отправляет запрос, если адрес сервиса не прошёл проверку", async () => {
+    process.env.INSIGHTS_SERVICE_URL = "https://insights-api-x.run.app.evil.example";
+    idTokenMock.mockResolvedValue("id-token-value");
+    const user = await makeUser();
+    const list = await makeList(user.id, user.defaultSpaceId);
+    await makeItem(list.id, { name: "Пункт" });
+    setSessionUser(user.id);
+
+    const result = await getListInsight(list.id, undefined, user.defaultSpaceId);
+
+    // Ни запроса, ни токена: отказ наступает до того, как содержимое списка
+    // куда-либо собирается, и до списания дневной квоты.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(idTokenMock).not.toHaveBeenCalled();
+    expect(result.error).toBe("Service not configured");
   });
 
   it("без токена запрос не отправляется вовсе", async () => {

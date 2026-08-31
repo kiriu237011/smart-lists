@@ -2,10 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-28 (аудит цепочки поставок, SBOM и лицензий:
-проприетарные `LICENSE`, установка без хуков на сборке Vercel, тесты на дрейф
-пинов и requirements, выровненные Dependency Review и ruleset обоих
-репозиториев)
+**Последнее обновление:** 2026-08-31 (enforced verify-full TLS on every database path)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -530,17 +527,97 @@ Smart Lists — локализованное веб-приложение для 
   ключа приложения нет — именно поэтому versioning здесь защита, а не
   формальность. `Expiration` для текущих версий не задан намеренно: у бэкапов
   он нужен, у пользовательских файлов означал бы пропажу по расписанию.
+- С 2026-08-31 на всех трёх бакетах — обоих для вложений (Production и dev) и
+  бэкапном — стоит bucket policy с `Deny` на `s3:*` при
+  `aws:SecureTransport: false`. Без неё presigned-ссылку
+  можно было использовать по `http`: подпись SigV4 не покрывает схему URL, а
+  `Block all public access` относится к анонимному доступу, а не к транспорту.
+  Проверено поведением — по `https` файл отдаётся, по `http` приходит
+  `AccessDenied` с явным `explicit deny in a resource-based policy`.
 
 ### AI-инсайты
 
 - Server Action получает список из БД и проверяет доступ в текущем пространстве.
 - Внешний сервис вызывается через `INSIGHTS_SERVICE_URL`. Аутентификация двухслойная и полностью на ID-токене: Cloud Run проверяет его до контейнера, а сервис — повторно и независимо, по подписи, `aud` и email вызывающего. Статических секретов на этом пути нет.
+- С 2026-08-31 адрес проверяется `resolveInsightsServiceUrl` до отправки: обязательны `https` и хост `*.run.app` с префиксом имени сервиса, запрещены credentials, порт, путь, query и fragment. Не прошедшее значение равносильно незаданному — Action отвечает `Service not configured`, токен не выпускается и квота не списывается. Причина в том, что egress рантайма Vercel не ограничен и ограничить его нечем, поэтому подмена переменной была единственным способом увести содержимое списков на чужой хост. `audience` ID-токена намеренно выводится из того же значения: это делает утёкший токен нереплеиваемым, связка закреплена тестом.
 - Образы сервиса хранятся в Artifact Registry `smart-lists`. Cleanup policy
   сохраняет все версии моложе 30 дней и не меньше 10 последних; с 2026-08-20
   она работает в dry-run. С 2026-08-27 для
   `artifactregistry.googleapis.com` включён только audit-log `DATA_WRITE`,
   чтобы проверить `BatchDeleteVersions` с `validateOnly=true` до перехода к
   реальному удалению.
+- Еженедельный `image-scan.yml` FastAPI-репозитория читает фактически
+  обслуживающие traffic/tagged revisions Cloud Run и сканирует каждый
+  уникальный immutable digest свежей базой Grype. High/Critical и техническая
+  ошибка делают job красной; JSON-отчёты хранятся 30 дней. Для job создан
+  keyless `github-image-scanner`: только `run.viewer` и repository-level
+  `artifactregistry.reader`, без deploy/write.
+- Перед Grype тот же job без запуска контейнера получает `docker image inspect`
+  и exported rootfs каждого exact digest. Fail-closed evidence сверяет digest,
+  `amd64`, `appuser`, Uvicorn CMD, dpkg status, релевантные Perl-модули и AST
+  `/app/app/*.py`; для glibc дополнительно разбирает undefined dynamic symbols
+  всех ELF64 exact rootfs и проверяет условия трёх advisory. JSON сохраняется
+  в общем artifact. Автоматические checks поддерживают разбор 21 CVE, но сами
+  ничего не подавляют.
+- Production run `33297043344` развернул `sha256:082760…52fe3`, после чего
+  контрольный image-scan `33297174858` подтвердил evidence `PASS`: 18/18 checks,
+  18/18 candidate claims, `amd64`, `appuser`, 15 Python-файлов и отсутствие
+  запуска контейнера. Review-PR FastAPI №38 выдал exact CycloneDX VEX на 18 CVE
+  / 21 package match: только после сверки официальных advisory с этими facts.
+  Post-merge scan `33298309218` по тому же digest подтвердил VEX=21, waiver=0 и
+  оставил `BLOCKED` только 2 Critical + 4 High — шесть match трёх glibc CVE.
+  Evidence PR №39 и run `33299518793` затем подтвердили 22/22 checks, 21/21
+  claims и статический разбор 754 ELF. Review-PR №40 добавил шесть точных glibc
+  statements; локальная оценка exact raw report теперь даёт VEX=27, waiver=0,
+  Critical=0, High=0 и `PASS`. Финальный post-merge run `33308851706`
+  подтвердил это на serving digest: evidence 22/22, claims 21/21, VEX=27,
+  waiver=0, осталось Critical=0 и High=0, `Gate: PASS`.
+- Сырой Grype JSON оценивает репозиторный `evaluate_image_scan.py`. CycloneDX
+  1.6 VEX из `security/vex` подавляет только доказанный `not_affected` при
+  точном совпадении CVE, package/version/purl и image digest, с evidence и
+  review PR. Реальный принятый риск хранится отдельно в `security/waivers.json`:
+  owner/approver, причина, remediation plan, evidence и срок максимум 30 дней.
+  Истёкший waiver, `in_triage`, wildcard, повреждённая политика и техническая
+  ошибка Grype не подавляются.
+- В FastAPI deploy после push и до Cloud Run Syft 1.51.0 строит CycloneDX JSON
+  1.6 из `${IMAGE}@${digest}`. Workflow проверяет checksum инструмента, формат,
+  непустой состав и связь metadata с тем же digest, затем fail-closed
+  прикрепляет документ к canonical Artifact Registry Version. Новых IAM-прав
+  нет: это делает существующий `github-deployer` с уже необходимым для image
+  push `artifactregistry.writer`.
+- Attachment идемпотентен для digest и имеет media type
+  `application/vnd.cyclonedx+json`. Отдельной истории нет: при удалении image
+  cleanup удаляет и его SBOM. Это опись, не подпись; provenance остаётся
+  отдельной задачей.
+- Первый production run с этим контролем — `33251609209` от 2026-08-29 —
+  создал attachment для `sha256:b5e2b41c…41a6` до успешного Cloud Run deploy.
+  Скачанный обратно файл: CycloneDX 1.6, Syft 1.51.0, 2858 components,
+  1 083 779 байт; `metadata.component.version` точно совпадает с target digest.
+- Первый ручной run `33238953019` от 2026-08-29 проверил рабочий digest
+  `sha256:990201…9263`: WIF, обновление Grype DB, чтение Cloud Run и Artifact
+  Registry прошли; gate ожидаемо красный на 7 Critical + 20 High совпадениях
+  (6 и 15 уникальных CVE). Все относятся к базовым Debian-пакетам и имеют
+  `not-fixed`/`wont-fix`; JSON-отчёт успешно сохранён. Исключений ещё нет.
+- Перед включением политики текущий production digest `sha256:387964…4dd0`
+  повторно проверен локально закреплённым Grype 0.117.0 со свежей базой:
+  7 Critical + 20 High, подавлено VEX=0 и waiver=0, gate остался красным.
+- Текущий production digest `sha256:082760…52fe3` получил новый SBOM в run
+  `33297043344`. Контрольный image-scan `33297174858` применил runtime evidence
+  и policy evaluator: до политики 7 Critical + 20 High, VEX=0, waiver=0, после
+  политики 7 Critical + 20 High, gate `BLOCKED`. Raw Grype JSON, policy JSON,
+  Markdown-сводка и evidence JSON сохранены одним artifact на 30 дней. После
+  merge VEX PR №38 policy-only run `33298309218` не пересобирал образ, повторно
+  получил evidence `PASS`, подавил 21 exact match и оставил 2 Critical + 4 High:
+  только `CVE-2026-5435`, `CVE-2026-5450` и `CVE-2026-5928` на `libc6` и
+  `libc-bin`. После native-разбора PR №40 добавил оставшиеся шесть exact
+  statements: всего 21 CVE / 27 match, waiver остался пуст. Локальный evaluator
+  и production run `33308851706` дали одинаковый `PASS`: исходные 7 Critical +
+  20 High полностью покрыты VEX, waiver и истёкших waiver match нет.
+- IAM-инвентарь AI-сервиса проверен 2026-08-29: прикладные identities —
+  `github-deployer`, `github-image-scanner`, `vercel-insights-invoker`,
+  `insights-api-runtime` и неиспользуемый Default Compute SA; user-managed
+  ключей нет. У deployer удалён лишний `serviceAccountUser` на Default Compute
+  SA и оставлен только на `insights-api-runtime`.
 - Токен едет в обычном `Authorization`. Cloud Run принимает и `X-Serverless-Authorization`, но из него вырезает подпись перед передачей контейнеру — сервис получил бы claims, которые не может проверить. Из `Authorization` токен доходит целым, и второй слой становится настоящим.
 - Токен выпускает `src/lib/gcp-auth.ts`: OIDC-токен Vercel меняется в Workload Identity Federation на право говорить от имени `vercel-insights-invoker`, тот выпускает ID-токен с audience равным базовому URL сервиса. Долгоживущих ключей нет. Провайдер пускает ровно одну среду — `production` этого проекта, — а у service account есть право звать единственный сервис `insights-api`.
 - Без токена запрос не отправляется вовсе: Action возвращает ошибку конфигурации. Отправлять было бы бессмысленно — Cloud Run откажет гарантированно, — а в логе должна быть видна сломанная федерация, а не безымянный 403 из сети.
@@ -635,7 +712,16 @@ Smart Lists — локализованное веб-приложение для 
   а Production и Preview migration jobs получают отдельные значения из
   GitHub Environments. Repository-level `DIRECT_URL` доступен только backup
   workflow и содержит credential `smartlists_backup`. `prisma generate` и
-  Vercel build работают без него;
+  Vercel build работают без него.
+  **Каждая строка подключения к удалённой БД обязана содержать
+  `sslmode=verify-full`** — это проверяется кодом, а не соглашением:
+  `assertSecureDatabaseUrl` в рантайме, `verifyReleaseDatabaseTarget` в
+  миграциях, аудитах и retention, отдельный guard в `backup.yml`. Локальные
+  хосты освобождены. Причина в том, что `sslmode=require` у node-postgres
+  сегодня равен `verify-full` лишь по временной трактовке библиотеки: в `pg` 9
+  она станет libpq-совместимой, и `require` перестанет проверять сертификат.
+  `channel_binding=require` в строках сохранён, но действует только на
+  libpq-путях — node-postgres этот параметр игнорирует;
 - Auth.js: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, при
   необходимости `AUTH_URL`; только в Vercel Preview дополнительно задан
   `AUTH_REDIRECT_PROXY_URL`;
@@ -689,7 +775,12 @@ Smart Lists — локализованное веб-приложение для 
 
 `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`
-(camera/microphone/geolocation отключены), `Strict-Transport-Security` на год.
+(camera/microphone/geolocation отключены), `Strict-Transport-Security` на год с
+`includeSubDomains`. Сам заголовок до 2026-08-31 не проверялся ничем — теперь
+тест требует его присутствия, окна не меньше года и `includeSubDomains`.
+`preload` не задан осознанно: домен `*.vercel.app` в preload-список подать
+нельзя, вопрос вернётся при переезде на собственный домен. Редирект
+`http → https` (308) выполняет платформа Vercel, в репозитории его нет.
 
 Content Security Policy заведена частично — только директивы, не требующие
 per-request nonce:
@@ -1157,10 +1248,24 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
 - Оба репозитория публичны и проприетарны: `LICENSE` с «все права защищены» и
   отказом от гарантий, `"license": "SEE LICENSE IN LICENSE"` в `package.json`.
   `LICENSE` и `README.md` — единственные файлы на английском.
-- Известные пробелы: provenance не проверяется нигде; уязвимость, опубликованная
-  между выкладками образа сервиса, не видна никому. Второе ведётся отдельной
-  задачей из четырёх этапов в `THREAT_MODEL.md`, первый этап — еженедельный
-  `grype` по расписанию.
+- Для provenance FastAPI image определён точный контракт, но выпуск и проверка
+  attestation ещё не реализованы. Доверенный subject — exact Artifact Registry
+  digest из build output; builder ограничен FastAPI-репозиторием, `deploy.yml`,
+  `push` в `main`, Environment `production` и тем же commit SHA. Выбраны
+  BuildKit SLSA `mode=max` и keyless GitHub Artifact Attestation; будущая
+  проверка до deploy fail-closed. Видимость CVE между выкладками закрывает этап
+  1 SBOM-плана —
+  еженедельный fail-closed Grype по фактическим Cloud Run digest. Этап 2
+  реализует CycloneDX JSON 1.6 attachment от Syft без отдельной истории
+  удалённых образов; этап 3 — репозиторные VEX/waiver с exact policy gate.
+  Этап 4 фиксирует эксплуатационный порядок в FastAPI
+  `security/SBOM_RUNBOOK.md`: `BLOCKED` — operational alert, а не required PR
+  check/release gate; policy-only merge повторно сканирует тот же digest без
+  пересборки. Runtime evidence теперь снимается offline с exact production
+  image, а не с checkout; его PASS остаётся только входом для advisory-review и
+  не создаёт VEX автоматически. Dependency-Track, Next.js/Vercel artifact SBOM
+  и provenance сознательно не входят в SBOM-контур; provenance ведётся
+  отдельным четырёхэтапным планом только для FastAPI image.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
@@ -1206,6 +1311,28 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-08-30: техническое доказательство для VEX снимается с конфигурации и
+  rootfs exact serving FastAPI digest через `inspect/create/export`, без запуска
+  контейнера. Для glibc проверяются все ELF64, отсутствие вызывающих DNS-print
+  symbols, scanf `%mc` с шириной больше 1024 и путь `ungetwc` из runtime.
+  Evidence fail-closed и хранится рядом со scan reports, однако `checksPassed`
+  не означает `not_affected`: условия advisory и VEX проходят отдельный review.
+  Новых зависимостей, сервисов и IAM-прав нет.
+- 2026-08-29: VEX и waiver намеренно разделены. CycloneDX VEX означает только
+  технически доказанный `not_affected`; временное принятие реальной CVE не
+  маскируется этим статусом и ограничено 30 днями. Grype 0.117.0 напрямую
+  читает OpenVEX/CSAF, поэтому выбранный CycloneDX-профиль применяет небольшой
+  stdlib evaluator к JSON-отчёту. Новых сервисов, IAM-прав и зависимостей нет.
+  Один владелец может формально быть и owner, и approver, но PR, evidence,
+  exact digest/package и expiry обязательны; при втором участнике правило
+  пересматривается в пользу раздельного approval.
+- 2026-08-29: SBOM FastAPI строится из финального immutable image digest, а не
+  из checkout или `requirements.txt`, поэтому в опись входит и базовый Debian.
+  Проверенный CycloneDX JSON 1.6 прикрепляется к самой версии образа до deploy;
+  attachment живёт ровно столько же, сколько target. Новый service account не
+  создан: существующий `github-deployer` уже имел необходимые права внутри
+  `smart-lists`. Artifact Registry attachments пока Pre-GA и становятся
+  fail-closed зависимостью deploy — это принято ради запрета выкладки без SBOM.
 - 2026-08-28: после семидневной выдержки и ручной сверки опубликованных
   артефактов слиты Dependabot PR №127 (`@vercel/oidc` `3.8.5`, Framer Motion
   `13.1.1`, `next-intl` `4.13.7`) и №114 (AWS SDK S3 `3.1115.0`). Обновления

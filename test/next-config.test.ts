@@ -70,3 +70,30 @@ describe("Content-Security-Policy", () => {
     expect(directives).not.toHaveProperty("img-src");
   });
 });
+
+describe("Strict-Transport-Security", () => {
+  // Заголовок стоял в конфиге с самого начала, но до 2026-08-31 не проверялся
+  // ничем: его можно было удалить, и security gate остался бы зелёным. Сам
+  // редирект HTTP → HTTPS выполняет платформа Vercel и в репозитории его нет,
+  // поэтому HSTS — единственная часть этой защиты, которой мы управляем.
+
+  it("отдаётся на все маршруты", async () => {
+    await expect(
+      headerValue("Strict-Transport-Security"),
+    ).resolves.toBeTruthy();
+  });
+
+  it("держит окно не меньше года", async () => {
+    const value = (await headerValue("Strict-Transport-Security")) ?? "";
+    const maxAge = Number(/max-age=(\d+)/.exec(value)?.[1] ?? "0");
+
+    // Год — минимум, с которого HSTS перестаёт быть декоративным: короткое
+    // окно истекает между визитами, и первый запрос снова уходит по HTTP.
+    expect(maxAge).toBeGreaterThanOrEqual(31536000);
+  });
+
+  it("распространяется на поддомены", async () => {
+    const value = (await headerValue("Strict-Transport-Security")) ?? "";
+    expect(value).toContain("includeSubDomains");
+  });
+});

@@ -26,6 +26,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
 
+      # Строку подключения нельзя ни прочитать, ни провести через ревью: она
+      # живёт в secret. Здесь клиент — настоящий libpq, для которого `require`
+      # означает «шифровать, не проверяя, с кем говоришь», а `PGSSLROOTCERT`
+      # ниже действует только в режимах `verify-ca` и `verify-full`. Поэтому
+      # режим проверяется до того, как дамп со всем содержимым БД уйдёт по
+      # непроверенному каналу. Checkout здесь намеренно не делается, поэтому
+      # общий `scripts/verify-release-database.mjs` недоступен и guard остаётся
+      # встроенным. Секрет читается через `env`, а не подставляется в тело
+      # скрипта: подстановка сделала бы его значение частью команды.
+      - name: Verify SSL mode
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          case "$DIRECT_URL" in
+            *"sslmode=verify-full"*) echo "sslmode=verify-full" ;;
+            *) echo "::error::DIRECT_URL должен использовать sslmode=verify-full"; exit 1 ;;
+          esac
+
       - name: Run pg_dump
         env:
           # Сохраняем verify-full и используем доверенные корневые CA раннера.
