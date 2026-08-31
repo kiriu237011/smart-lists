@@ -20,6 +20,7 @@ export const staticSecuritySuites = [
   { path: "src/components/lists/SafeMarkdown.test.ts", controls: ["A3"] },
   { path: "src/lib/attachments.test.ts", controls: ["A1", "A40", "A41"] },
   { path: "src/lib/auth-errors.test.ts", controls: ["privacy-logs"] },
+  { path: "src/lib/insights-service-url.test.ts", controls: ["A68"] },
   { path: "src/lib/notify.test.ts", controls: ["realtime-boundary"] },
   { path: "src/lib/pusher-auth.test.ts", controls: ["realtime-auth"] },
   { path: "src/lib/spaces.test.ts", controls: ["tenant-scope"] },
