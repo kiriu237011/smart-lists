@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-31 (validated insights service URL before egress)
+**Последнее обновление:** 2026-08-31 (enforced verify-full TLS on every database path)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -527,6 +527,13 @@ Smart Lists — локализованное веб-приложение для 
   ключа приложения нет — именно поэтому versioning здесь защита, а не
   формальность. `Expiration` для текущих версий не задан намеренно: у бэкапов
   он нужен, у пользовательских файлов означал бы пропажу по расписанию.
+- С 2026-08-31 на всех трёх бакетах — обоих для вложений (Production и dev) и
+  бэкапном — стоит bucket policy с `Deny` на `s3:*` при
+  `aws:SecureTransport: false`. Без неё presigned-ссылку
+  можно было использовать по `http`: подпись SigV4 не покрывает схему URL, а
+  `Block all public access` относится к анонимному доступу, а не к транспорту.
+  Проверено поведением — по `https` файл отдаётся, по `http` приходит
+  `AccessDenied` с явным `explicit deny in a resource-based policy`.
 
 ### AI-инсайты
 
@@ -705,7 +712,16 @@ Smart Lists — локализованное веб-приложение для 
   а Production и Preview migration jobs получают отдельные значения из
   GitHub Environments. Repository-level `DIRECT_URL` доступен только backup
   workflow и содержит credential `smartlists_backup`. `prisma generate` и
-  Vercel build работают без него;
+  Vercel build работают без него.
+  **Каждая строка подключения к удалённой БД обязана содержать
+  `sslmode=verify-full`** — это проверяется кодом, а не соглашением:
+  `assertSecureDatabaseUrl` в рантайме, `verifyReleaseDatabaseTarget` в
+  миграциях, аудитах и retention, отдельный guard в `backup.yml`. Локальные
+  хосты освобождены. Причина в том, что `sslmode=require` у node-postgres
+  сегодня равен `verify-full` лишь по временной трактовке библиотеки: в `pg` 9
+  она станет libpq-совместимой, и `require` перестанет проверять сертификат.
+  `channel_binding=require` в строках сохранён, но действует только на
+  libpq-путях — node-postgres этот параметр игнорирует;
 - Auth.js: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, при
   необходимости `AUTH_URL`; только в Vercel Preview дополнительно задан
   `AUTH_REDIRECT_PROXY_URL`;
@@ -759,7 +775,12 @@ Smart Lists — локализованное веб-приложение для 
 
 `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`
-(camera/microphone/geolocation отключены), `Strict-Transport-Security` на год.
+(camera/microphone/geolocation отключены), `Strict-Transport-Security` на год с
+`includeSubDomains`. Сам заголовок до 2026-08-31 не проверялся ничем — теперь
+тест требует его присутствия, окна не меньше года и `includeSubDomains`.
+`preload` не задан осознанно: домен `*.vercel.app` в preload-список подать
+нельзя, вопрос вернётся при переезде на собственный домен. Редирект
+`http → https` (308) выполняет платформа Vercel, в репозитории его нет.
 
 Content Security Policy заведена частично — только директивы, не требующие
 per-request nonce:

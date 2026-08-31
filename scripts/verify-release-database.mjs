@@ -27,6 +27,18 @@ export function verifyReleaseDatabaseTarget(directUrl, expectedHost) {
 
   const database = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
   if (!database) throw new Error("В DIRECT_URL отсутствует имя базы данных");
+
+  // На этом пути клиент — настоящий libpq: `pg_dump` и Prisma CLI, в отличие
+  // от node-postgres, понимают `require` буквально — шифровать, не проверяя,
+  // с кем говоришь. Сетевой доступ к endpoint Neon не ограничен ничем (A42),
+  // поэтому проверка сертификата остаётся единственным барьером до
+  // аутентификации. Здесь же теряет смысл `PGSSLROOTCERT: system` в
+  // `backup.yml`: корневые CA раннера используются только режимами
+  // `verify-ca` и `verify-full`.
+  if (parsed.searchParams.get("sslmode") !== "verify-full") {
+    throw new Error("DIRECT_URL должен использовать sslmode=verify-full");
+  }
+
   return { host: actualHost, database };
 }
 

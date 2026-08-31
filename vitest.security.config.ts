@@ -22,6 +22,7 @@ export const staticSecuritySuites = [
   { path: "src/lib/auth-errors.test.ts", controls: ["privacy-logs"] },
   { path: "src/lib/insights-service-url.test.ts", controls: ["A68"] },
   { path: "src/lib/notify.test.ts", controls: ["realtime-boundary"] },
+  { path: "src/lib/prisma-client.test.ts", controls: ["transport-tls"] },
   { path: "src/lib/pusher-auth.test.ts", controls: ["realtime-auth"] },
   { path: "src/lib/spaces.test.ts", controls: ["tenant-scope"] },
   { path: "src/lib/uuid.test.ts", controls: ["privacy-logs"] },
@@ -40,13 +41,17 @@ export const staticSecuritySuites = [
     path: "test/production-rls-workflow.test.ts",
     controls: ["tenant-rls-release"],
   },
-  { path: "test/release-database-target.test.ts", controls: ["A31"] },
+  {
+    path: "test/release-database-target.test.ts",
+    controls: ["A31", "transport-tls"],
+  },
   { path: "test/scoped-db-import-boundary.test.ts", controls: ["tenant-scope"] },
   { path: "test/security-static-suite.test.ts", controls: ["security-ci"] },
   {
     path: "test/tenant-enforcement-contract.test.ts",
     controls: ["tenant-rls-release"],
   },
+  { path: "test/tls-contract.test.ts", controls: ["transport-tls"] },
   { path: "test/vercel-build-cutover.test.ts", controls: ["A31", "A32"] },
   { path: "test/workflow-action-pins.test.ts", controls: ["A60"] },
 ] as const;
