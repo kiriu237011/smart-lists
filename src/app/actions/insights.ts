@@ -19,6 +19,8 @@
  *   - userMessage ограничен 500 символами (защита от cost abuse).
  *   - Rate limiting: не более 15 запросов в день на пользователя (через UserDailyUsage).
  *   - Вызов сервиса подписан ID-токеном; без него запрос не отправляется вовсе.
+ *   - Адрес сервиса проверяется по форме до отправки: содержимое списка не может
+ *     уехать на произвольный хост через подмену переменной окружения (A68).
  */
 
 "use server";
@@ -28,6 +30,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { listInSpaceWhere } from "@/lib/spaces";
 import { getCloudRunIdToken } from "@/lib/gcp-auth";
+import { resolveInsightsServiceUrl } from "@/lib/insights-service-url";
 import { logger, hashId } from "@/lib/logger";
 import {
   DatabaseContextError,
@@ -89,7 +92,9 @@ export async function getListInsight(
   }
 
   const userId = session.user.id;
-  const serviceUrl = process.env.INSIGHTS_SERVICE_URL;
+  // Адрес проверяется, а не берётся как есть: он определяет, кому уйдёт
+  // содержимое списка, и сеть на этом пути ничего не запрещает — см. A68/A69.
+  const serviceUrl = resolveInsightsServiceUrl(process.env.INSIGHTS_SERVICE_URL);
 
   // Все tenant-чтения выполняются с подтверждёнными userId и spaceId. Внешний
   // AI-вызов ниже намеренно остаётся за пределами транзакции: сетевое ожидание
@@ -225,7 +230,13 @@ export async function getListInsight(
   // Конфиг сервиса проверяем тоже ДО rate limiting — иначе при отсутствии
   // env-переменных квота списывалась бы впустую.
   if (dbContext.status === "notConfigured" || !serviceUrl) {
-    logger.error({ action: "getListInsight" }, "INSIGHTS_SERVICE_URL не задан");
+    // Одно сообщение на два случая сознательно: и «не задан», и «задан, но не
+    // прошёл проверку формы» означают одно — сервис не настроен, отправлять
+    // некуда. Само значение в лог не попадает.
+    logger.error(
+      { action: "getListInsight" },
+      "INSIGHTS_SERVICE_URL не задан или не является адресом сервиса",
+    );
     return { error: "Service not configured" };
   }
 

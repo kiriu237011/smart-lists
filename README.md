@@ -91,10 +91,13 @@ S3_SECRET_ACCESS_KEY=aws-secret-key
 5. AI insights are intentionally unavailable in Local and Preview. Production
 uses Google identity federation rather than a shared static secret. Configure
 the service URL and the non-secret federation identifiers only in the Vercel
-Production environment:
+Production environment. The service URL is validated before every outbound
+request: it must be an HTTPS Cloud Run address of this service, with no
+credentials, port, path, query or fragment. Anything else is treated as "not
+configured" and no request leaves the runtime:
 
 ```env
-INSIGHTS_SERVICE_URL=https://insights-service.example.run.app
+INSIGHTS_SERVICE_URL=https://insights-api-123456789012.us-central1.run.app
 GCP_PROJECT_NUMBER=123456789012
 GCP_WORKLOAD_IDENTITY_POOL_ID=vercel
 GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID=production
