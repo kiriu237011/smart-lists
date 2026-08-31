@@ -1297,6 +1297,17 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   новый service account и новые GCP IAM-права не создавались. Exact VEX
   предыдущего `sha256:082760…52fe3` к новому serving digest
   не переносится; его recurring image-scan относится к этапу 4.
+- Этап 4 provenance завершён 2026-08-31. Recurring FastAPI scanner с прежней
+  read-only identity проверяет все traffic/tagged Cloud Run revisions. Cloud Run
+  обслуживает дочерний `linux/amd64` manifest `sha256:498cd37a…5f1a70`, а
+  keyless attestation относится к родительскому OCI index
+  `sha256:e727018e…3cd9701`; workflow требует ровно одну exact parent-child связь
+  по raw OCI JSON и затем проверяет подпись/claims parent. Run `33391706750`
+  подтвердил provenance `PASS`. Live-негативные проверки отклонили ложный
+  signer, подменённый digest и старый образ без attestation. Независимый CVE gate
+  того же run остался `BLOCKED` (Critical=7, High=20, VEX=0, waiver=0), потому
+  что прежний exact VEX к новому serving manifest не переносится; это отдельный
+  vulnerability-review, а не незавершённый provenance.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
