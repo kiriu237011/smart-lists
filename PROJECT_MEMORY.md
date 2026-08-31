@@ -1258,8 +1258,9 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
 - Оба репозитория публичны и проприетарны: `LICENSE` с «все права защищены» и
   отказом от гарантий, `"license": "SEE LICENSE IN LICENSE"` в `package.json`.
   `LICENSE` и `README.md` — единственные файлы на английском.
-- Для provenance FastAPI image определён точный контракт, но выпуск и проверка
-  attestation ещё не реализованы. Доверенный subject — exact Artifact Registry
+- Для provenance FastAPI image определён точный контракт; BuildKit SLSA
+  metadata уже выпускается и проверяется, но подписанная attestation ещё не
+  реализована. Доверенный subject — exact Artifact Registry
   digest из build output; builder ограничен FastAPI-репозиторием, `deploy.yml`,
   `push` в `main`, Environment `production` и тем же commit SHA. Выбраны
   BuildKit SLSA `mode=max` и keyless GitHub Artifact Attestation; будущая
@@ -1276,6 +1277,16 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   не создаёт VEX автоматически. Dependency-Track, Next.js/Vercel artifact SBOM
   и provenance сознательно не входят в SBOM-контур; provenance ведётся
   отдельным четырёхэтапным планом только для FastAPI image.
+- Этап 2 provenance завершён 2026-08-30. Production run `33312038124` выпустил
+  для FastAPI commit `82af491…` BuildKit SLSA v1 `mode=max`; structural gate
+  проверил exact `sha256:e613b27e…b5b281` до SBOM/Cloud Run, а ревизия
+  `insights-api-00047-hff` получила 100% трафика на тот же digest. Registry
+  metadata содержит BuildKit build type, resolved dependencies, внутренний
+  LLB, Dockerfile и точный VCS revision. `ARG` и build secret inputs
+  отсутствуют и запрещены тестом без явного пересмотра риска раскрытия.
+  Подписанная keyless GitHub attestation и проверка signer identity остаются
+  этапом 3. Exact VEX предыдущего `sha256:082760…52fe3` к новому serving digest
+  не переносится; его recurring image-scan относится к этапу 4.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
