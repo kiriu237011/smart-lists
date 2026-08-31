@@ -1259,12 +1259,12 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   отказом от гарантий, `"license": "SEE LICENSE IN LICENSE"` в `package.json`.
   `LICENSE` и `README.md` — единственные файлы на английском.
 - Для provenance FastAPI image определён точный контракт; BuildKit SLSA
-  metadata уже выпускается и проверяется, но подписанная attestation ещё не
-  реализована. Доверенный subject — exact Artifact Registry
+  metadata и подписанная keyless GitHub Artifact Attestation выпускаются и
+  проверяются до deploy. Доверенный subject — exact Artifact Registry
   digest из build output; builder ограничен FastAPI-репозиторием, `deploy.yml`,
   `push` в `main`, Environment `production` и тем же commit SHA. Выбраны
-  BuildKit SLSA `mode=max` и keyless GitHub Artifact Attestation; будущая
-  проверка до deploy fail-closed. Видимость CVE между выкладками закрывает этап
+  BuildKit SLSA `mode=max` и keyless GitHub Artifact Attestation; проверка до
+  deploy работает fail-closed. Видимость CVE между выкладками закрывает этап
   1 SBOM-плана —
   еженедельный fail-closed Grype по фактическим Cloud Run digest. Этап 2
   реализует CycloneDX JSON 1.6 attachment от Syft без отдельной истории
@@ -1284,8 +1284,18 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   metadata содержит BuildKit build type, resolved dependencies, внутренний
   LLB, Dockerfile и точный VCS revision. `ARG` и build secret inputs
   отсутствуют и запрещены тестом без явного пересмотра риска раскрытия.
-  Подписанная keyless GitHub attestation и проверка signer identity остаются
-  этапом 3. Exact VEX предыдущего `sha256:082760…52fe3` к новому serving digest
+  Подписанная keyless GitHub attestation и проверка signer identity были
+  реализованы следующим этапом.
+- Этап 3 provenance завершён 2026-08-31. Первый production run `33384270596`
+  безопасно остановился до SBOM/deploy из-за неверного пути к сертификатным
+  claims; прежняя Cloud Run revision не изменилась. После исправления run
+  `33384972241` для FastAPI commit `ac1d92f…` проверил Sigstore trusted root,
+  подпись, exact subject/digest, workflow/source SHA/ref, SLSA v1 predicate,
+  `production`, `push`, `github-hosted` и repository ID `1199475908`, затем
+  прикрепил SBOM и развернул exact `sha256:e727018e…3cd9701`. Ревизия
+  `insights-api-00048-dff` получила 100% трафика. Долговременный signing key,
+  новый service account и новые GCP IAM-права не создавались. Exact VEX
+  предыдущего `sha256:082760…52fe3` к новому serving digest
   не переносится; его recurring image-scan относится к этапу 4.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
