@@ -15,7 +15,8 @@ const workflowPath = fileURLToPath(
 const validRequest = {
   apply: true,
   confirmation: AUDIT_RETENTION_CONFIRMATION,
-  directUrl: "postgresql://migrator:secret@db.example.test/smartlists",
+  directUrl:
+    "postgresql://migrator:secret@db.example.test/smartlists?sslmode=verify-full",
   expectedHost: "db.example.test",
   expectedRole: "smartlists_migrator",
 };
