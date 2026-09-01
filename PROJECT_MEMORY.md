@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-31 (enforced verify-full TLS on every database path)
+**Последнее обновление:** 2026-09-01 (first scheduled audit retention run verified)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -747,7 +747,9 @@ Smart Lists — локализованное веб-приложение для 
   `DIRECT_URL`/`EXPECTED_DATABASE_HOST` соответствующего GitHub Environment.
   Несекретные repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
   `ENABLE_PRODUCTION_AUDIT_RETENTION` имеют значение `true` с 2026-08-27 и
-  отдельно включают только еженедельные cron-запуски.
+  отдельно включают только еженедельные cron-запуски. Расписание рабочее:
+  первый scheduled run `33330772776` (2026-08-30) прошёл в обеих средах
+  с нулевым удалением.
 
 ## Разделение сред
 
