@@ -34,7 +34,9 @@ export const staticSecuritySuites = [
   { path: "test/database-release-workflow.test.ts", controls: ["A13", "A31"] },
   { path: "test/dependency-install-hooks.test.ts", controls: ["A51"] },
   { path: "test/eslint-xss-guard.test.ts", controls: ["A3"] },
+  { path: "test/mutation-budget-coverage.test.ts", controls: ["A29"] },
   { path: "test/next-config.test.ts", controls: ["security-headers"] },
+  { path: "test/outbound-requests.test.ts", controls: ["A68", "A69"] },
   { path: "test/preview-rls-workflow.test.ts", controls: ["tenant-rls-release"] },
   { path: "test/preview-sync-workflow.test.ts", controls: ["A49"] },
   {
