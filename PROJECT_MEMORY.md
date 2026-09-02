@@ -737,7 +737,11 @@ Smart Lists — локализованное веб-приложение для 
   `AUTH_REDIRECT_PROXY_URL`;
 - Pusher: `PUSHER_APP_ID`, `PUSHER_SECRET`, `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER`;
 - S3: `S3_BUCKET_NAME`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`;
-- AI: `INSIGHTS_SERVICE_URL`;
+- AI: `INSIGHTS_SERVICE_URL` — только в Vercel Production. В локальном `.env` и
+  в тестовых окружениях переменной нет намеренно: без неё Action не доходит до
+  сети, и «AI не вызывается вне Production» проверяется отсутствием настройки, а
+  не дисциплиной. Статический `INSIGHTS_SERVICE_SECRET` в протоколе отсутствует
+  с 2026-08-09, последние мёртвые копии убраны 2026-09-02;
 - федерация в GCP (все четыре значения несекретные, задаются в Vercel только
   для Production — там же, где `INSIGHTS_SERVICE_*`): `GCP_PROJECT_NUMBER`,
   `GCP_WORKLOAD_IDENTITY_POOL_ID`, `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`,
