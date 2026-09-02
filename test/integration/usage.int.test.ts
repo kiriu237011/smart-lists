@@ -2,12 +2,15 @@
  * @file usage.int.test.ts
  * @description Суточный бюджет мутаций и ленивая уборка счётчиков.
  *
- * Отдельного внимания стоит последний блок. Он перечисляет все действия,
- * меняющие данные, и требует, чтобы каждое отказывало при исчерпанном
- * бюджете. Смысл не в повторной проверке одной и той же строки кода, а в том,
- * чтобы новое действие нельзя было добавить, забыв про бюджет: тест
- * покраснеет. Тот же приём, которым в проекте закреплён `listInSpaceWhere`, —
- * контроль, который нельзя пропустить по невнимательности.
+ * Отдельного внимания стоит последний блок. Он перечисляет действия, меняющие
+ * данные, и требует, чтобы каждое отказывало при исчерпанном бюджете.
+ *
+ * Сам по себе список полноты не доказывает — он ведётся руками, и до
+ * 2026-09-01 три attachment-действия отсутствовали в нём, хотя бюджет
+ * списывали. Полноту обеспечивает `test/mutation-budget-coverage.test.ts`: он
+ * берёт набор из фактических экспортов каталога `actions` и требует, чтобы
+ * каждое мутирующее действие было покрыто здесь. Поэтому блок ниже проверяет
+ * поведение, а полнота набора закреплена отдельно и не зависит от внимания.
  */
 
 import { describe, expect, it } from "vitest";
@@ -43,6 +46,11 @@ import {
   updateListNote,
 } from "@/app/actions";
 import { createSpace, deleteSpace, renameSpace } from "@/app/actions/spaces";
+import {
+  confirmUpload,
+  deleteAttachment,
+  requestUpload,
+} from "@/app/actions/attachments";
 import { prisma, setSessionUser } from "./setup";
 import { formData, makeItem, makeList, makeUser } from "./factories";
 
@@ -223,6 +231,25 @@ describe("действия соблюдают бюджет", () => {
     ["createSpace", () => createSpace("Пространство")],
     ["renameSpace", () => renameSpace("space_1", "Имя")],
     ["deleteSpace", () => deleteSpace("space_1", "Имя")],
+    // Вложения стоят двух единиц бюджета (`requestUpload` + `confirmUpload`),
+    // и обе половины, как и удаление, списывают его сразу после сессии — до
+    // проверки S3 и до валидации. Поэтому S3 здесь не нужен.
+    [
+      "requestUpload",
+      () =>
+        requestUpload({
+          listId: "",
+          spaceId: "",
+          fileName: "",
+          contentType: "",
+          size: 0,
+        }),
+    ],
+    ["confirmUpload", () => confirmUpload({ attachmentId: "", spaceId: "" })],
+    [
+      "deleteAttachment",
+      () => deleteAttachment({ attachmentId: "", spaceId: "" }),
+    ],
   ];
 
   it.each(actions)("%s отказывает при исчерпанном бюджете", async (_name, call) => {

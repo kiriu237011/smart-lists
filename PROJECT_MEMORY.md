@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-08-31 (enforced verify-full TLS on every database path)
+**Последнее обновление:** 2026-09-02 (mysql2 override in the Prisma CLI)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -484,6 +484,12 @@ Smart Lists — локализованное веб-приложение для 
 - Отклонённое имя Pusher-канала в лог не попадает: для корреляции сохраняются
   только короткие хеши пользователя и присланного имени канала.
 - Мутация, затрагивающая два списка сразу, уведомляет участников обоих через `notifyListsMembers`: наборы получателей у списков разные, а объединение в один Set не даёт задвоенный `refresh` тем, кто состоит в обоих.
+- Force TLS включён в обоих приложениях Pusher, `useTLS: true` закреплён тестом.
+  При этом Pusher — единственный внешний сервис без поддержки TLS 1.3: и
+  `api-<cluster>`, и `ws-<cluster>` работают по 1.2 (проверено 2026-08-31,
+  набор `ECDHE-RSA-AES128-GCM-SHA256`, то есть AEAD с forward secrecy). Поэтому
+  глобальное требование TLS 1.3 вводить нельзя — оно отключило бы realtime, и
+  тихо: ошибка ушла бы в `.catch`, а не в интерфейс.
 
 ### Гостевой режим
 
@@ -721,7 +727,11 @@ Smart Lists — локализованное веб-приложение для 
   сегодня равен `verify-full` лишь по временной трактовке библиотеки: в `pg` 9
   она станет libpq-совместимой, и `require` перестанет проверять сертификат.
   `channel_binding=require` в строках сохранён, но действует только на
-  libpq-путях — node-postgres этот параметр игнорирует;
+  libpq-путях — node-postgres этот параметр игнорирует.
+  Прочитать эти строки после записи нельзя: `DATABASE_URL` в Vercel помечен
+  Sensitive, GitHub secrets write-only. Проверять их состояние следует
+  поведением — неверный режим роняет сборку Vercel на валидации, — а исправлять
+  перезаписью, а не попыткой узнать текущее значение;
 - Auth.js: `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, при
   необходимости `AUTH_URL`; только в Vercel Preview дополнительно задан
   `AUTH_REDIRECT_PROXY_URL`;
@@ -737,7 +747,9 @@ Smart Lists — локализованное веб-приложение для 
   `DIRECT_URL`/`EXPECTED_DATABASE_HOST` соответствующего GitHub Environment.
   Несекретные repository variables `ENABLE_PREVIEW_AUDIT_RETENTION` и
   `ENABLE_PRODUCTION_AUDIT_RETENTION` имеют значение `true` с 2026-08-27 и
-  отдельно включают только еженедельные cron-запуски.
+  отдельно включают только еженедельные cron-запуски. Расписание рабочее:
+  первый scheduled run `33330772776` (2026-08-30) прошёл в обеих средах
+  с нулевым удалением.
 
 ## Разделение сред
 
@@ -1248,12 +1260,13 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
 - Оба репозитория публичны и проприетарны: `LICENSE` с «все права защищены» и
   отказом от гарантий, `"license": "SEE LICENSE IN LICENSE"` в `package.json`.
   `LICENSE` и `README.md` — единственные файлы на английском.
-- Для provenance FastAPI image определён точный контракт, но выпуск и проверка
-  attestation ещё не реализованы. Доверенный subject — exact Artifact Registry
+- Для provenance FastAPI image определён точный контракт; BuildKit SLSA
+  metadata и подписанная keyless GitHub Artifact Attestation выпускаются и
+  проверяются до deploy. Доверенный subject — exact Artifact Registry
   digest из build output; builder ограничен FastAPI-репозиторием, `deploy.yml`,
   `push` в `main`, Environment `production` и тем же commit SHA. Выбраны
-  BuildKit SLSA `mode=max` и keyless GitHub Artifact Attestation; будущая
-  проверка до deploy fail-closed. Видимость CVE между выкладками закрывает этап
+  BuildKit SLSA `mode=max` и keyless GitHub Artifact Attestation; проверка до
+  deploy работает fail-closed. Видимость CVE между выкладками закрывает этап
   1 SBOM-плана —
   еженедельный fail-closed Grype по фактическим Cloud Run digest. Этап 2
   реализует CycloneDX JSON 1.6 attachment от Syft без отдельной истории
@@ -1266,12 +1279,48 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   не создаёт VEX автоматически. Dependency-Track, Next.js/Vercel artifact SBOM
   и provenance сознательно не входят в SBOM-контур; provenance ведётся
   отдельным четырёхэтапным планом только для FastAPI image.
+- Этап 2 provenance завершён 2026-08-30. Production run `33312038124` выпустил
+  для FastAPI commit `82af491…` BuildKit SLSA v1 `mode=max`; structural gate
+  проверил exact `sha256:e613b27e…b5b281` до SBOM/Cloud Run, а ревизия
+  `insights-api-00047-hff` получила 100% трафика на тот же digest. Registry
+  metadata содержит BuildKit build type, resolved dependencies, внутренний
+  LLB, Dockerfile и точный VCS revision. `ARG` и build secret inputs
+  отсутствуют и запрещены тестом без явного пересмотра риска раскрытия.
+  Подписанная keyless GitHub attestation и проверка signer identity были
+  реализованы следующим этапом.
+- Этап 3 provenance завершён 2026-08-31. Первый production run `33384270596`
+  безопасно остановился до SBOM/deploy из-за неверного пути к сертификатным
+  claims; прежняя Cloud Run revision не изменилась. После исправления run
+  `33384972241` для FastAPI commit `ac1d92f…` проверил Sigstore trusted root,
+  подпись, exact subject/digest, workflow/source SHA/ref, SLSA v1 predicate,
+  `production`, `push`, `github-hosted` и repository ID `1199475908`, затем
+  прикрепил SBOM и развернул exact `sha256:e727018e…3cd9701`. Ревизия
+  `insights-api-00048-dff` получила 100% трафика. Долговременный signing key,
+  новый service account и новые GCP IAM-права не создавались. Exact VEX
+  предыдущего `sha256:082760…52fe3` к новому serving digest
+  не переносится; его recurring image-scan относится к этапу 4.
+- Этап 4 provenance завершён 2026-08-31. Recurring FastAPI scanner с прежней
+  read-only identity проверяет все traffic/tagged Cloud Run revisions. Cloud Run
+  обслуживает дочерний `linux/amd64` manifest `sha256:498cd37a…5f1a70`, а
+  keyless attestation относится к родительскому OCI index
+  `sha256:e727018e…3cd9701`; workflow требует ровно одну exact parent-child связь
+  по raw OCI JSON и затем проверяет подпись/claims parent. Run `33391706750`
+  подтвердил provenance `PASS`. Live-негативные проверки отклонили ложный
+  signer, подменённый digest и старый образ без attestation. Независимый CVE gate
+  того же run сначала остался `BLOCKED` (Critical=7, High=20, VEX=0, waiver=0),
+  потому что прежний exact VEX к новому serving manifest не переносится.
+  Отдельный review-PR FastAPI №52 создал 27 exact statements для нового digest;
+  post-merge run `33498396730` повторно подтвердил provenance, evidence 22/22,
+  claims 21/21, подавил VEX=27 при waiver=0 и завершился `Gate: PASS` с
+  Critical=0/High=0.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
   они не попадают — проверено по trace-файлам output file tracing. Важно другое:
   GitHub классифицирует такие алерты как `development` и гасит их
-  преднастроенным правилом Dependabot.
+  преднастроенным правилом Dependabot — но не всегда. 09-02 алерт `mysql2`
+  того же scope пришёл открытым, тогда как `deepmerge-ts` 08-17 был отклонён
+  автоматически.
 
 ### Бэкап базы
 
@@ -1311,6 +1360,14 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-09-02: `mysql2` внутри CLI Prisma поднят через `overrides`
+  (`"mysql2@3": "3.24.2"`), потому что `prisma` и `@prisma/config` пинят его
+  точной 3.15.3 и Dependabot сам этот пин не сдвинет. Взята 3.24.2, а не
+  вышедшая в тот же день 3.24.3: уязвимость GHSA-3f6p-5ww8-9rcr закрыта ещё в
+  3.22.0, поэтому семидневная выдержка важнее свежести. Побочно из дерева ушли
+  `seq-queue`, `sqlstring` и `denque`, а вместо них пришёл MIT `sql-escaper`:
+  пакетов без лицензии в дереве не осталось. Для `deepmerge-ts` то же решение
+  по-прежнему не годится — там фикс только в мажоре 8.0.0.
 - 2026-08-30: техническое доказательство для VEX снимается с конфигурации и
   rootfs exact serving FastAPI digest через `inspect/create/export`, без запуска
   контейнера. Для glibc проверяются все ELF64, отсутствие вызывающих DNS-print
