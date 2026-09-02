@@ -27,6 +27,7 @@ export const staticSecuritySuites = [
   { path: "src/lib/spaces.test.ts", controls: ["tenant-scope"] },
   { path: "src/lib/uuid.test.ts", controls: ["privacy-logs"] },
   { path: "src/lib/validations.test.ts", controls: ["input-boundary"] },
+  { path: "test/action-auth-boundary.test.ts", controls: ["A74"] },
   { path: "test/audit-retention.test.ts", controls: ["A53"] },
   { path: "test/ci-container-confinement.test.ts", controls: ["A45", "A46"] },
   { path: "test/ci-docs-fast-path.test.ts", controls: ["A55"] },
