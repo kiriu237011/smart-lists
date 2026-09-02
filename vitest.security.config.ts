@@ -39,6 +39,7 @@ export const staticSecuritySuites = [
   { path: "test/next-config.test.ts", controls: ["security-headers"] },
   { path: "test/outbound-requests.test.ts", controls: ["A68", "A69"] },
   { path: "test/preview-rls-workflow.test.ts", controls: ["tenant-rls-release"] },
+  { path: "test/prototype-pollution-guard.test.ts", controls: ["A75"] },
   { path: "test/preview-sync-workflow.test.ts", controls: ["A49"] },
   {
     path: "test/production-rls-workflow.test.ts",
