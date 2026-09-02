@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-09-01 (first scheduled audit retention run verified)
+**Последнее обновление:** 2026-09-02 (mysql2 override in the Prisma CLI)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -1307,15 +1307,20 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   по raw OCI JSON и затем проверяет подпись/claims parent. Run `33391706750`
   подтвердил provenance `PASS`. Live-негативные проверки отклонили ложный
   signer, подменённый digest и старый образ без attestation. Независимый CVE gate
-  того же run остался `BLOCKED` (Critical=7, High=20, VEX=0, waiver=0), потому
-  что прежний exact VEX к новому serving manifest не переносится; это отдельный
-  vulnerability-review, а не незавершённый provenance.
+  того же run сначала остался `BLOCKED` (Critical=7, High=20, VEX=0, waiver=0),
+  потому что прежний exact VEX к новому serving manifest не переносится.
+  Отдельный review-PR FastAPI №52 создал 27 exact statements для нового digest;
+  post-merge run `33498396730` повторно подтвердил provenance, evidence 22/22,
+  claims 21/21, подавил VEX=27 при waiver=0 и завершился `Gate: PASS` с
+  Critical=0/High=0.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
   они не попадают — проверено по trace-файлам output file tracing. Важно другое:
   GitHub классифицирует такие алерты как `development` и гасит их
-  преднастроенным правилом Dependabot.
+  преднастроенным правилом Dependabot — но не всегда. 09-02 алерт `mysql2`
+  того же scope пришёл открытым, тогда как `deepmerge-ts` 08-17 был отклонён
+  автоматически.
 
 ### Бэкап базы
 
@@ -1355,6 +1360,14 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 
 ## Важные решения
 
+- 2026-09-02: `mysql2` внутри CLI Prisma поднят через `overrides`
+  (`"mysql2@3": "3.24.2"`), потому что `prisma` и `@prisma/config` пинят его
+  точной 3.15.3 и Dependabot сам этот пин не сдвинет. Взята 3.24.2, а не
+  вышедшая в тот же день 3.24.3: уязвимость GHSA-3f6p-5ww8-9rcr закрыта ещё в
+  3.22.0, поэтому семидневная выдержка важнее свежести. Побочно из дерева ушли
+  `seq-queue`, `sqlstring` и `denque`, а вместо них пришёл MIT `sql-escaper`:
+  пакетов без лицензии в дереве не осталось. Для `deepmerge-ts` то же решение
+  по-прежнему не годится — там фикс только в мажоре 8.0.0.
 - 2026-08-30: техническое доказательство для VEX снимается с конфигурации и
   rootfs exact serving FastAPI digest через `inspect/create/export`, без запуска
   контейнера. Для glibc проверяются все ELF64, отсутствие вызывающих DNS-print
