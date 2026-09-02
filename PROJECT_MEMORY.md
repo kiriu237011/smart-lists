@@ -1307,9 +1307,12 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   по raw OCI JSON и затем проверяет подпись/claims parent. Run `33391706750`
   подтвердил provenance `PASS`. Live-негативные проверки отклонили ложный
   signer, подменённый digest и старый образ без attestation. Независимый CVE gate
-  того же run остался `BLOCKED` (Critical=7, High=20, VEX=0, waiver=0), потому
-  что прежний exact VEX к новому serving manifest не переносится; это отдельный
-  vulnerability-review, а не незавершённый provenance.
+  того же run сначала остался `BLOCKED` (Critical=7, High=20, VEX=0, waiver=0),
+  потому что прежний exact VEX к новому serving manifest не переносится.
+  Отдельный review-PR FastAPI №52 создал 27 exact statements для нового digest;
+  post-merge run `33498396730` повторно подтвердил provenance, evidence 22/22,
+  claims 21/21, подавил VEX=27 при waiver=0 и завершился `Gate: PASS` с
+  Critical=0/High=0.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт
