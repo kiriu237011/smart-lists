@@ -716,7 +716,18 @@ Smart Lists — локализованное веб-приложение для 
   ветках Neon;
   `DIRECT_URL` нужен только Prisma CLI — локально его загружает корневой `.env`,
   а Production и Preview migration jobs получают отдельные значения из
-  GitHub Environments. Repository-level `DIRECT_URL` доступен только backup
+  GitHub Environments.
+  **Локальный `.env` с 2026-09-03 использует те же роли, что и боевые среды:**
+  `smartlists_runtime` в `DATABASE_URL` и `smartlists_migrator` в `DIRECT_URL`
+  вместо прежнего `neondb_owner`. У owner-роли `BYPASSRLS`, поэтому под ней
+  локально не работал весь RLS-контур и расхождение с production было
+  незаметно. У migrator нет `CREATEDB`, а `prisma migrate dev` создаёт
+  shadow-базу, поэтому её адрес задаётся отдельным несекретным
+  `SHADOW_DATABASE_URL` — одноразовая база в контейнере из
+  `docker-compose.test.yml` (`npm run test:integration:db`), создаётся
+  init-скриптом при каждом подъёме. Guard в `prisma.config.ts` принимает только
+  петлевой адрес и запрещает совпадение с рабочим: Prisma стирает эту базу
+  перед каждым запуском. Repository-level `DIRECT_URL` доступен только backup
   workflow и содержит credential `smartlists_backup`. `prisma generate` и
   Vercel build работают без него.
   **Каждая строка подключения к удалённой БД обязана содержать

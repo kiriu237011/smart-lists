@@ -52,6 +52,10 @@ export const staticSecuritySuites = [
   { path: "test/scoped-db-import-boundary.test.ts", controls: ["tenant-scope"] },
   { path: "test/security-static-suite.test.ts", controls: ["security-ci"] },
   {
+    path: "test/shadow-database-contract.test.ts",
+    controls: ["A31", "database-destruction"],
+  },
+  {
     path: "test/tenant-enforcement-contract.test.ts",
     controls: ["tenant-rls-release"],
   },

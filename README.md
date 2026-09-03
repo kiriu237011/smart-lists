@@ -51,6 +51,14 @@ AUTH_GOOGLE_SECRET=google-client-secret
 
 `DATABASE_URL` and `DIRECT_URL` may be identical locally. In a cloud environment the first one usually uses a pooled connection for the PrismaPg runtime adapter, while the second is loaded by `prisma.config.ts` and used by Prisma CLI for migrations.
 
+If the migration role deliberately lacks `CREATEDB` — as it does here, so that no owner-level credential sits on a development machine — then `prisma migrate dev` cannot create its shadow database and needs one supplied:
+
+```env
+SHADOW_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/smartlists_shadow
+```
+
+That address points at the throwaway container from `docker-compose.test.yml`, which creates the database on every start; bring it up with `npm run test:integration:db` before authoring a migration. The value is not a secret, but it is dangerous in a different way: Prisma **wipes** the database it names before every run. `prisma.config.ts` therefore accepts a loopback address only and refuses a value equal to the working one.
+
 The runtime pool is deliberately limited to five connections per application instance, with finite connection and idle timeouts. This avoids inheriting node-postgres defaults that are unsafe for an unbounded number of serverless instances.
 
 > Important: the root `.env` is **development** configuration. The Prisma CLI reads its variables from there, so production connection strings must never land in this file. Production values live only in the hosting provider's environment variables and in GitHub Secrets. This is not limited to the database: Pusher and S3 also use separate resources in development. See [Environment separation](#environment-separation).
