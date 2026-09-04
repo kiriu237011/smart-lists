@@ -747,8 +747,12 @@ Smart Lists — локализованное веб-приложение для 
   необходимости `AUTH_URL`; только в Vercel Preview дополнительно задан
   `AUTH_REDIRECT_PROXY_URL`;
 - Pusher: `PUSHER_APP_ID`, `PUSHER_SECRET`, `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER`;
-- S3: `S3_BUCKET_NAME`, `S3_REGION` и либо `S3_ROLE_ARN` (федерация OIDC на
-  Vercel), либо пара `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`. Выбор делает
+- S3: `S3_BUCKET_NAME`, `S3_REGION` и `S3_ROLE_ARN`. С 2026-09-04 обе среды
+  Vercel работают через федерацию OIDC, статических ключей S3 не существует
+  нигде: access key обоих IAM-пользователей удалены. Локально ни роли, ни
+  ключей нет — `isS3Configured()` возвращает false и вложения выключены.
+  Код по-прежнему принимает пару `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`
+  как запасной путь для среды без OIDC. Выбор делает
   `resolveS3Credentials`: заданная роль имеет приоритет над ключами, а
   синтаксически неверный ARN роняет запуск, а не откатывает на ключи молча.
   Имя `S3_ROLE_ARN` вместо документированного Vercel `AWS_ROLE_ARN` выбрано
