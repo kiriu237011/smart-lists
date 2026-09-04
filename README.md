@@ -96,6 +96,14 @@ S3_ACCESS_KEY_ID=aws-access-key
 S3_SECRET_ACCESS_KEY=aws-secret-key
 ```
 
+Where the platform can issue an OIDC token — Vercel does — the static pair is replaced by a role, and no long-lived key exists on that path at all:
+
+```env
+S3_ROLE_ARN=arn:aws:iam::accountid:role/role-name
+```
+
+A role, when present, wins over a key pair, so both can coexist during a cutover and the deployment still exercises federation; removing `S3_ROLE_ARN` is the rollback. A malformed ARN fails startup rather than falling back to the key pair, because the dangerous outcome is not a broken deployment but a working one that everybody believes has already left long-lived keys behind.
+
 5. AI insights are intentionally unavailable in Local and Preview. Production
 uses Google identity federation rather than a shared static secret. Configure
 the service URL and the non-secret federation identifiers only in the Vercel

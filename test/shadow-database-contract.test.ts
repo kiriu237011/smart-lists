@@ -15,8 +15,10 @@ import { describe, expect, it } from "vitest";
 import { resolveShadowDatabaseUrl } from "../prisma.config";
 
 const LOCAL = "postgresql://postgres:postgres@localhost:5433/smartlists_shadow";
-const REMOTE =
-  "postgresql://user:pass@ep-icy-meadow-a1wkjvqt.ap-southeast-1.aws.neon.tech/neondb";
+// Хост намеренно вымышленный: настоящий адрес боевой или dev-базы в публичном
+// репозитории — бесплатная подсказка для разведки, см. A79. Тесту он ничего не
+// добавляет, важно лишь то, что адрес не петлевой.
+const REMOTE = "postgresql://user:pass@db.example.invalid/neondb";
 
 describe("адрес shadow-базы", () => {
   it("пропускает локальный адрес", () => {

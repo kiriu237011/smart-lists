@@ -24,6 +24,7 @@ export const staticSecuritySuites = [
   { path: "src/lib/notify.test.ts", controls: ["realtime-boundary"] },
   { path: "src/lib/prisma-client.test.ts", controls: ["transport-tls"] },
   { path: "src/lib/pusher-auth.test.ts", controls: ["realtime-auth"] },
+  { path: "src/lib/s3-credentials.test.ts", controls: ["A80"] },
   { path: "src/lib/spaces.test.ts", controls: ["tenant-scope"] },
   { path: "src/lib/uuid.test.ts", controls: ["privacy-logs"] },
   { path: "src/lib/validations.test.ts", controls: ["input-boundary"] },
