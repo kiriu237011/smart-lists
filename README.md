@@ -198,7 +198,7 @@ No single check is treated as sufficient. A request crosses several independent 
 
 Every component holds the narrowest set of rights that still lets it do its job.
 
-**Storage.** The bucket is private and has no public URLs at all; downloads are issued as presigned GET links with a five-minute TTL. Each environment has its own IAM user, scoped to the `lists/*` prefix, and dev and production permissions are deliberately kept identical — if dev were broader, a key outside `lists/` would pass locally and fail in production.
+**Storage.** The bucket is private and has no public URLs at all; downloads are issued as presigned GET links with a five-minute TTL. Each environment has its own IAM role, scoped to the `lists/*` prefix, and dev and production permissions are deliberately kept identical — if dev were broader, a key outside `lists/` would pass in one environment and fail in the other. Nothing holds a long-lived key any more: the deployed application obtains short-lived credentials by exchanging a Vercel OIDC token, each role trusts exactly one environment's token subject, and the access keys that preceded this have been deleted rather than left dormant.
 
 **Secrets stay on the server.** Only `NEXT_PUBLIC_*` variables reach the browser bundle: the client gets the Pusher key, while the Pusher secret and the AWS keys remain server-side. Modules that read privileged state are marked `import "server-only"` ([`src/lib/spaces.ts`](src/lib/spaces.ts#L1)), which turns an accidental client import into a build error rather than a leak.
 
@@ -309,7 +309,7 @@ To check which database the current environment is connected to, look at the hos
 
 The key risk behind splitting S3: the database stores only object keys, while the files themselves exist in a single copy. While the bucket was shared, deleting an attachment in development erased the production file.
 
-- the dev bucket is served by a separate IAM user;
+- the dev bucket is served by a separate IAM role, assumed by Preview deployments through OIDC federation; local development currently has no S3 credentials at all, so attachments are switched off there;
 - its policy mirrors the production one and is limited to the `lists/*` prefix — permissions must match across environments, otherwise a key outside `lists/` passes locally and fails in production;
 - the dev bucket's CORS allows `http://localhost:3000` and preview addresses; the production bucket allows only the production domain.
 
