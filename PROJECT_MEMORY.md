@@ -716,7 +716,18 @@ Smart Lists — локализованное веб-приложение для 
   ветках Neon;
   `DIRECT_URL` нужен только Prisma CLI — локально его загружает корневой `.env`,
   а Production и Preview migration jobs получают отдельные значения из
-  GitHub Environments. Repository-level `DIRECT_URL` доступен только backup
+  GitHub Environments.
+  **Локальный `.env` с 2026-09-03 использует те же роли, что и боевые среды:**
+  `smartlists_runtime` в `DATABASE_URL` и `smartlists_migrator` в `DIRECT_URL`
+  вместо прежнего `neondb_owner`. У owner-роли `BYPASSRLS`, поэтому под ней
+  локально не работал весь RLS-контур и расхождение с production было
+  незаметно. У migrator нет `CREATEDB`, а `prisma migrate dev` создаёт
+  shadow-базу, поэтому её адрес задаётся отдельным несекретным
+  `SHADOW_DATABASE_URL` — одноразовая база в контейнере из
+  `docker-compose.test.yml` (`npm run test:integration:db`), создаётся
+  init-скриптом при каждом подъёме. Guard в `prisma.config.ts` принимает только
+  петлевой адрес и запрещает совпадение с рабочим: Prisma стирает эту базу
+  перед каждым запуском. Repository-level `DIRECT_URL` доступен только backup
   workflow и содержит credential `smartlists_backup`. `prisma generate` и
   Vercel build работают без него.
   **Каждая строка подключения к удалённой БД обязана содержать
@@ -736,8 +747,22 @@ Smart Lists — локализованное веб-приложение для 
   необходимости `AUTH_URL`; только в Vercel Preview дополнительно задан
   `AUTH_REDIRECT_PROXY_URL`;
 - Pusher: `PUSHER_APP_ID`, `PUSHER_SECRET`, `NEXT_PUBLIC_PUSHER_KEY`, `NEXT_PUBLIC_PUSHER_CLUSTER`;
-- S3: `S3_BUCKET_NAME`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`;
-- AI: `INSIGHTS_SERVICE_URL`;
+- S3: `S3_BUCKET_NAME`, `S3_REGION` и либо `S3_ROLE_ARN` (федерация OIDC на
+  Vercel), либо пара `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`. Выбор делает
+  `resolveS3Credentials`: заданная роль имеет приоритет над ключами, а
+  синтаксически неверный ARN роняет запуск, а не откатывает на ключи молча.
+  Имя `S3_ROLE_ARN` вместо документированного Vercel `AWS_ROLE_ARN` выбрано
+  сознательно: платформа вправе переопределять `AWS_*` и действительно
+  выставляет `AWS_REGION` сама. Ролей две, по одной на среду — см. A80;
+- AI: `INSIGHTS_SERVICE_URL` — только в Vercel Production. В локальном `.env` и
+  в тестовых окружениях переменной нет намеренно: без неё Action не доходит до
+  сети, и «AI не вызывается вне Production» проверяется отсутствием настройки, а
+  не дисциплиной. Статический `INSIGHTS_SERVICE_SECRET` в протоколе отсутствует
+  с 2026-08-09; мёртвые копии в локальном `.env` и в обоих тестовых окружениях
+  убраны 2026-09-02, а 2026-09-03 перечислением всех переменных Production,
+  Preview и Development подтверждено, что в Vercel их тоже нет. Значения там
+  не читаются ни дашбордом, ни API, поэтому состав проверяется только
+  перечислением имён, а исправляется перезаписью;
 - федерация в GCP (все четыре значения несекретные, задаются в Vercel только
   для Production — там же, где `INSIGHTS_SERVICE_*`): `GCP_PROJECT_NUMBER`,
   `GCP_WORKLOAD_IDENTITY_POOL_ID`, `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`,
@@ -1357,6 +1382,15 @@ GitHub выдаёт `sub` в формате immutable subject claims — с чи
 Секреты репозитория: `BACKUP_S3_BUCKET`, `BACKUP_AWS_ROLE_ARN` и `DIRECT_URL`
 роли `smartlists_backup`. Срок хранения задаётся lifecycle-правилом бакета
 `expire-backups-30d`, а не workflow.
+
+Первые два credential не являются, и в secrets они лежат осознанно: репозиторий
+публичный, а `vars.*` в логах не маскируются. Имя приватного бакета с дампами и
+ID аккаунта AWS внутри ARN прямого вреда раскрытием не наносят, но упрощают
+разведку, а операционного выигрыша от их публикации нет. То же основание у
+`EXPECTED_DATABASE_HOST` в обоих Environment. Решение закреплено
+`secret-classification.test.ts` и строкой A79: перенос такого значения в
+variables выглядит уборкой и не вызывает ни одного отказа, поэтому поймать его
+можно только тестом.
 
 ## Важные решения
 
