@@ -51,6 +51,14 @@ AUTH_GOOGLE_SECRET=google-client-secret
 
 `DATABASE_URL` and `DIRECT_URL` may be identical locally. In a cloud environment the first one usually uses a pooled connection for the PrismaPg runtime adapter, while the second is loaded by `prisma.config.ts` and used by Prisma CLI for migrations.
 
+If the migration role deliberately lacks `CREATEDB` — as it does here, so that no owner-level credential sits on a development machine — then `prisma migrate dev` cannot create its shadow database and needs one supplied:
+
+```env
+SHADOW_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/smartlists_shadow
+```
+
+That address points at the throwaway container from `docker-compose.test.yml`, which creates the database on every start; bring it up with `npm run test:integration:db` before authoring a migration. The value is not a secret, but it is dangerous in a different way: Prisma **wipes** the database it names before every run. `prisma.config.ts` therefore accepts a loopback address only and refuses a value equal to the working one.
+
 The runtime pool is deliberately limited to five connections per application instance, with finite connection and idle timeouts. This avoids inheriting node-postgres defaults that are unsafe for an unbounded number of serverless instances.
 
 > Important: the root `.env` is **development** configuration. The Prisma CLI reads its variables from there, so production connection strings must never land in this file. Production values live only in the hosting provider's environment variables and in GitHub Secrets. This is not limited to the database: Pusher and S3 also use separate resources in development. See [Environment separation](#environment-separation).
@@ -87,6 +95,14 @@ S3_REGION=ap-southeast-1
 S3_ACCESS_KEY_ID=aws-access-key
 S3_SECRET_ACCESS_KEY=aws-secret-key
 ```
+
+Where the platform can issue an OIDC token — Vercel does — the static pair is replaced by a role, and no long-lived key exists on that path at all:
+
+```env
+S3_ROLE_ARN=arn:aws:iam::accountid:role/role-name
+```
+
+A role, when present, wins over a key pair, so both can coexist during a cutover and the deployment still exercises federation; removing `S3_ROLE_ARN` is the rollback. A malformed ARN fails startup rather than falling back to the key pair, because the dangerous outcome is not a broken deployment but a working one that everybody believes has already left long-lived keys behind.
 
 5. AI insights are intentionally unavailable in Local and Preview. Production
 uses Google identity federation rather than a shared static secret. Configure

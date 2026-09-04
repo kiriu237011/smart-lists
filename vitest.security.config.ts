@@ -24,6 +24,7 @@ export const staticSecuritySuites = [
   { path: "src/lib/notify.test.ts", controls: ["realtime-boundary"] },
   { path: "src/lib/prisma-client.test.ts", controls: ["transport-tls"] },
   { path: "src/lib/pusher-auth.test.ts", controls: ["realtime-auth"] },
+  { path: "src/lib/s3-credentials.test.ts", controls: ["A80"] },
   { path: "src/lib/spaces.test.ts", controls: ["tenant-scope"] },
   { path: "src/lib/uuid.test.ts", controls: ["privacy-logs"] },
   { path: "src/lib/validations.test.ts", controls: ["input-boundary"] },
@@ -50,7 +51,12 @@ export const staticSecuritySuites = [
     controls: ["A31", "transport-tls"],
   },
   { path: "test/scoped-db-import-boundary.test.ts", controls: ["tenant-scope"] },
+  { path: "test/secret-classification.test.ts", controls: ["A79"] },
   { path: "test/security-static-suite.test.ts", controls: ["security-ci"] },
+  {
+    path: "test/shadow-database-contract.test.ts",
+    controls: ["A31", "database-destruction"],
+  },
   {
     path: "test/tenant-enforcement-contract.test.ts",
     controls: ["tenant-rls-release"],
