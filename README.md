@@ -293,7 +293,9 @@ Auth.js appends the provider callback path and securely returns the browser to t
 
 ### Database
 
-The development environment is a separate Neon branch created from the main one: a copy of the data appears instantly and then lives independently.
+The development environment is a separate Neon branch. It was originally created from the main one, and no longer is: production data stays in production. The rule is written as an outcome rather than a prohibition on copying, because copying is not the only way data arrives — Preview runs against this same branch, so anyone who signs in there creates rows in it simply by using the application. What keeps the branch free of other people's data is therefore the whitelist: every address in `AllowedEmail` belongs to the maintainer, and the moment one does not, the assumption behind the local `.env` no longer holds.
+
+Should production data ever need examining outside production, it goes to a separate environment with its own protection, not to a developer's machine.
 
 - production `DATABASE_URL` remains in Vercel, while migration `DIRECT_URL`
   credentials are scoped to the dedicated GitHub Environments and backup
@@ -303,7 +305,7 @@ The development environment is a separate Neon branch created from the main one:
   promotion waits for its required `Production database migration` check;
 - Preview migrations run before the stable proxy branch is pushed;
 - migrations are developed against the dev branch with `npx prisma migrate dev`;
-- when fresh data is needed, the dev branch is recreated from the main one in the Neon console.
+- the dev branch is not refreshed from the main one; test data is created in it directly.
 
 To check which database the current environment is connected to, look at the host in `DATABASE_URL`: every Neon branch has its own endpoint identifier.
 
