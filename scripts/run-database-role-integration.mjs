@@ -405,6 +405,29 @@ async function proveTenantEnforcementConfigurator(baseEnv, migratorDatabaseUrl) 
     "запрещена из профиля tenant-full",
   );
 
+  // Регрессия 2026-09-06. Конфигуратор ролей сверял состояние guard-триггеров
+  // с константой «всегда выключены» и потому отказывался работать на базе, где
+  // арендная изоляция уже включена, — то есть ротация паролей операционных
+  // ролей была неисполнима именно на production. Прогоняем полный круг смены
+  // пароля на самом сильном профиле и возвращаем прежний, чтобы остальные
+  // проверки этой функции продолжали пользоваться той же строкой подключения.
+  const rotationProbePassword = password();
+  const originalMigratorPassword = new URL(migratorDatabaseUrl).password;
+  const rotationArgs = [
+    "scripts/configure-operational-roles.mjs",
+    "--apply",
+    "--scope=migration",
+    "--rotate-migrator-password",
+  ];
+  run(process.execPath, rotationArgs, {
+    ...baseEnv,
+    MIGRATOR_ROLE_PASSWORD: rotationProbePassword,
+  });
+  run(process.execPath, rotationArgs, {
+    ...baseEnv,
+    MIGRATOR_ROLE_PASSWORD: originalMigratorPassword,
+  });
+
   const tenantFullClient = new Client({ connectionString: migratorDatabaseUrl });
   await tenantFullClient.connect();
   try {
