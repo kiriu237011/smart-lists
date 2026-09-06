@@ -96,4 +96,19 @@ describe("разделение secrets и variables", () => {
     const both = [...secrets].filter((name) => vars.has(name));
     expect(both).toEqual([]);
   });
+
+  // Строка подключения роли бэкапа была repository-секретом, то есть читалась
+  // любым workflow с любой ветки. С 2026-09-06 она лежит в Environment
+  // `Backup`, и достаётся только job, объявившей его. Регистр имени входит в
+  // OIDC-claim `sub`, на который смотрит trust policy роли AWS: `backup`
+  // вместо `Backup` не сломает CI видимым образом — job просто не получит
+  // credentials AWS. Repository-секрета с этим именем больше нет, поэтому
+  // потеря строки означала бы и потерю доступа к базе, но выяснилось бы это
+  // только ночью, на расписании (A83).
+  it("job бэкапа объявляет Environment с точным регистром имени", () => {
+    const backup = workflows.find((workflow) => workflow.name === "backup.yml");
+    expect(backup, "backup.yml не найден").toBeDefined();
+    expect(backup!.body).toMatch(/^ {4}environment: Backup$/m);
+    expect(backup!.body).toContain("secrets.DIRECT_URL");
+  });
 });
