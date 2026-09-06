@@ -62,8 +62,9 @@ Smart Lists — локализованное веб-приложение для 
 - Production migration использует явный `!cancelled()` и требует успеха всех прямых
   `needs`: штатные skip предков `docs`/`dependency-review` через `gate` не должны
   блокировать release. Статический тест закрепляет условие по набору needs из YAML.
-  Исправление от 2026-09-06 ещё требует post-merge подтверждения в GitHub и Vercel;
-  открытый статус и доказательства — THREAT_MODEL.md, пункт 1.5.
+  Исправление подтверждено 2026-09-06: PR #177, post-merge CI `34020685773`,
+  migration success и следующий за ним Vercel success того же SHA `9016649`.
+  Доказательства — THREAT_MODEL.md, A32 и закрытый пункт 1.5.
 
 ### Доступ к PostgreSQL
 
