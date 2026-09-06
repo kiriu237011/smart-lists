@@ -2,7 +2,7 @@
 
 > Живой снимок устойчивых знаний о проекте. Перед работой сверяй его с кодом и обновляй после существенных изменений.
 
-**Последнее обновление:** 2026-09-02 (mysql2 override in the Prisma CLI)
+**Последнее обновление:** 2026-09-06 (ротация всех секретов, backup URL в Environment `Backup`)
 **Состояние:** активная разработка
 
 ## Назначение
@@ -797,7 +797,8 @@ Smart Lists — локализованное веб-приложение для 
 - БД — отдельная ветка Neon. Локальные команды Prisma получают `DIRECT_URL` из
   корневого `.env`, поэтому боевой URL в нём означал бы работу с production.
   Runtime production URL хранится в Vercel, прямые migration URL — в GitHub
-  Environments, а отдельный backup URL — в repository secret. После
+  Environments `Production` и `Preview`, backup URL — в Environment `Backup` с
+  политикой ветки `main` (с 2026-09-06; прежде был repository secret). После
   проверенных cutover приложение и Vercel build не получают прямых credentials;
   GitHub workflows используют только ограниченные migrator/backup роли.
 - Auth.js — разные `AUTH_SECRET` и Google OAuth clients для Production и
