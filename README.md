@@ -200,6 +200,8 @@ Every component holds the narrowest set of rights that still lets it do its job.
 
 **Storage.** The bucket is private and has no public URLs at all; downloads are issued as presigned GET links with a five-minute TTL. Each environment has its own IAM role, scoped to the `lists/*` prefix, and dev and production permissions are deliberately kept identical — if dev were broader, a key outside `lists/` would pass in one environment and fail in the other. Nothing holds a long-lived key any more: the deployed application obtains short-lived credentials by exchanging a Vercel OIDC token, each role trusts exactly one environment's token subject, and the access keys that preceded this have been deleted rather than left dormant.
 
+The buckets also refuse the account that owns them. A bucket policy denies reading, writing, listing and version deletion to every principal except the application's own role and the account root — so administrative credentials, which exist for operating the account rather than for reading user data, do not reach the files. The same shape covers the backup bucket, where database dumps carry users' Google tokens and nothing but the backup role needs to write. Being resource-based, none of it can be undone by granting oneself broader IAM permissions; recovery goes through the root user, and that path was rehearsed on a throwaway bucket before either policy was applied.
+
 **Secrets stay on the server.** Only `NEXT_PUBLIC_*` variables reach the browser bundle: the client gets the Pusher key, while the Pusher secret and the AWS keys remain server-side. Modules that read privileged state are marked `import "server-only"` ([`src/lib/spaces.ts`](src/lib/spaces.ts#L1)), which turns an accidental client import into a build error rather than a leak.
 
 **Roles are separated by capability.** Ownership operations — deleting, renaming, managing access — keep an explicit `ownerId === session.user.id` condition, while content editing is available to members according to `ListShare`.
@@ -291,7 +293,9 @@ Auth.js appends the provider callback path and securely returns the browser to t
 
 ### Database
 
-The development environment is a separate Neon branch created from the main one: a copy of the data appears instantly and then lives independently.
+The development environment is a separate Neon branch. It was originally created from the main one, and no longer is: production data stays in production. The rule is written as an outcome rather than a prohibition on copying, because copying is not the only way data arrives — Preview runs against this same branch, so anyone who signs in there creates rows in it simply by using the application. What keeps the branch free of other people's data is therefore the whitelist: every address in `AllowedEmail` belongs to the maintainer, and the moment one does not, the assumption behind the local `.env` no longer holds.
+
+Should production data ever need examining outside production, it goes to a separate environment with its own protection, not to a developer's machine.
 
 - production `DATABASE_URL` remains in Vercel, while migration `DIRECT_URL`
   credentials are scoped to the dedicated GitHub Environments and backup
@@ -301,7 +305,7 @@ The development environment is a separate Neon branch created from the main one:
   promotion waits for its required `Production database migration` check;
 - Preview migrations run before the stable proxy branch is pushed;
 - migrations are developed against the dev branch with `npx prisma migrate dev`;
-- when fresh data is needed, the dev branch is recreated from the main one in the Neon console.
+- the dev branch is not refreshed from the main one; test data is created in it directly.
 
 To check which database the current environment is connected to, look at the host in `DATABASE_URL`: every Neon branch has its own endpoint identifier.
 
