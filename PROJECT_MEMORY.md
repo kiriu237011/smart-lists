@@ -1365,6 +1365,14 @@ Windows-том: bind-mount в Docker Desktop пишет тысячи файло�
   post-merge run `33498396730` повторно подтвердил provenance, evidence 22/22,
   claims 21/21, подавил VEX=27 при waiver=0 и завершился `Gate: PASS` с
   Critical=0/High=0.
+- Повторный operational scan 2026-09-07 для текущего FastAPI serving digest
+  `sha256:16b779ddb9918880d95ae264f6be3923037b44c4edd2365fa40d60e64bfa79ea`
+  сначала заблокировал gate: 27 уникальных Debian CVE, 7 Critical и 58 High
+  package matches, VEX=0, waiver=0. FastAPI PR №63 расширил exact-rootfs
+  evidence до 26 проверок для 27 claims и добавил 65 точных CycloneDX VEX
+  statements. Post-merge run `34218106659` на том же digest подтвердил
+  provenance/evidence и завершился `Gate: PASS`: VEX=65, waiver=0,
+  Critical=0/High=0; policy-only merge не пересобирал образ.
 - `prisma` лежит в `devDependencies`, но `@prisma/client` объявляет его
   опциональным peer, поэтому npm считает его non-dev: `npm ci --omit=dev` ставит
   432 пакета, включая `mysql2` и `@prisma/studio-core`. В развёрнутый артефакт

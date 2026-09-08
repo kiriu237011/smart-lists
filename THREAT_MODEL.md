@@ -84,6 +84,19 @@ ESLint, вместе с `@humanfs/core` 0.19.2 и пакетом типов `@hu
 
 **Общий статус: контролируемый. Известных критических незакрытых угроз нет.**
 
+Проверка 2026-09-07 обнаружила на рабочем FastAPI digest
+`sha256:16b779ddb9918880d95ae264f6be3923037b44c4edd2365fa40d60e64bfa79ea`
+27 уникальных Debian CVE: 7 Critical и 58 High package matches. В FastAPI PR
+№63 каждый advisory повторно разобран по exact rootfs и runtime-конфигурации;
+расширенная evidence-проверка подтвердила 26 контролей для 27 claims. Создано
+65 точных CycloneDX VEX statements со статусом `not_affected`; waiver не
+использовался. Post-merge operational run `34218106659` повторно проверил
+provenance и evidence того же serving digest и завершился `Gate: PASS`:
+VEX=65, waiver=0, Critical=0, High=0. Policy-only merge образ не пересобирал и
+новую Cloud Run revision не создавал. Проверка ручная (`R`, 2026-09-08),
+исходный blocked-отчёт сохранён в run `34118042409`, итоговый — в artifacts run
+`34218106659`.
+
 - приоритет 1 закрыт полностью;
 - приоритет 2 закрыт; Postgres runtime без DDL и operational-роли
   owner/migrator/backup включены в целевых средах;
